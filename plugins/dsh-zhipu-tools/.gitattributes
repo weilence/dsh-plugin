@@ -1,5 +1,0 @@
-# 仓库规范文本形态为 LF：跨平台 checkout 均为同一形态，避免 CRLF 反复漂移。
-* text=auto eol=lf
-
-# Windows 批处理脚本在Working tree 中需要 CRLF（cmd.exe 要求）。
-*.cmd text eol=crlf

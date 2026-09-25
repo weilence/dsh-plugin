@@ -34,16 +34,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "packageManager": "pnpm@10.28.2",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/weilence/dsh-zhipu-tools.git"
+    "url": "git+https://github.com/weilence/dsh-plugins.git",
+    "directory": "plugins/dsh-zhipu-tools"
   },
   "bugs": {
-    "url": "https://github.com/weilence/dsh-zhipu-tools/issues"
+    "url": "https://github.com/weilence/dsh-plugins/issues"
   },
-  "homepage": "https://github.com/weilence/dsh-zhipu-tools#readme",
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-zhipu-tools#readme",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -62,22 +62,23 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-mcp-client": "^0.1.7-rc.2"
+    "@deepseek-ai/dsh-mcp-client": "catalog:"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-credentials": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-host-webserver": "0.1.7-rc.2",
-    "@types/node": "^26.6.2",
-    "@types/react": "~18.3.31",
-    "@types/react-dom": "~18.3.7",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-credentials": "catalog:",
+    "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@deepseek-ai/dsh-mcp-client": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "clsx": "^2.1.1",
-    "lightningcss": "^1.33.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tsdown": "^0.23.0",
-    "typescript": "^7.0.2",
-    "vitest": "^3.2.4"
+    "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }
