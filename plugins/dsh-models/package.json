@@ -61,6 +61,7 @@
 		"access": "public"
 	},
 	"devDependencies": {
+		"@dsh-plugins/tsdown-config": "workspace:*",
 		"@deepseek-ai/cordis": "catalog:",
 		"@deepseek-ai/dsh-api-remotes": "catalog:",
 		"@deepseek-ai/dsh-client-ui-primitives": "catalog:",

@@ -65,8 +65,8 @@ export function QuotaPill(props: QuotaPillProps) {
 	const res = props.res
 
 	const [open, setOpen] = useState(false)
-	const rootRef = useRef<HTMLSpanElement | null>(null)
-	const panelRef = useRef<HTMLDivElement | null>(null)
+	const rootRef = useRef<HTMLSpanElement>(null)
+	const panelRef = useRef<HTMLDivElement>(null)
 	const pos = useAnchoredPosition({
 		open,
 		anchorRef: rootRef,

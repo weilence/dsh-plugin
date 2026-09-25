@@ -25,7 +25,7 @@ interface QuotaPanelProps {
 	res: UsageResult | null
 	/** useAnchoredPosition 的实测坐标；null 时加 measure 类隐藏占位。 */
 	pos: CSSProperties | null
-	panelRef: RefObject<HTMLDivElement | null>
+	panelRef: RefObject<HTMLDivElement>
 	onForceRefresh: () => void
 }
 

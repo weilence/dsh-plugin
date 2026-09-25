@@ -57,6 +57,7 @@
   },
   "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-notify#readme",
   "devDependencies": {
+    "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-remotes": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",

@@ -1,0 +1,37 @@
+# 全仓验证：push / PR 时跑全部插件的 typecheck + test + build。
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # packageManager 字段已固定 pnpm 版本，corepack 按它激活；
+      # 须在 setup-node 之前，cache: pnpm 才能探测到包管理器。
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, test and build all plugins
+        run: |
+          pnpm -r typecheck
+          pnpm -r test
+          pnpm -r build
+
+      - name: Format check
+        run: pnpm format:check

@@ -132,7 +132,7 @@ describe('模型目录面板 store', () => {
 	it('凭据 describe 按引用缓存，同一引用重复查询只请求一次', async () => {
 		const scope = scopeStub({ user: {}, value: { providers: { anthropic: {} } } })
 		const base = operationsStub()
-		const describeCredential = vi.fn(async () => ({ ref: 'ANTHROPIC_API_KEY', configured: true }))
+		const describeCredential = vi.fn(async () => ({ ref: 'ANTHROPIC_API_KEY', configured: true, writable: true }))
 		const operations = { ...base.operations, describeCredential }
 		const { store } = storeOf({ scope, operations })
 		await store.refresh()

@@ -22,6 +22,9 @@ import { QuotaPill } from './quota-pill'
 // ── 宿主契约类型（对注入服务做最小结构化声明）─────────────────────────────
 
 interface SlotDefinition {
+	name?: string
+	id?: string
+	order?: number
 	label?: string
 	inject?: (sessionId: string) => Record<string, unknown>
 }

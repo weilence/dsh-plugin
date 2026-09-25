@@ -65,6 +65,7 @@
     "@deepseek-ai/dsh-mcp-client": "catalog:"
   },
   "devDependencies": {
+    "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
