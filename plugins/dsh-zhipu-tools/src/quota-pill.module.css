@@ -1,0 +1,40 @@
+/* dsh-zhipu-tools — 用量胶囊样式（CSS Modules）。
+ * 只消费 --dsw-alias-* 语义令牌；类名经 lightningcss [hash]_[local] 哈希，
+ * 产物由构建内联，factory 执行时注入（幂等）。
+ * ok/warn/crit 是 tier 调色板：quota-shared.ts 的 remTier 产出，浮窗复用。 */
+
+/* ── 用量读数 ────────────────────────────────────────────────────────────── */
+.anchor {
+	min-width: 0;
+	display: inline-flex;
+}
+.anchor svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.label {
+	font-weight: 500;
+	text-overflow: ellipsis;
+	min-width: 0;
+	overflow: hidden;
+}
+.sep {
+	color: var(--dsw-alias-separator-primary);
+	margin: 0 6px;
+}
+.pct {
+	font-weight: 600;
+}
+.ok {
+	color: var(--dsw-alias-state-success-primary);
+}
+.warn {
+	color: var(--dsw-alias-state-warn-primary);
+}
+.crit {
+	color: var(--dsw-alias-state-error-primary);
+}
+.err {
+	color: var(--dsw-alias-state-error-primary);
+}

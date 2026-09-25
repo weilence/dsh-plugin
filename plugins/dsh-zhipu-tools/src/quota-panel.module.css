@@ -1,0 +1,138 @@
+/* dsh-zhipu-tools — 用量浮窗样式（CSS Modules）。
+ * 只消费 --dsw-alias-* 语义令牌与 dsh 布局变量；类名经 lightningcss
+ * [hash]_[local] 哈希；产物由构建内联，factory 执行时注入（幂等）。
+ * ok/warn/crit tier 类定义在 quota-pill.module.css（remTier 产出）。 */
+
+/* ── 用量浮窗 ──────────────────────────────────────────────────────────────
+ * 面板自身只管布局与阴影；背景材质与圆角来自官方 MenuSurface primitive
+ * （模型选择弹窗同款）：其 .material 子层画 --dsw-menu-surface-fill 并施加
+ * --dsw-menu-backdrop-filter 毛玻璃，Windows 上填充本身只有 45%/58% 不透明度，
+ * 不经 MenuSurface 直接上背景会透出下层内容。 */
+.panel {
+	position: fixed;
+	z-index: 1100;
+	box-sizing: border-box;
+	width: max-content;
+	min-width: min(300px, 100vw - 24px);
+	max-width: min(440px, 100vw - 24px);
+	padding: 16px;
+	border: 0;
+	--dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+	box-shadow: var(--dsw-elevation-prominent);
+	color: var(--dsw-alias-label-secondary);
+	cursor: default;
+	font-size: 12px;
+	line-height: 18px;
+}
+/* useAnchoredPosition 实测尺寸前的隐藏占位（官方浮层同款 measure pass）。 */
+.measure {
+	visibility: hidden;
+	left: 0;
+	top: 0;
+}
+.title {
+	color: var(--dsw-alias-label-primary);
+	justify-content: space-between;
+	gap: 16px;
+	margin-bottom: 8px;
+	font-weight: 500;
+	display: flex;
+}
+.titleLabel {
+	align-items: center;
+	gap: 6px;
+	min-width: 0;
+	display: inline-flex;
+}
+.titleLabel svg {
+	flex: none;
+	width: 14px;
+	height: 14px;
+}
+.titleRule {
+	border-top: 0.5px solid var(--dsw-alias-border-l2);
+	margin-bottom: 10px;
+}
+.details {
+	color: var(--dsw-alias-label-tertiary);
+	grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+	gap: 6px 16px;
+	margin: 0;
+	display: grid;
+}
+.details dt,
+.details dd {
+	min-width: 0;
+	margin: 0;
+}
+.details dd {
+	color: var(--dsw-alias-label-secondary);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+}
+
+/* ── 各配额窗口：三列等宽，每列为 名称 / 剩余%·重置 / 进度条 ───────────────
+ * 进度条填充为剩余占比，颜色走 ok/warn/crit 语义类（currentColor 填充）；
+ * 窗口超过 3 个时按最小列宽自动换行。 */
+.windows {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+	gap: 12px;
+}
+.window {
+	min-width: 0;
+	display: grid;
+	gap: 3px;
+	align-content: start;
+}
+.windowName {
+	color: var(--dsw-alias-label-secondary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.windowValue {
+	color: var(--dsw-alias-label-tertiary);
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.bar {
+	corner-shape: round;
+	height: 4px;
+	border-radius: 999px;
+	background: var(--dsw-alias-interactive-bg-hover);
+	display: flex;
+	gap: 1px;
+	overflow: hidden;
+}
+.fill {
+	flex: none;
+	min-width: 2px;
+	height: 100%;
+	border-radius: 1px;
+	background: currentColor;
+}
+.footerRule {
+	border-top: 0.5px solid var(--dsw-alias-border-l2);
+	margin: 10px 0 0;
+}
+/* 官方 Button 最矮 28px（sm），会把 footer 行撑到与说明文字不等高；
+ * 双类名提升优先级，压到与面板行高一致（18px）。 */
+.refreshButton.refreshButton {
+	height: 18px;
+	padding: 0 8px;
+	border-radius: 9px;
+}
+.footer {
+	color: var(--dsw-alias-label-tertiary);
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 10px;
+	display: flex;
+}
+.note {
+	min-width: 0;
+}

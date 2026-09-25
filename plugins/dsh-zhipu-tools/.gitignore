@@ -1,0 +1,20 @@
+# 依赖与构建产物（lib/ 由 tsdown 从 src/ 生成：pnpm build / pnpm watch）
+node_modules/
+lib/
+*.tsbuildinfo
+.pnpm-store/
+
+# 密钥与本地环境（真实密钥只放 $DSH_HOME/.env 与 $DSH_HOME/.credentials.yaml，永不入库）
+.env
+
+# 日志、缓存、临时文件
+pnpm-debug.log
+.cache/
+tmp/
+coverage/
+
+# 编辑器与操作系统
+.vscode/
+.idea
+.DS_Store
+Thumbs.db
