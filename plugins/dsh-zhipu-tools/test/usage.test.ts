@@ -122,7 +122,10 @@ describe('createUsageService', () => {
 	})
 
 	it('HTTP 成功但业务失败（success:false）透传 msg', async () => {
-		vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ success: false, msg: '限流' })))
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => jsonResponse({ success: false, msg: '限流' })),
+		)
 		const usage = createUsageService('test-key')
 		const res = await usage.fetchUsage(false)
 		expect(res.ok).toBe(false)

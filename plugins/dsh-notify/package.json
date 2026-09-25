@@ -1,81 +1,81 @@
 {
-  "name": "dsh-notify",
-  "version": "0.1.0",
-  "description": "DSH web 插件（回合完成 + 等待用户通知）：client 侧 ctx.remote.$on 订阅宿主转发的 api-session/status 完成事件、订阅 uiSession.sessionStatus 的 pendingInteraction（提问/审批）变化，用 Notification API 弹系统级桌面通知（前台浏览本页时静默）；点击通知切换到对应会话。host half 提供窗口恢复桥（POST /dsh-notify/activate → spawn dsh://open 协议 → 宿主 focusPrimaryWindow），供 desktop 上点击通知恢复窗口；设置面板提供独立「完成通知」菜单页（授权、开关、测试）。",
-  "type": "module",
-  "main": "lib/index.js",
-  "exports": {
-    ".": "./lib/index.js",
-    "./client": "./lib/client.js",
-    "./package.json": "./package.json"
-  },
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web",
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-renderer"
-      ]
-    }
-  },
-  "files": [
-    "lib/index.js",
-    "lib/client.js",
-    "lib/client.js.map",
-    "cordis.patch.yml"
-  ],
-  "scripts": {
-    "build": "tsdown",
-    "prepack": "tsdown",
-    "watch": "tsdown --watch",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "license": "MIT",
-  "keywords": [
-    "dsh",
-    "dsh-plugin",
-    "notification",
-    "web-notification",
-    "turn-complete"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/weilence/dsh-plugins.git",
-    "directory": "plugins/dsh-notify"
-  },
-  "bugs": {
-    "url": "https://github.com/weilence/dsh-plugins/issues"
-  },
-  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-notify#readme",
-  "devDependencies": {
-    "@dsh-plugins/tsdown-config": "workspace:*",
-    "@deepseek-ai/cordis": "catalog:",
-    "@deepseek-ai/dsh-api-remotes": "catalog:",
-    "@deepseek-ai/dsh-api-session-controller": "catalog:",
-    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
-    "@deepseek-ai/dsh-client-ui-session": "catalog:",
-    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
-    "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
-    "@deepseek-ai/dsh-host-webserver": "catalog:",
-    "@deepseek-ai/dsh-session": "catalog:",
-    "@deepseek-ai/dsh-user-questions": "catalog:",
-    "@types/node": "catalog:",
-    "@types/react": "catalog:",
-    "@types/react-dom": "catalog:",
-    "lightningcss": "catalog:",
-    "react": "catalog:",
-    "react-dom": "catalog:",
-    "tsdown": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
-  }
+	"name": "dsh-notify",
+	"version": "0.1.0",
+	"description": "DSH web 插件（回合完成 + 等待用户通知）：client 侧 ctx.remote.$on 订阅宿主转发的 api-session/status 完成事件、订阅 uiSession.sessionStatus 的 pendingInteraction（提问/审批）变化，用 Notification API 弹系统级桌面通知（前台浏览本页时静默）；点击通知切换到对应会话。host half 提供窗口恢复桥（POST /dsh-notify/activate → spawn dsh://open 协议 → 宿主 focusPrimaryWindow），供 desktop 上点击通知恢复窗口；设置面板提供独立「完成通知」菜单页（授权、开关、测试）。",
+	"type": "module",
+	"main": "lib/index.js",
+	"exports": {
+		".": "./lib/index.js",
+		"./client": "./lib/client.js",
+		"./package.json": "./package.json"
+	},
+	"dsh": {
+		"bundle": {
+			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"platform": "web",
+			"inject": [
+				"@deepseek-ai/dsh-client-ui-renderer"
+			]
+		}
+	},
+	"files": [
+		"lib/index.js",
+		"lib/client.js",
+		"lib/client.js.map",
+		"cordis.patch.yml"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"prepack": "tsdown",
+		"watch": "tsdown --watch",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"license": "MIT",
+	"keywords": [
+		"dsh",
+		"dsh-plugin",
+		"notification",
+		"web-notification",
+		"turn-complete"
+	],
+	"engines": {
+		"node": ">=20"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/weilence/dsh-plugins.git",
+		"directory": "plugins/dsh-notify"
+	},
+	"bugs": {
+		"url": "https://github.com/weilence/dsh-plugins/issues"
+	},
+	"homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-notify#readme",
+	"devDependencies": {
+		"@dsh-plugins/tsdown-config": "workspace:*",
+		"@deepseek-ai/cordis": "catalog:",
+		"@deepseek-ai/dsh-api-remotes": "catalog:",
+		"@deepseek-ai/dsh-api-session-controller": "catalog:",
+		"@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+		"@deepseek-ai/dsh-client-ui-session": "catalog:",
+		"@deepseek-ai/dsh-client-ui-settings": "catalog:",
+		"@deepseek-ai/dsh-client-ui-workspace": "catalog:",
+		"@deepseek-ai/dsh-host-webserver": "catalog:",
+		"@deepseek-ai/dsh-session": "catalog:",
+		"@deepseek-ai/dsh-user-questions": "catalog:",
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"@types/react-dom": "catalog:",
+		"lightningcss": "catalog:",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"tsdown": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:"
+	}
 }

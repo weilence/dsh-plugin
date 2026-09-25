@@ -93,16 +93,16 @@ pnpm test           # vitest 单测
 `@deepseek-ai/cordis` 的 `Context`/`Events` 接口），编译产物保持零运行时
 导入。来源与版本（对齐运行宿主 0.1.7-rc.2，npm dist-tag `next`）：
 
-| 契约 | 官方包 |
-| --- | --- |
-| `Context` / `effect` / `ctx.get` | `@deepseek-ai/cordis` |
-| `ctx.remote` / `$on` 键面与载荷 | `@deepseek-ai/dsh-api-remotes/client` |
-| `ctx.uiSession` / `sessionStatus` / `SessionPendingInteractionBase` | `@deepseek-ai/dsh-client-ui-session/client` |
-| `ctx.sessions` / `displayTitle` | `@deepseek-ai/dsh-api-session-controller/client` |
-| `ctx.slots`（client） | `@deepseek-ai/dsh-client-ui-renderer/client` |
-| `settings.section` 槽位契约（client） | `@deepseek-ai/dsh-client-ui-settings/client` |
-| `SessionId` | `@deepseek-ai/dsh-session` |
-| `AskUserQuestionItem` | `@deepseek-ai/dsh-user-questions/types` |
+| 契约                                                                | 官方包                                           |
+| ------------------------------------------------------------------- | ------------------------------------------------ |
+| `Context` / `effect` / `ctx.get`                                    | `@deepseek-ai/cordis`                            |
+| `ctx.remote` / `$on` 键面与载荷                                     | `@deepseek-ai/dsh-api-remotes/client`            |
+| `ctx.uiSession` / `sessionStatus` / `SessionPendingInteractionBase` | `@deepseek-ai/dsh-client-ui-session/client`      |
+| `ctx.sessions` / `displayTitle`                                     | `@deepseek-ai/dsh-api-session-controller/client` |
+| `ctx.slots`（client）                                               | `@deepseek-ai/dsh-client-ui-renderer/client`     |
+| `settings.section` 槽位契约（client）                               | `@deepseek-ai/dsh-client-ui-settings/client`     |
+| `SessionId`                                                         | `@deepseek-ai/dsh-session`                       |
+| `AskUserQuestionItem`                                               | `@deepseek-ai/dsh-user-questions/types`          |
 
 本地接入运行中的宿主：宿主 `package.json` 以 `file:../dsh-notify` 方式
 加入 `dependencies` 与 `dsh.profile.bundles`，`pnpm build` 后重启宿主即可。

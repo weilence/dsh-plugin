@@ -136,30 +136,36 @@ async function apply(ctx: Context) {
 				})
 				ctx.logger?.info?.(`dsh-zhipu-tools: MCP ${server.serverName} 已挂载（in-box mcp-client）`)
 			} catch (error) {
-				ctx.logger?.error?.(`dsh-zhipu-tools: MCP ${server.serverName} 挂载失败（仅该服务器工具不可用）: ${errMsg(error)}`)
+				ctx.logger?.error?.(
+					`dsh-zhipu-tools: MCP ${server.serverName} 挂载失败（仅该服务器工具不可用）: ${errMsg(error)}`,
+				)
 			}
 		}
 	}
 
 	// ── 2) 用量配额路由 ──────────────────────────────────────────────────────
 	const usage = createUsageService(apiKey)
-	ctx.effect(() => ctx.webServer.register({
-		kind: 'exact',
-		path: '/dsh-zhipu-tools/usage',
-		handler: async (req, res) => {
-			if (!isTrusted(req)) {
-				writeJson(res, 403, { ok: false, error: 'forbidden' })
-				return
-			}
-			try {
-				const url = new URL(req.url ?? '/', 'http://dsh.internal')
-				const force = url.searchParams.get('force') === '1'
-				writeJson(res, 200, await usage.fetchUsage(force))
-			} catch (error) {
-				writeJson(res, 500, { ok: false, error: errMsg(error) })
-			}
-		},
-	}), 'dsh-zhipu-tools: /dsh-zhipu-tools/usage route')
+	ctx.effect(
+		() =>
+			ctx.webServer.register({
+				kind: 'exact',
+				path: '/dsh-zhipu-tools/usage',
+				handler: async (req, res) => {
+					if (!isTrusted(req)) {
+						writeJson(res, 403, { ok: false, error: 'forbidden' })
+						return
+					}
+					try {
+						const url = new URL(req.url ?? '/', 'http://dsh.internal')
+						const force = url.searchParams.get('force') === '1'
+						writeJson(res, 200, await usage.fetchUsage(force))
+					} catch (error) {
+						writeJson(res, 500, { ok: false, error: errMsg(error) })
+					}
+				},
+			}),
+		'dsh-zhipu-tools: /dsh-zhipu-tools/usage route',
+	)
 }
 
 export { apply }

@@ -8,8 +8,8 @@
 //     （会话模型选择器看到的同一份事实）。只读，不写 settings。
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { } from '@deepseek-ai/dsh-host-webserver'
-import type { } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-llm'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { effectiveModelsFor, writeEffectiveJson } from './effective'

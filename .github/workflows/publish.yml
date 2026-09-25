@@ -23,7 +23,7 @@ name: publish
 
 on:
   push:
-    tags: ["dsh-*/v*.*.*"]
+    tags: ['dsh-*/v*.*.*']
 
 permissions:
   contents: read

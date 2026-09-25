@@ -66,7 +66,12 @@ export interface DshPluginBuildOptions {
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-function styleInjectionModule(pluginId: string, fileId: string, css: string, classMap: Record<string, string>): string {
+function styleInjectionModule(
+	pluginId: string,
+	fileId: string,
+	css: string,
+	classMap: Record<string, string>,
+): string {
 	// tagId 含相对路径（而非 basename）：不同目录的同名 module.css 不会共用幂等标签。
 	const tagId = `${pluginId}/${relative(process.cwd(), fileId).replace(/\\/g, '/')}`
 	// 模板体必须顶格：缩进会原样进入生成的模块代码。

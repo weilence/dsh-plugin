@@ -12,13 +12,7 @@ import {
 	IconRefreshOutlineRegular,
 	MenuSurface,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-	fmtPct,
-	remainingPct,
-	remTier,
-	resetCompact,
-	type UsageResult,
-} from './quota-shared'
+import { fmtPct, remainingPct, remTier, resetCompact, type UsageResult } from './quota-shared'
 import styles from './quota-panel.module.css'
 
 interface QuotaPanelProps {
@@ -43,7 +37,8 @@ export function QuotaPanel(props: QuotaPanelProps) {
 		>
 			<div className={styles.title}>
 				<span className={styles.titleLabel}>
-					<IconGaugeOutlineRegular />智谱剩余额度
+					<IconGaugeOutlineRegular />
+					智谱剩余额度
 				</span>
 			</div>
 			<div className={styles.titleRule} aria-hidden />
@@ -83,7 +78,9 @@ export function QuotaPanel(props: QuotaPanelProps) {
 					className={styles.refreshButton}
 					disabled={busy}
 					onClick={props.onForceRefresh}
-				>{busy ? '刷新中…' : '强制刷新'}</Button>
+				>
+					{busy ? '刷新中…' : '强制刷新'}
+				</Button>
 				<span className={styles.note}>open.bigmodel.cn · 4 分钟缓存 · 15 秒轮询</span>
 			</div>
 		</MenuSurface>

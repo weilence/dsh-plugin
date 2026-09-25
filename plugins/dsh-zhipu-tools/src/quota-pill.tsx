@@ -12,12 +12,7 @@ import {
 	useAnchoredPosition,
 	useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-	fmtPct,
-	remainingPct,
-	remTier,
-	type UsageResult,
-} from './quota-shared'
+import { fmtPct, remainingPct, remTier, type UsageResult } from './quota-shared'
 import { QuotaPanel } from './quota-panel'
 import styles from './quota-pill.module.css'
 
@@ -83,7 +78,9 @@ export function QuotaPill(props: QuotaPillProps) {
 			if (e.key === 'Escape') setOpen(false)
 		}
 		document.addEventListener('keydown', onKey)
-		return () => { document.removeEventListener('keydown', onKey) }
+		return () => {
+			document.removeEventListener('keydown', onKey)
+		}
 	}, [open])
 
 	const windows = pillWindows(res)
@@ -96,13 +93,21 @@ export function QuotaPill(props: QuotaPillProps) {
 		text.push('智谱剩余…')
 		aria.push('智谱剩余额度加载中')
 	} else if (!res.ok) {
-		text.push(<span key="e" className={styles.err}>智谱剩余不可用</span>)
+		text.push(
+			<span key="e" className={styles.err}>
+				智谱剩余不可用
+			</span>,
+		)
 		aria.push('智谱剩余额度不可用')
 	} else {
 		text.push('智谱')
 		aria.push('智谱剩余额度')
 		for (const window of windows) {
-			text.push(<span key={window.key + '-sep'} className={styles.sep} aria-hidden>·</span>)
+			text.push(
+				<span key={window.key + '-sep'} className={styles.sep} aria-hidden>
+					·
+				</span>,
+			)
 			text.push(
 				<span key={window.key} className={clsx(styles.pct, window.tier)}>
 					{window.display}
@@ -113,33 +118,38 @@ export function QuotaPill(props: QuotaPillProps) {
 	}
 	const label: ReactNode[] = [
 		<IconGaugeOutlineRegular key="i" className={remTier(worst)} />,
-		<span key="t" className={styles.label}>{text}</span>,
+		<span key="t" className={styles.label}>
+			{text}
+		</span>,
 	]
 
 	// Pill 传 onClick 渲染为 button，省略则为非交互 span（官方无数据 pill 同款退化）。
-	const trigger = res === null
-		? <Pill aria-label={aria.join('，')}>{label}</Pill>
-		: <Pill
-			type="button"
-			active={open}
-			aria-haspopup="dialog"
-			aria-expanded={open}
-			aria-label={aria.join('，')}
-			onClick={() => { setOpen(!open) }}
-		>{label}</Pill>
+	const trigger =
+		res === null ? (
+			<Pill aria-label={aria.join('，')}>{label}</Pill>
+		) : (
+			<Pill
+				type="button"
+				active={open}
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				aria-label={aria.join('，')}
+				onClick={() => {
+					setOpen(!open)
+				}}
+			>
+				{label}
+			</Pill>
+		)
 
 	return (
 		<span ref={rootRef} className={styles.anchor}>
 			{trigger}
-			{open && createPortal(
-				<QuotaPanel
-					res={res}
-					pos={pos}
-					panelRef={panelRef}
-					onForceRefresh={props.onForceRefresh}
-				/>,
-				document.body,
-			)}
+			{open &&
+				createPortal(
+					<QuotaPanel res={res} pos={pos} panelRef={panelRef} onForceRefresh={props.onForceRefresh} />,
+					document.body,
+				)}
 		</span>
 	)
 }

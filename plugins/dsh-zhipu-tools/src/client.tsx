@@ -75,10 +75,7 @@ function useModelProvider(directories: ModelDirectoriesLike | undefined, session
 		(listener: () => void) => directory?.store.subscribe(listener) ?? (() => {}),
 		[directory],
 	)
-	const snapshot = useSyncExternalStore(
-		subscribe,
-		() => directory?.store.getSnapshot() ?? EMPTY_SNAPSHOT,
-	)
+	const snapshot = useSyncExternalStore(subscribe, () => directory?.store.getSnapshot() ?? EMPTY_SNAPSHOT)
 	return snapshot.current?.provider ?? null
 }
 

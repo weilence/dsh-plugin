@@ -49,7 +49,10 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only：ctx.remote（ClientRemote）的 Context 合并 + 转发事件键面。
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only：ctx.uiSession（UiSession）的 Context 合并 + sessionStatus 类型。
-import type { SessionPendingInteractionBase, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type {
+	SessionPendingInteractionBase,
+	SessionStatusSnapshot,
+} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only：ctx.sessions（ISessions）的 Context 合并。
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 // Type-only：ctx.uiWorkspace（openSession 导航）的 Context 合并。
@@ -90,13 +93,15 @@ async function requestPermission(): Promise<PermissionState> {
 // ── 前台浏览判定（固定静默行为的依据）─────────────────────────────────────
 
 // 标签页可见且窗口聚焦 = 用户正盯着本页；浏览器无法可靠感知窗口遮挡。
-const isPageViewing = (): boolean =>
-	document.visibilityState === 'visible' && document.hasFocus()
+const isPageViewing = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
 
 // ── 系统通知原语（权限活读；「测试」按钮直达，绕过开关与前台静默）─────────
 
 function showNotification(title: string, body: string, onClick?: () => void): void {
-	console.info('[dsh-notify] show entry, permission=', typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
+	console.info(
+		'[dsh-notify] show entry, permission=',
+		typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+	)
 	if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
 	// 不带 tag：Windows/Chromium 的 tag 语义是同 tag 静默替换——首个通知被
 	// 收进中心后，同 tag 的后续通知只原地更新条目、不再弹横幅，表现为
@@ -112,12 +117,17 @@ function showNotification(title: string, body: string, onClick?: () => void): vo
 			// 仅 desktop 页面（dsh-app: origin）发送——Web 宿主上浏览器点击
 			// 通知自带应用激活，无需此请求；自定义头让跨站 POST 折在 CORS 预检。
 			if (location.protocol === 'dsh-app:') {
-				void fetch('/dsh-notify/activate', { method: 'POST', headers: { 'x-dsh-notify': '1' } })
-					.catch(() => {})
+				void fetch('/dsh-notify/activate', { method: 'POST', headers: { 'x-dsh-notify': '1' } }).catch(
+					() => {},
+				)
 			}
 		}
-		notification.onshow = () => { console.info('[dsh-notify] shown:', title) }
-		notification.onerror = (event) => { console.info('[dsh-notify] onerror:', title, event) }
+		notification.onshow = () => {
+			console.info('[dsh-notify] shown:', title)
+		}
+		notification.onerror = (event) => {
+			console.info('[dsh-notify] onerror:', title, event)
+		}
 	} catch (error) {
 		console.error('[dsh-notify] show notification failed', error)
 	}
@@ -147,8 +157,7 @@ export function questionDetail(questions: readonly AskUserQuestionItem[] | undef
 
 // 审批事件的通知正文：工具名 + 审批人给出的原因（截断）；无法提取时回退。
 export function approvalDetail(toolName: string | undefined, reason: string | undefined): string {
-	const tool =
-		typeof toolName === 'string' && toolName.trim().length > 0 ? toolName.trim() : '工具'
+	const tool = typeof toolName === 'string' && toolName.trim().length > 0 ? toolName.trim() : '工具'
 	const base = `等待批准：${tool}`
 	const text = typeof reason === 'string' ? reason.trim() : ''
 	if (text.length === 0) return base
@@ -166,10 +175,7 @@ export function interactionDetail(interaction: SessionPendingInteractionBase): s
 	}
 	if (interaction.kind === 'plan-review') return '等待计划审批'
 	if (interaction.kind === 'approval') {
-		return approvalDetail(
-			extra.toolName as string | undefined,
-			extra.reason as string | undefined,
-		)
+		return approvalDetail(extra.toolName as string | undefined, extra.reason as string | undefined)
 	}
 	return questionDetail(extra.questions as readonly AskUserQuestionItem[] | undefined)
 }
@@ -197,9 +203,12 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
 	const viewing = isPageViewing()
 	console.info('[dsh-notify] event', kind, 'viewing=' + String(viewing))
 	const fire = (): void => {
-		const body = kind === 'question' ? detail || '等待您的回答'
-			: kind === 'approval' ? detail || '等待您的批准'
-			: '模型处理已完成'
+		const body =
+			kind === 'question'
+				? detail || '等待您的回答'
+				: kind === 'approval'
+					? detail || '等待您的批准'
+					: '模型处理已完成'
 		// 点击通知：聚焦页面（web 宿主有效；desktop 的 renderer
 		// window.focus() 无法恢复最小化窗口，需宿主侧桥接）并切换到
 		// 对应会话——desktop 上用户手动恢复窗口时即已停在正确会话。
@@ -268,12 +277,13 @@ function NotifyPanel() {
 				系统级桌面通知，点击通知可聚焦回本页面。事件经宿主 Remote 通道实时
 				转发，无轮询；需要本页面保持打开（关闭期间的事件无接收方、不会补发，
 				仍在等待的提问/审批会在页面重开后补通知）。首次使用请先授予通知
-				权限。您正停留在本页（标签页可见且聚焦）时不弹通知，切走标签页或
-				最小化后自动恢复。
+				权限。您正停留在本页（标签页可见且聚焦）时不弹通知，切走标签页或 最小化后自动恢复。
 			</p>
 			<div className={styles.row}>
 				<span className={styles.title}>完成通知</span>
-				<span className={chipClass} role="status">{chip.text}</span>
+				<span className={chipClass} role="status">
+					{chip.text}
+				</span>
 			</div>
 			<div className={styles.row}>
 				{permission === 'default' && (
@@ -281,22 +291,22 @@ function NotifyPanel() {
 						type="button"
 						className={styles.button}
 						disabled={busy}
-						onClick={() => { void onRequest() }}
+						onClick={() => {
+							void onRequest()
+						}}
 					>
 						{busy ? '请求中…' : '请求通知权限'}
 					</button>
 				)}
-				<button
-					type="button"
-					className={styles.button}
-					onClick={onToggle}
-				>
+				<button type="button" className={styles.button} onClick={onToggle}>
 					{enabled ? '通知：开' : '通知：关'}
 				</button>
 				<button
 					type="button"
 					className={styles.button}
-					onClick={() => { showNotification('DSH · 测试通知', '模型处理已完成') }}
+					onClick={() => {
+						showNotification('DSH · 测试通知', '模型处理已完成')
+					}}
 				>
 					测试
 				</button>

@@ -17,8 +17,7 @@ export interface QuotaWindow {
 }
 
 export type UsageResult =
-	| { ok: true; windows: QuotaWindow[]; queriedAt: number }
-	| { ok: false; error: string }
+	{ ok: true; windows: QuotaWindow[]; queriedAt: number } | { ok: false; error: string }
 
 export function errMsg(error: unknown) {
 	const message = (error as { message?: string } | null | undefined)?.message
@@ -41,12 +40,21 @@ export function useUsageQuota(active: boolean) {
 		let alive = true
 		const load = (force: boolean) => {
 			fetchQuota(force)
-				.then((next) => { if (alive) setRes(next) })
-				.catch((e: unknown) => { if (alive) setRes({ ok: false, error: errMsg(e) }) })
+				.then((next) => {
+					if (alive) setRes(next)
+				})
+				.catch((e: unknown) => {
+					if (alive) setRes({ ok: false, error: errMsg(e) })
+				})
 		}
 		load(false)
-		const timer = setInterval(() => { load(false) }, 15000)
-		return () => { alive = false; clearInterval(timer) }
+		const timer = setInterval(() => {
+			load(false)
+		}, 15000)
+		return () => {
+			alive = false
+			clearInterval(timer)
+		}
 	}, [active])
 
 	const refresh = useCallback(() => {
@@ -78,7 +86,7 @@ export function remTier(remaining: number | null) {
 
 export function fmtPct(v: number | null | undefined) {
 	const n = Number(v)
-	return n === n ? (Math.round(n * 10) / 10) + '%' : '—'
+	return n === n ? Math.round(n * 10) / 10 + '%' : '—'
 }
 
 // 紧凑重置描述：24 小时内为倒计时（H:MM / N分钟），否则日期（M月D日）。
@@ -93,5 +101,5 @@ export function resetCompact(resetMs: number | null) {
 		return h > 0 ? h + ':' + String(m).padStart(2, '0') : m + '分钟'
 	}
 	const d = new Date(resetMs)
-	return (d.getMonth() + 1) + '月' + d.getDate() + '日'
+	return d.getMonth() + 1 + '月' + d.getDate() + '日'
 }

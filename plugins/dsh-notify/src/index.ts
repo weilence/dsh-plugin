@@ -52,15 +52,19 @@ function activateWindow(): void {
 }
 
 export function apply(ctx: Context): void {
-	ctx.effect(() => ctx.webServer.register({
-		kind: 'exact',
-		path: '/dsh-notify/activate',
-		handler: async (req: IncomingMessage, res: ServerResponse) => {
-			// 仅认 POST：跨站预检（OPTIONS，不带 sec-fetch 头）不应触发激活。
-			const allowed = req.method === 'POST' && isTrusted(req)
-			res.writeHead(allowed ? 204 : 403, { 'cache-control': 'no-store' })
-			res.end()
-			if (allowed) activateWindow()
-		},
-	}), 'dsh-notify: /dsh-notify/activate route')
+	ctx.effect(
+		() =>
+			ctx.webServer.register({
+				kind: 'exact',
+				path: '/dsh-notify/activate',
+				handler: async (req: IncomingMessage, res: ServerResponse) => {
+					// 仅认 POST：跨站预检（OPTIONS，不带 sec-fetch 头）不应触发激活。
+					const allowed = req.method === 'POST' && isTrusted(req)
+					res.writeHead(allowed ? 204 : 403, { 'cache-control': 'no-store' })
+					res.end()
+					if (allowed) activateWindow()
+				},
+			}),
+		'dsh-notify: /dsh-notify/activate route',
+	)
 }

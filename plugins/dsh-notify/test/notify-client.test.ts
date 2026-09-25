@@ -34,14 +34,17 @@ describe('questionDetail', () => {
 		expect(questionDetail([])).toBe('等待您的回答')
 		expect(questionDetail(undefined)).toBe('等待您的回答')
 		expect(questionDetail([{ id: 'q1' } as unknown as AskUserQuestionItem])).toBe('等待您的回答')
-		expect(
-			questionDetail([{ id: 'q1', question: 42 } as unknown as AskUserQuestionItem]),
-		).toBe('等待您的回答')
+		expect(questionDetail([{ id: 'q1', question: 42 } as unknown as AskUserQuestionItem])).toBe(
+			'等待您的回答',
+		)
 	})
 
 	it('多题中无文本项也计入总数', () => {
 		expect(
-			questionDetail([{ id: 'q1', question: '用哪个端口？' }, { id: 'q2' } as unknown as AskUserQuestionItem]),
+			questionDetail([
+				{ id: 'q1', question: '用哪个端口？' },
+				{ id: 'q2' } as unknown as AskUserQuestionItem,
+			]),
 		).toBe('用哪个端口？ 等 2 个问题')
 	})
 })
@@ -76,32 +79,43 @@ describe('interactionDetail', () => {
 
 	it('question 域取问题文本', () => {
 		expect(
-			interactionDetail(interaction({
-				key: 'question:1', kind: 'question', sessionId: 's1',
-				questions: [{ id: 'q1', question: '用哪个端口？' }],
-			})),
+			interactionDetail(
+				interaction({
+					key: 'question:1',
+					kind: 'question',
+					sessionId: 's1',
+					questions: [{ id: 'q1', question: '用哪个端口？' }],
+				}),
+			),
 		).toBe('用哪个端口？')
 	})
 
 	it('plan-review 域直接标注等待计划审批', () => {
-		expect(
-			interactionDetail(interaction({ key: 'question:2', kind: 'plan-review', sessionId: 's1' })),
-		).toBe('等待计划审批')
+		expect(interactionDetail(interaction({ key: 'question:2', kind: 'plan-review', sessionId: 's1' }))).toBe(
+			'等待计划审批',
+		)
 	})
 
 	it('approval 域取工具名 + 原因', () => {
 		expect(
-			interactionDetail(interaction({
-				key: 'approval:1', kind: 'approval', sessionId: 's1',
-				toolName: 'bash', reason: '允许执行 pnpm test 吗？',
-			})),
+			interactionDetail(
+				interaction({
+					key: 'approval:1',
+					kind: 'approval',
+					sessionId: 's1',
+					toolName: 'bash',
+					reason: '允许执行 pnpm test 吗？',
+				}),
+			),
 		).toBe('等待批准：bash · 允许执行 pnpm test 吗？')
 	})
 
 	it('未知域与缺失字段回退通用文案', () => {
-		expect(interactionDetail(interaction({ key: 'x:1', kind: 'other', sessionId: 's1' }))).toBe('等待您的回答')
-		expect(
-			interactionDetail(interaction({ key: 'a:1', kind: 'approval', sessionId: 's1' })),
-		).toBe('等待批准：工具')
+		expect(interactionDetail(interaction({ key: 'x:1', kind: 'other', sessionId: 's1' }))).toBe(
+			'等待您的回答',
+		)
+		expect(interactionDetail(interaction({ key: 'a:1', kind: 'approval', sessionId: 's1' }))).toBe(
+			'等待批准：工具',
+		)
 	})
 })

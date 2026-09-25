@@ -20,8 +20,7 @@ export interface QuotaWindow {
 }
 
 export type QuotaStatus =
-	| { ok: true; windows: QuotaWindow[]; queriedAt: number }
-	| { ok: false; error: string }
+	{ ok: true; windows: QuotaWindow[]; queriedAt: number } | { ok: false; error: string }
 
 const QUOTA_URL = 'https://open.bigmodel.cn/api/monitor/usage/quota/limit'
 const OK_TTL_MS = 4 * 60 * 1000

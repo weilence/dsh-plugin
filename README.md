@@ -5,11 +5,11 @@
 
 ## 插件
 
-| 插件 | 功能 |
-| --- | --- |
-| [dsh-models](plugins/dsh-models) | 设置页「模型目录」：浏览 [models.dev](https://models.dev)、把 Provider / 模型导入 `llm-pi-ai`，编辑能力与推理强度；host 侧带 ETag 感知的目录镜像与只读生效能力桥 |
-| [dsh-notify](plugins/dsh-notify) | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览静默；desktop 窗口恢复桥 |
-| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；输入框状态栏展示 5 小时 / 7 天用量配额与重置倒计时 |
+| 插件                                       | 功能                                                                                                                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [dsh-models](plugins/dsh-models)           | 设置页「模型目录」：浏览 [models.dev](https://models.dev)、把 Provider / 模型导入 `llm-pi-ai`，编辑能力与推理强度；host 侧带 ETag 感知的目录镜像与只读生效能力桥 |
+| [dsh-notify](plugins/dsh-notify)           | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览静默；desktop 窗口恢复桥                                                                                     |
+| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；输入框状态栏展示 5 小时 / 7 天用量配额与重置倒计时                                                        |
 
 各插件的功能、安装与配置说明见其目录内 README。
 
