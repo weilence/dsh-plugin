@@ -1,0 +1,22 @@
+# Dependencies and generated bundles
+node_modules/
+lib/
+*.tsbuildinfo
+.pnpm-store/
+
+# Local credentials and environment
+.env
+.env.*
+
+# Logs, caches, temporary files
+pnpm-debug.log
+.cache/
+tmp/
+coverage/
+*.tgz
+
+# Editors and operating systems
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

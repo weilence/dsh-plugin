@@ -1,0 +1,86 @@
+{
+	"name": "dsh-models",
+	"version": "0.1.0",
+	"description": "DeepSeek Harness web plugin for importing models.dev providers and models into llm-pi-ai, backed by a host-side ETag-aware catalog mirror.",
+	"type": "module",
+	"main": "lib/index.js",
+	"exports": {
+		".": "./lib/index.js",
+		"./client": "./lib/client.js",
+		"./package.json": "./package.json"
+	},
+	"dsh": {
+		"bundle": {
+			"patch": "./cordis.patch.yml"
+		},
+		"client": {
+			"platform": "web",
+			"inject": [
+				"@deepseek-ai/dsh-client-runtime",
+				"@deepseek-ai/dsh-client-ui-slots",
+				"@deepseek-ai/dsh-client-ui-settings",
+				"@deepseek-ai/dsh-api-remotes"
+			]
+		}
+	},
+	"files": [
+		"lib/index.js",
+		"lib/client.js",
+		"lib/client.js.map",
+		"cordis.patch.yml"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"prepack": "tsdown",
+		"watch": "tsdown --watch",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
+		"format": "prettier --write .",
+		"format:check": "prettier --check ."
+	},
+	"packageManager": "pnpm@10.28.2",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/weilence/dsh-models.git"
+	},
+	"bugs": {
+		"url": "https://github.com/weilence/dsh-models/issues"
+	},
+	"homepage": "https://github.com/weilence/dsh-models#readme",
+	"keywords": [
+		"dsh",
+		"dsh-plugin",
+		"models.dev",
+		"llm",
+		"dsh-models"
+	],
+	"engines": {
+		"node": ">=20",
+		"dsh": ">=0.1.7-rc.2 <0.2.0"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"devDependencies": {
+		"@deepseek-ai/cordis": "~4.0.4",
+		"@deepseek-ai/dsh-api-remotes": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-client-ui-settings": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-client-ui-slots": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-home-paths": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-host-webserver": "0.1.7-rc.2",
+		"@deepseek-ai/dsh-llm": "0.1.7-rc.2",
+		"@types/node": "^26.6.2",
+		"@types/react": "~18.3.31",
+		"@types/react-dom": "~18.3.7",
+		"lightningcss": "^1.33.0",
+		"prettier": "^3.9.8",
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1",
+		"tsdown": "^0.23.0",
+		"typescript": "^7.0.2",
+		"vitest": "^3.2.4",
+		"yaml": "2.9.1"
+	}
+}

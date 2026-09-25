@@ -1,0 +1,193 @@
+/* dsh-models 模型目录面板：跨组件共享的基础样式。
+   只使用宿主暴露的 dsw-* 设计变量，与官方 settings 页视觉一致。
+   控件层（Button / Modal / Input / Switch / Tag / Pill / DisclosureRow / Toast）
+   已迁移到官方 @deepseek-ai/dsh-client-ui-primitives，样式由官方组件自带；
+   本表只放被多个组件共用的布局、表单控件与状态反馈类，
+   组件私有样式在各自的 <组件名>.module.css 里。 */
+
+.code {
+	font-family: var(--ds-font-family-code);
+	font-size: 0.95em;
+	background: var(--dsw-alias-bg-layer-2);
+	padding: 0 4px;
+	border-radius: 4px;
+}
+
+/* Modal content 区的滚动容器：卡片 overflow hidden，content 撑满后滚动，
+   footer 保持在滚动区外。editorAside 的 sticky 以它为滚动视口。 */
+.scrollBody {
+	overflow: auto;
+	min-height: 0;
+}
+
+.section {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.sectionTitle {
+	font-size: 13px;
+	line-height: 19px;
+	font-weight: 600;
+	margin: 0;
+}
+
+/* 字段表单：两列网格（与原布局一致）。minmax(0, 1fr) 而不是 1fr：
+   允许列收缩到内容以下，防止宽子项把网格撑出弹窗。 */
+.grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 12px;
+}
+
+.field,
+.fieldWide {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+	min-width: 0;
+}
+
+.fieldWide {
+	grid-column: 1 / -1;
+}
+
+.label {
+	font-size: 12px;
+	line-height: 18px;
+	color: var(--dsw-alias-label-secondary);
+	font-weight: 500;
+}
+
+/* select 与 textarea 没有官方对应组件，保留自绘样式；
+   .input 仍被推理档位行的小输入框使用（三者共用同一套规则，不拆分）。 */
+.input,
+.select,
+.textarea {
+	box-sizing: border-box;
+	width: 100%;
+	min-height: 36px;
+	border: 0.5px solid var(--dsw-alias-border-l4);
+	background: var(--dsw-alias-bg-layer-2);
+	color: var(--dsw-alias-label-primary);
+	border-radius: 9px;
+	padding: 0 11px;
+	font: inherit;
+	font-size: 13px;
+}
+
+.textarea {
+	min-height: 96px;
+	padding: 8px 11px;
+	font-family: var(--ds-font-family-code);
+	font-size: 12px;
+	resize: vertical;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+	outline: none;
+	border-color: var(--dsw-alias-brand-primary);
+}
+
+.input:disabled,
+.select:disabled {
+	opacity: 0.55;
+}
+
+.hint {
+	font-size: 11px;
+	line-height: 17px;
+	color: var(--dsw-alias-label-tertiary);
+	margin: 0;
+}
+
+.checkRow {
+	display: flex;
+	gap: 14px;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+/* 勾选行的行容器：官方 Switch 放在行首，点击行文本同样切换。 */
+.check {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	color: var(--dsw-alias-label-secondary);
+	cursor: pointer;
+}
+
+/* Modal footer 的左侧元信息文字（RouteEditor footer / 导入清单计数）。 */
+.footerMeta {
+	font-size: 12px;
+	color: var(--dsw-alias-label-tertiary);
+}
+
+.actions {
+	display: flex;
+	gap: 8px;
+}
+
+/* 官方 Button 没有 danger 变体：primary 变体上覆写错误色。
+   本表在宿主样式之后注入，同特异性下覆盖官方 .primary 规则。 */
+.dangerButton {
+	background: var(--dsw-alias-state-error-primary);
+	color: var(--dsw-alias-label-primary-foreground);
+}
+
+.dangerButton:hover:not(:disabled) {
+	background: var(--dsw-alias-state-error-primary);
+}
+
+.toolbar {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	justify-content: space-between;
+}
+
+.list {
+	border: 0.5px solid var(--dsw-alias-border-l3);
+	border-radius: 12px;
+	overflow: auto;
+	max-height: 380px;
+	margin: 0;
+	padding: 4px;
+}
+
+.empty,
+.loading {
+	padding: 32px;
+	text-align: center;
+	color: var(--dsw-alias-label-tertiary);
+	font-size: 13px;
+}
+
+.notice,
+.error,
+.success {
+	font-size: 12px;
+	line-height: 18px;
+	border-radius: 8px;
+	padding: 8px 10px;
+}
+
+.notice {
+	background: var(--dsw-alias-bg-layer-2);
+	color: var(--dsw-alias-label-secondary);
+}
+
+.error {
+	background: var(--dsw-alias-interactive-bg-hover-danger);
+	color: var(--dsw-alias-state-error-primary);
+}
+
+.success {
+	background: var(--dsw-alias-state-success-bg);
+	color: var(--dsw-alias-state-success-primary);
+}

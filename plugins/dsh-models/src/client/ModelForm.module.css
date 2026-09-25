@@ -1,0 +1,63 @@
+/* 模型编辑表单（ModelForm，内嵌在 RouteEditor 弹窗里）：
+   表单盒子、内嵌关闭钮与推理档位表。
+   字段网格、勾选行、input 等共用样式见 shared.module.css。 */
+
+.modelFormBox {
+	border: 0.5px solid var(--dsw-alias-border-l3);
+	border-radius: 12px;
+	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	background: var(--dsw-alias-bg-layer-1);
+}
+
+.formHeader {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+}
+
+/* 表单内嵌（非 Modal）的关闭按钮：对齐官方 Modal 关闭钮的几何。 */
+.close {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--dsw-alias-label-secondary);
+	cursor: pointer;
+}
+
+.close:hover:not(:disabled) {
+	background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.effortTable {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 4px;
+}
+
+/* 勾选「不支持推理」后整表淡显禁用。 */
+.effortTableDisabled {
+	opacity: 0.45;
+}
+
+.effortRow {
+	display: grid;
+	grid-template-columns: 150px minmax(0, 1fr);
+	gap: 10px;
+	align-items: center;
+}
+
+@media (max-width: 680px) {
+	.effortRow {
+		grid-template-columns: 1fr;
+	}
+}
