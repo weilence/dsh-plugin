@@ -34,20 +34,18 @@
 		"prepack": "tsdown",
 		"watch": "tsdown --watch",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run",
-		"format": "prettier --write .",
-		"format:check": "prettier --check ."
+		"test": "vitest run"
 	},
-	"packageManager": "pnpm@10.28.2",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/weilence/dsh-models.git"
+		"url": "git+https://github.com/weilence/dsh-plugins.git",
+		"directory": "plugins/dsh-models"
 	},
 	"bugs": {
-		"url": "https://github.com/weilence/dsh-models/issues"
+		"url": "https://github.com/weilence/dsh-plugins/issues"
 	},
-	"homepage": "https://github.com/weilence/dsh-models#readme",
+	"homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-models#readme",
 	"keywords": [
 		"dsh",
 		"dsh-plugin",
@@ -63,24 +61,23 @@
 		"access": "public"
 	},
 	"devDependencies": {
-		"@deepseek-ai/cordis": "~4.0.4",
-		"@deepseek-ai/dsh-api-remotes": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-client-ui-settings": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-client-ui-slots": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-home-paths": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-host-webserver": "0.1.7-rc.2",
-		"@deepseek-ai/dsh-llm": "0.1.7-rc.2",
-		"@types/node": "^26.6.2",
-		"@types/react": "~18.3.31",
-		"@types/react-dom": "~18.3.7",
-		"lightningcss": "^1.33.0",
-		"prettier": "^3.9.8",
-		"react": "^18.3.1",
-		"react-dom": "^18.3.1",
-		"tsdown": "^0.23.0",
-		"typescript": "^7.0.2",
-		"vitest": "^3.2.4",
+		"@deepseek-ai/cordis": "catalog:",
+		"@deepseek-ai/dsh-api-remotes": "catalog:",
+		"@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+		"@deepseek-ai/dsh-client-ui-settings": "catalog:",
+		"@deepseek-ai/dsh-client-ui-slots": "catalog:",
+		"@deepseek-ai/dsh-home-paths": "catalog:",
+		"@deepseek-ai/dsh-host-webserver": "catalog:",
+		"@deepseek-ai/dsh-llm": "catalog:",
+		"@types/node": "catalog:",
+		"@types/react": "catalog:",
+		"@types/react-dom": "catalog:",
+		"lightningcss": "catalog:",
+		"react": "catalog:",
+		"react-dom": "catalog:",
+		"tsdown": "catalog:",
+		"typescript": "catalog:",
+		"vitest": "catalog:",
 		"yaml": "2.9.1"
 	}
 }
