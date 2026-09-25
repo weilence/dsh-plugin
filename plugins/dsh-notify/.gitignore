@@ -1,0 +1,20 @@
+# 依赖与构建产物（lib/ 由 tsdown 从 src/ 生成：pnpm build / pnpm watch）
+node_modules/
+lib/
+*.tsbuildinfo
+.pnpm-store/
+
+# 本地环境
+.env
+
+# 日志、缓存、临时文件
+pnpm-debug.log
+.cache/
+tmp/
+coverage/
+
+# 编辑器与操作系统
+.vscode/
+.idea
+.DS_Store
+Thumbs.db

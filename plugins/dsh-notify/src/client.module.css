@@ -1,0 +1,68 @@
+/* dsh-notify 设置页面板样式（构建期内联进 lib/client.js） */
+
+.panel {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	max-width: 560px;
+	font-size: 12px;
+}
+
+.desc {
+	margin: 0;
+	opacity: 0.65;
+	line-height: 1.7;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.title {
+	font-weight: 600;
+	font-size: 13px;
+}
+
+.chip {
+	padding: 1px 8px;
+	border-radius: 999px;
+	border: 1px solid rgba(128, 128, 128, 0.4);
+	font-size: 11px;
+}
+
+.chipOk {
+	color: #2f9e6e;
+	border-color: rgba(47, 158, 110, 0.5);
+}
+
+.chipWarn {
+	color: #c7a24a;
+	border-color: rgba(199, 162, 74, 0.5);
+}
+
+.chipErr {
+	color: #c25b5b;
+	border-color: rgba(194, 91, 91, 0.5);
+}
+
+.button {
+	padding: 3px 12px;
+	font-size: 12px;
+	border-radius: 6px;
+	border: 1px solid rgba(128, 128, 128, 0.4);
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+}
+
+.button:hover {
+	border-color: rgba(128, 128, 128, 0.85);
+}
+
+.button:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
