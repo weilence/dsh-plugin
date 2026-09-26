@@ -1,93 +1,53 @@
 /* 编辑 Provider 弹窗（RouteEditor）：官方 Modal 外壳上的宽度档位、
-   左编辑右预览布局、行内提示与 footer。
-   字段、勾选行、状态反馈等共用样式见 shared.module.css；
+   行内提示与 footer。
+   字段、勾选行、状态反馈等共用样式见 @dsh-plugins/client-ui 的
+   shared.module.css；
    新建弹窗的 .dialog / .dialogSmall 在 CreateProviderDialog.module.css。 */
 
-/* 编辑 Provider 用的大弹窗：左编辑 + 右实时 YAML 预览需要更大的画布。
+/* 编辑 Provider 弹窗：单列编辑（连接字段 + 模型清单）。
    官方 Modal 自带遮罩 / 卡片 / 头部 / 关闭按钮 / aria；className 挂在
    官方卡片上，contentClassName（shared 的 .scrollBody）挂在官方 content
    区（滚动发生在 content，footer 由 Modal 固定在外侧）。 */
-.dialogWide {
-	width: min(1240px, calc(100% - 32px));
-	max-height: min(920px, calc(100vh - 40px));
+.dialog {
+  width: min(920px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
 }
 
 .hintInline {
-	font-size: 11px;
-	color: var(--dsw-alias-label-tertiary);
-	margin-left: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  margin-left: 6px;
 }
 
-/* ── 编辑弹窗：左编辑右预览 ───────────────────────────────────── */
-
-.editorLayout {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(300px, 42%);
-	gap: 18px;
-	align-items: start;
-}
+/* ── 编辑弹窗正文 ─────────────────────────────────────────────── */
 
 .editorMain {
-	display: flex;
-	flex-direction: column;
-	gap: 16px;
-	min-width: 0;
-}
-
-/* content 区滚动时 aside 在滚动容器（shared 的 .scrollBody）内吸顶，
-   长清单下预览始终可见。 */
-.editorAside {
-	position: sticky;
-	top: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	min-width: 0;
-}
-
-/* 官方 CodeBlock（YAML 预览）的滚动容器：CodeBlock 自绘高亮、底色、
-   边框圆角与复制按钮横幅，这里只管尺寸——横幅的 sticky 以本滚动
-   视口为定位基准。 */
-.previewPane {
-	margin: 0;
-	max-height: calc(100vh - 340px);
-	overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
 }
 
 /* 行内状态圆点（官方 StateDot）与文字的基线对齐。 */
 .inlineDot {
-	display: inline-block;
-	vertical-align: -1px;
-	margin: 0 1px;
+  display: inline-block;
+  vertical-align: -1px;
+  margin: 0 1px;
 }
 
 /* Modal footer 内的整行：左侧说明文字 + 右侧动作按钮组。 */
 .footer {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	width: 100%;
-	min-width: 0;
-	flex-wrap: wrap;
-}
-
-@media (max-width: 960px) {
-	.editorLayout {
-		grid-template-columns: 1fr;
-	}
-
-	.editorAside {
-		position: static;
-	}
-
-	.previewPane {
-		max-height: 320px;
-	}
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 @media (max-width: 680px) {
-	.dialogWide {
-		max-height: calc(100vh - 48px);
-	}
+  .dialog {
+    max-height: calc(100vh - 48px);
+  }
 }

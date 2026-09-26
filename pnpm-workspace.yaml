@@ -4,10 +4,15 @@ packages:
 
 # 共享版本表：各包 devDependencies / peerDependencies 用 "catalog:" 引用，
 # 安装时由此解析。DSH 平台包必须同版本协同——升级平台时只改这一处。
+# 注意：package.json 的 peerDependencies 范围必须写字面 semver range
+# （如 ">=0.1.7-rc.2 <0.2.0"），不能用 "catalog:"——宿主兼容性预检
+# （app-boot evaluatePluginCompatibility）直接对字符串做 semver.satisfies，
+# 无效范围会被判定为不兼容而拒绝加载插件。
 catalog:
   '@deepseek-ai/cordis': ~4.0.4
   '@deepseek-ai/dsh-api-remotes': 0.1.7-rc.2
   '@deepseek-ai/dsh-api-session-controller': 0.1.7-rc.2
+  '@deepseek-ai/dsh-api-settings-controller': 0.1.7-rc.2
   '@deepseek-ai/dsh-client-ui-primitives': 0.1.7-rc.2
   '@deepseek-ai/dsh-client-ui-renderer': 0.1.7-rc.2
   '@deepseek-ai/dsh-client-ui-session': 0.1.7-rc.2
@@ -18,6 +23,7 @@ catalog:
   '@deepseek-ai/dsh-home-paths': 0.1.7-rc.2
   '@deepseek-ai/dsh-host-webserver': 0.1.7-rc.2
   '@deepseek-ai/dsh-llm': 0.1.7-rc.2
+  '@deepseek-ai/dsh-llm-pi-ai': 0.1.7-rc.2
   '@deepseek-ai/dsh-mcp-client': 0.1.7-rc.2
   '@deepseek-ai/dsh-session': 0.1.7-rc.2
   '@deepseek-ai/dsh-user-questions': 0.1.7-rc.2
@@ -33,5 +39,4 @@ catalog:
   vitest: ^3.2.4
 
 # 单一消费者依赖不进 catalog，留在各插件 package.json：
-#   dsh-models        yaml@2.9.1（client bundle 内联浏览器 ESM 构建）
 #   dsh-zhipu-tools   clsx@^2.1.1（client bundle 白名单内联）

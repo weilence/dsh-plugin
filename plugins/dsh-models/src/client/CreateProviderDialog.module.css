@@ -1,36 +1,36 @@
 /* 新建 Provider 弹窗（CreateProviderDialog）：官方 Modal 外壳上的宽度档位
    与创建方式选择条。
-   字段网格、勾选行、状态反馈等共用样式见 shared.module.css；
-   编辑弹窗的 .dialogWide 在 RouteEditor.module.css。 */
+   字段网格、勾选行、状态反馈等共用样式见 @dsh-plugins/client-ui 的
+   shared.module.css；编辑弹窗的 .dialog 在 RouteEditor.module.css。 */
 
 /* 官方 Modal 自带遮罩 / 卡片 / 头部 / 关闭按钮 / aria；className 挂在
    官方卡片上，contentClassName（shared 的 .scrollBody）挂在官方 content
    区（滚动发生在 content，footer 由 Modal 固定在外侧）。 */
 .dialog {
-	width: min(920px, 100%);
-	max-height: min(820px, calc(100vh - 48px));
+  width: min(920px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
 }
 
 .dialogSmall {
-	width: min(560px, 100%);
-	max-height: min(760px, calc(100vh - 48px));
+  width: min(560px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
 }
 
 /* 新建 Provider 弹窗顶部的创建方式选择（使用内置 / 自定义 Provider），
    始终可见，切到自定义 Provider 后仍可换方式。 */
 .modeBar {
-	padding: 0 0 14px;
-	border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+  padding: 0 0 14px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 /* 弹窗正文之外的整行错误（写入失败等），避免只显示在遮罩后面的列表页上。 */
 .dialogError {
-	margin: 0 0 14px;
+  margin: 0 0 14px;
 }
 
 @media (max-width: 680px) {
-	.dialog,
-	.dialogSmall {
-		max-height: calc(100vh - 48px);
-	}
+  .dialog,
+  .dialogSmall {
+    max-height: calc(100vh - 48px);
+  }
 }

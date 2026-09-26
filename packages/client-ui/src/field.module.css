@@ -1,4 +1,4 @@
-/* 表单控件层（ui.tsx）：官方 Input 的全宽覆写与问题清单。
+/* 表单控件层（form.tsx）：官方 Input 的全宽覆写与问题清单。
    字段布局（.field / .label）与状态反馈类见 shared.module.css。 */
 
 /* 官方 Input 的全宽变体：三重保险让外框（.wrap）铺满字段列且不越界——
@@ -7,32 +7,32 @@
    align-self: stretch 不依赖百分比解析；width/max-width: 100% 兜底；
    min-width: 0 允许收缩。内层 input 的填充规则同样写死。 */
 .fieldInput {
-	box-sizing: border-box;
-	align-self: stretch;
-	display: flex;
-	width: 100%;
-	min-width: 0;
-	max-width: 100%;
+  box-sizing: border-box;
+  align-self: stretch;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .fieldInput > input {
-	box-sizing: border-box;
-	flex: 1 1 auto;
-	width: 100%;
-	min-width: 0;
-	height: auto;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: auto;
 }
 
 /* busy 等禁用态的淡显（视觉对齐原生 input:disabled）。 */
 .fieldInputDisabled {
-	opacity: 0.55;
+  opacity: 0.55;
 }
 
 .issueList {
-	margin: 0;
-	padding-left: 18px;
+  margin: 0;
+  padding-left: 18px;
 }
 
 .issueList li {
-	margin: 2px 0;
+  margin: 2px 0;
 }

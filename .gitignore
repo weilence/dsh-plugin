@@ -1,6 +1,8 @@
-# 依赖与构建产物（各插件 lib/ 由 tsdown 从 src/ 生成：pnpm build / pnpm watch）
+# 依赖与构建产物（各插件 lib/ 由 tsdown 从 src/ 生成：pnpm build / pnpm watch；
+# dist/ 是构建报错期可能留下的部分输出，同样不入库）
 node_modules/
 lib/
+dist/
 *.tsbuildinfo
 .pnpm-store/
 
@@ -18,6 +20,3 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
-
-# 迁移期基线留档（本地产物比对用，不入库）
-.baseline/

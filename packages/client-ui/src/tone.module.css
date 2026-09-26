@@ -1,0 +1,40 @@
+/* 语气色调色板：dsw 语义令牌的单点定义（ok / warn / err 三档）。
+   此前各插件各写一份（dsh-notify 硬编码色值、dsh-zhipu-tools 在
+   quota-pill 内定义），现统一在此维护。
+   文本类（.ok / .warn / .err）给任意元素着色（用量 tier、错误文案）；
+   chip 类是 ToneChip 的胶囊外壳（设置页状态行标签）。 */
+
+.ok {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.warn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.err {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 11px;
+}
+
+/* 边框取同色 50% 透明：色值跟随令牌，不回退硬编码。 */
+.chipOk {
+  color: var(--dsw-alias-state-success-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 50%, transparent);
+}
+
+.chipWarn {
+  color: var(--dsw-alias-state-warn-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 50%, transparent);
+}
+
+.chipErr {
+  color: var(--dsw-alias-state-error-primary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 50%, transparent);
+}

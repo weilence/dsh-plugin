@@ -1,20 +1,20 @@
 {
-	"name": "@dsh-plugins/tsdown-config",
-	"version": "0.0.0",
-	"private": true,
-	"description": "DSH web 插件共享 tsdown 构建工厂：node/browser 双 half 产物 + CSS Modules 内联。",
-	"type": "module",
-	"exports": {
-		".": "./src/index.ts",
-		"./package.json": "./package.json"
-	},
-	"scripts": {
-		"typecheck": "tsc --noEmit"
-	},
-	"devDependencies": {
-		"@types/node": "catalog:",
-		"lightningcss": "catalog:",
-		"tsdown": "catalog:",
-		"typescript": "catalog:"
-	}
+  "name": "@dsh-plugins/tsdown-config",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DSH web 插件共享 tsdown 构建工厂：node/browser 双 half 产物 + CSS Modules 内联。",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "lightningcss": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
 }

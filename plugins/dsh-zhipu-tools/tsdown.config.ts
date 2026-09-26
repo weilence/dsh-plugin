@@ -4,13 +4,16 @@
 import { defineDshPluginConfig } from '@dsh-plugins/tsdown-config'
 
 export default defineDshPluginConfig({
-	id: 'dsh-zhipu-tools',
-	clientEntry: 'src/client.tsx',
-	// 宿主 seed 表额外提供的 client 运行时依赖（UI 原语库）。
-	clientExternals: ['@deepseek-ai/dsh-client-ui-primitives'],
-	// 允许内联的 node_modules 依赖只有 clsx；将来误引入其他运行时依赖会在
-	// 构建期报错，而不是运行期 factory 必炸。
-	clientOnlyBundle: ['clsx'],
-	// in-box mcp-client 是运行时 peer（profile 提供），留作外部导入。
-	nodeDeps: { external: ['@deepseek-ai/dsh-mcp-client'] },
+  id: 'dsh-zhipu-tools',
+  client: {
+    // UI 原语库（dsh-client-ui-primitives）等 seed 表基座已由工厂隐式外置。
+    // 允许内联的注册表依赖只有 clsx；将来误引入其他运行时依赖会在构建期
+    // 报错，而不是运行期 factory 必炸。（workspace 源码包如
+    // @dsh-plugins/client-ui 经 symlink 解析为相对路径，不走此门禁，
+    // 构建期直接内联。）
+    bundle: ['clsx'],
+  },
+  // host half 无自带给发的库：禁止任何内联，全部外置由宿主解析——in-box
+  // mcp-client 是运行时 peer，见 package.json peerDependencies。
+  host: { bundle: [] },
 })

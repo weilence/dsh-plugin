@@ -1,184 +1,184 @@
 /* 模型目录面板（ModelCatalogSection）：面板骨架、provider 卡片与拖拽插入标记。
-   跨组件共用的基础样式见 shared.module.css；
+   跨组件共用的基础样式见 @dsh-plugins/client-ui 的 shared.module.css；
    拖拽排序逻辑在 drag.ts。 */
 
 .panel {
-	display: flex;
-	flex-direction: column;
-	gap: 14px;
-	padding: 4px 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 24px;
 }
 
 .panelHead {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 16px;
-	flex-wrap: wrap;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .panelTitle {
-	font-size: 17px;
-	line-height: 25px;
-	font-weight: 600;
-	margin: 0;
+  font-size: 17px;
+  line-height: 25px;
+  font-weight: 600;
+  margin: 0;
 }
 
 .panelSubtitle {
-	font-size: 12px;
-	line-height: 18px;
-	color: var(--dsw-alias-label-tertiary);
-	margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  margin: 3px 0 0;
 }
 
 .routes {
-	display: flex;
-	flex-direction: column;
-	gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 /* provider 卡片：官方 PluginCard（ui-settings-plugins，dsh-v0.1.5-rc.2）
    同规则——收起 layer-3 底 / border-l4；展开（正在编辑的那张）layer-2 底 /
    label-dimmed 边框；hover 只提亮边框；16px 圆角 + 0.16s 过渡。 */
 .route {
-	border: 0.5px solid var(--dsw-alias-border-l4);
-	border-radius: 16px;
-	background: var(--dsw-alias-bg-layer-3);
-	transition:
-		border-color 0.16s,
-		background 0.16s;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-3);
+  transition:
+    border-color 0.16s,
+    background 0.16s;
 }
 
 .route:hover {
-	border-color: var(--dsw-alias-label-dimmed);
+  border-color: var(--dsw-alias-label-dimmed);
 }
 
 .routeOpen {
-	background: var(--dsw-alias-bg-layer-2);
-	border-color: var(--dsw-alias-label-dimmed);
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-dimmed);
 }
 
 .routeDragging {
-	opacity: 0.5;
+  opacity: 0.5;
 }
 
 /* provider 行头（官方 .header）：标题居左，编辑按钮与展开箭头靠右、
    按钮在箭头左侧；整行可点击展开/收起（按钮与箭头阻止冒泡），可拖拽。 */
 .routeHead {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 14px 16px;
-	border-radius: 12px;
-	cursor: pointer;
-	user-select: none;
-	font: inherit;
-	color: inherit;
-	text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .routeHead:focus-visible {
-	outline: 2px solid var(--dsw-alias-brand-primary);
-	outline-offset: -2px;
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
 }
 
 .routeHeadMain {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	min-width: 0;
-	flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
 }
 
 /* 显示名 + provider id 同一行。 */
 .routeTitleRow {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-	flex-wrap: wrap;
-	min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 /* 展开箭头（官方 .chevron / .chevronOpen）：朝下 = 收起，展开旋转 180°。 */
 .routeCaret {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	flex: none;
-	color: var(--dsw-alias-label-tertiary);
-	transition: transform 0.16s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 0.16s;
 }
 
 .routeCaretOpen {
-	transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
 /* 显示名（官方 .name）：15px / 600。 */
 .routeDisplayName {
-	font-size: 15px;
-	font-weight: 600;
-	line-height: 1.4;
-	color: var(--dsw-alias-label-primary);
-	overflow-wrap: anywhere;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
 }
 
 .routeId {
-	font-family: var(--ds-font-family-code);
-	font-size: 11px;
-	color: var(--dsw-alias-label-tertiary);
-	overflow-wrap: anywhere;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
 }
 
 .routeActions {
-	display: flex;
-	gap: 4px;
-	flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 /* provider 行头展示的连接信息（API / Endpoint）：官方 .description 的
    13px/1.5 tertiary 字级；未配置的字段整项不显示。 */
 .routeInfo {
-	display: flex;
-	gap: 16px;
-	flex-wrap: wrap;
-	min-width: 0;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .routeInfo:empty {
-	display: none;
+  display: none;
 }
 
 .routeInfoItem {
-	display: inline-flex;
-	align-items: baseline;
-	gap: 6px;
-	min-width: 0;
-	font-size: 13px;
-	line-height: 1.5;
-	color: var(--dsw-alias-label-tertiary);
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .routeInfoLabel {
-	color: var(--dsw-alias-label-tertiary);
-	flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  flex-shrink: 0;
 }
 
 .routeInfoValue {
-	font-family: var(--ds-font-family-code);
-	font-size: 12px;
-	color: var(--dsw-alias-label-secondary);
-	overflow-wrap: anywhere;
-	min-width: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* 展开后的模型清单：官方 .body——顶部细分割线、左右内缩 16px。
    表格本体在 ModelTable.module.css。 */
 .routeList {
-	margin: 0 16px;
-	padding: 8px 0;
-	max-height: 420px;
-	overflow: auto;
-	border-top: 0.5px solid var(--dsw-alias-border-l2);
+  margin: 0 16px;
+  padding: 8px 0;
+  max-height: 420px;
+  overflow: auto;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 /* ── 拖拽插入标记：官方 workspace（dsh-client-ui-workspace Rows.module.css）
@@ -191,34 +191,34 @@
    光标跨过分界线时标记不再上下跳动，永远只有一个位置。 */
 .routeLineTop,
 .routeLineBottom {
-	position: relative;
+  position: relative;
 }
 
 .routeLineTop::before,
 .routeLineBottom::after {
-	content: '';
-	z-index: 1;
-	background:
-		linear-gradient(
-				55deg,
-				transparent calc(50% - 1px),
-				var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-				transparent calc(50% + 1px)
-			)
-			0 0 / 5px 7px no-repeat,
-		linear-gradient(
-				125deg,
-				transparent calc(50% - 1px),
-				var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-				transparent calc(50% + 1px)
-			)
-			0 5px / 5px 7px no-repeat,
-		linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;
-	pointer-events: none;
-	height: 12px;
-	position: absolute;
-	left: 0;
-	right: 4px;
+  content: '';
+  z-index: 1;
+  background:
+    linear-gradient(
+        55deg,
+        transparent calc(50% - 1px),
+        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+        transparent calc(50% + 1px)
+      )
+      0 0 / 5px 7px no-repeat,
+    linear-gradient(
+        125deg,
+        transparent calc(50% - 1px),
+        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+        transparent calc(50% + 1px)
+      )
+      0 5px / 5px 7px no-repeat,
+    linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;
+  pointer-events: none;
+  height: 12px;
+  position: absolute;
+  left: 0;
+  right: 4px;
 }
 
 /* 12px 伪元素中横线在自身 y 5..7。注意绝对定位原点是 padding box
@@ -226,19 +226,19 @@
    0.5px 边框与渐变图层的小数坐标按设备像素取整后，-12px 的视觉
    落点更贴近 10px 空隙的正中。 */
 .routeLineTop::before {
-	top: -12px;
+  top: -12px;
 }
 
 .routeLineBottom::after {
-	bottom: -12px;
+  bottom: -12px;
 }
 
 /* 破坏性行内动作（ghost 底 + 错误色文字）：hover 补淡红底。 */
 .dangerGhost {
-	color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .dangerGhost:hover:not(:disabled) {
-	background: var(--dsw-alias-interactive-bg-hover-danger);
-	color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
 }

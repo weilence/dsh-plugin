@@ -13,10 +13,10 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
   「显示名 + 模型 ID（同一行）/ 生效能力（容量与模态）/ 思考档位」（来自 Host 只读桥
   `GET /dsh-models/effective-models`，即 `ctx.llm.resolveModelInfo`，与会话模型选择器同一份事实）。
   列表页唯一的动作是「编辑」，点击弹出该 Provider 的大编辑弹窗。
-- **编辑弹窗（左编辑 · 右预览）**：左列编辑连接字段（`displayName` / `api` / `baseURL` / API Key）与模型清单（新增 / 编辑 / 删除 / 拖拽排序 / 恢复目录继承，
+- **编辑弹窗**：编辑连接字段（`displayName` / `api` / `baseURL` / API Key）与模型清单（新增 / 编辑 / 删除 / 拖拽排序 / 恢复目录继承，
   模型字段含 `name` / `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`，
-  全部有「继承」态）；右列把当前草稿对应的**整个 `providers.<route>` 子树**（连接 + 模型）
-  实时渲染成与 `settings.yaml` 同风格的 YAML——所见即最终一次性整值写入的用户层配置。
+  全部有「继承」态）；保存即一次性整值写入用户层的**整个 `providers.<route>` 子树**（连接 + 模型，JSON 值，
+  YAML 落盘由宿主 settings 文件提供方渲染）。
 - 官方 `llm-pi-ai` 会把 pi-ai 内置的 **40 个 provider 全部**声明进「可配置目录」，以便配置界面在任何
   路由存在之前就能提供完整目录（`directoryEntries()`: `for (const provider of catalog) declare(...)`）；
   而真正注册的 route 只有配置里存在的那些（`const routes = [...profiles().keys()]`）。面板按官方

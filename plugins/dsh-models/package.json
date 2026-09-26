@@ -1,84 +1,90 @@
 {
-	"name": "dsh-models",
-	"version": "0.1.0",
-	"description": "DeepSeek Harness web plugin for importing models.dev providers and models into llm-pi-ai, backed by a host-side ETag-aware catalog mirror.",
-	"type": "module",
-	"main": "lib/index.js",
-	"exports": {
-		".": "./lib/index.js",
-		"./client": "./lib/client.js",
-		"./package.json": "./package.json"
-	},
-	"dsh": {
-		"bundle": {
-			"patch": "./cordis.patch.yml"
-		},
-		"client": {
-			"platform": "web",
-			"inject": [
-				"@deepseek-ai/dsh-client-runtime",
-				"@deepseek-ai/dsh-client-ui-slots",
-				"@deepseek-ai/dsh-client-ui-settings",
-				"@deepseek-ai/dsh-api-remotes"
-			]
-		}
-	},
-	"files": [
-		"lib/index.js",
-		"lib/client.js",
-		"lib/client.js.map",
-		"cordis.patch.yml"
-	],
-	"scripts": {
-		"build": "tsdown",
-		"prepack": "tsdown",
-		"watch": "tsdown --watch",
-		"typecheck": "tsc --noEmit",
-		"test": "vitest run"
-	},
-	"license": "MIT",
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/weilence/dsh-plugins.git",
-		"directory": "plugins/dsh-models"
-	},
-	"bugs": {
-		"url": "https://github.com/weilence/dsh-plugins/issues"
-	},
-	"homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-models#readme",
-	"keywords": [
-		"dsh",
-		"dsh-plugin",
-		"models.dev",
-		"llm",
-		"dsh-models"
-	],
-	"engines": {
-		"node": ">=20",
-		"dsh": ">=0.1.7-rc.2 <0.2.0"
-	},
-	"publishConfig": {
-		"access": "public"
-	},
-	"devDependencies": {
-		"@dsh-plugins/tsdown-config": "workspace:*",
-		"@deepseek-ai/cordis": "catalog:",
-		"@deepseek-ai/dsh-api-remotes": "catalog:",
-		"@deepseek-ai/dsh-client-ui-primitives": "catalog:",
-		"@deepseek-ai/dsh-client-ui-settings": "catalog:",
-		"@deepseek-ai/dsh-client-ui-slots": "catalog:",
-		"@deepseek-ai/dsh-home-paths": "catalog:",
-		"@deepseek-ai/dsh-host-webserver": "catalog:",
-		"@deepseek-ai/dsh-llm": "catalog:",
-		"@types/node": "catalog:",
-		"@types/react": "catalog:",
-		"@types/react-dom": "catalog:",
-		"lightningcss": "catalog:",
-		"react": "catalog:",
-		"react-dom": "catalog:",
-		"tsdown": "catalog:",
-		"typescript": "catalog:",
-		"vitest": "catalog:",
-		"yaml": "2.9.1"
-	}
+  "name": "dsh-models",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness web plugin for importing models.dev providers and models into llm-pi-ai, backed by a host-side ETag-aware catalog mirror.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-remotes"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weilence/dsh-plugins.git",
+    "directory": "plugins/dsh-models"
+  },
+  "bugs": {
+    "url": "https://github.com/weilence/dsh-plugins/issues"
+  },
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-models#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "models.dev",
+    "llm",
+    "dsh-models"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.2 <0.2.0",
+    "@deepseek-ai/dsh-home-paths": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "devDependencies": {
+    "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/tsdown-config": "workspace:*",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-api-remotes": "catalog:",
+    "@deepseek-ai/dsh-api-settings-controller": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/dsh-home-paths": "catalog:",
+    "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@deepseek-ai/dsh-llm": "catalog:",
+    "@deepseek-ai/dsh-llm-pi-ai": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
 }
