@@ -4,7 +4,17 @@
  * POST 附带自定义头，让跨站简单请求折在 CORS 预检。
  */
 
-import type { DeleteRequest, FileResponse, ListResponse, SaveRequest, SaveResponse } from '../shared'
+import type {
+  DeleteRequest,
+  FileResponse,
+  GitInstallRequest,
+  GitInstallResponse,
+  GitScanRequest,
+  GitScanResponse,
+  ListResponse,
+  SaveRequest,
+  SaveResponse,
+} from '../shared'
 
 export interface ApiError extends Error {
   status: number
@@ -65,6 +75,12 @@ export const skillsApi = {
   },
   delete(requestBody: DeleteRequest): Promise<{ removed: boolean }> {
     return request('/dsh-skills/delete', { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  gitScan(requestBody: GitScanRequest): Promise<GitScanResponse> {
+    return request('/dsh-skills/git-scan', { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  gitInstall(requestBody: GitInstallRequest): Promise<GitInstallResponse> {
+    return request('/dsh-skills/git-install', { method: 'POST', body: JSON.stringify(requestBody) })
   },
 }
 

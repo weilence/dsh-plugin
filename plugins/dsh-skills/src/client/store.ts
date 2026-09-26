@@ -5,7 +5,7 @@
  */
 
 import { skillsApi, errMsg } from './api'
-import type { RootInfo, SaveRequest, SkillRow } from '../shared'
+import type { GitInstallResponse, GitScanResponse, RootId, RootInfo, SaveRequest, SkillRow } from '../shared'
 
 export interface SkillsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -19,6 +19,8 @@ export interface SkillsState {
   busy: string | null
   /** 正在加载原文的技能名（编辑 / 查看弹窗）。 */
   loadingFile: string | null
+  /** Git 安装弹窗占用中（克隆扫描 / 复制安装）。 */
+  gitBusy: 'scan' | 'install' | null
 }
 
 const INITIAL: SkillsState = {
@@ -30,6 +32,7 @@ const INITIAL: SkillsState = {
   skills: [],
   busy: null,
   loadingFile: null,
+  gitBusy: null,
 }
 
 export class SkillsStore {
@@ -167,6 +170,45 @@ export class SkillsStore {
       return false
     } finally {
       this.set({ busy: null })
+    }
+  }
+
+  /** 克隆并扫描 Git 仓库。失败返回 null 且错误已写入快照。 */
+  async gitScan(url: string): Promise<GitScanResponse | null> {
+    this.set({ gitBusy: 'scan', error: null, notice: null })
+    try {
+      return await skillsApi.gitScan({
+        url,
+        cwd: this.snapshot.scope === '' ? undefined : this.snapshot.scope,
+      })
+    } catch (error) {
+      this.set({ error: errMsg(error) })
+      return null
+    } finally {
+      this.set({ gitBusy: null })
+    }
+  }
+
+  /** 把选中的技能整目录安装进目标根。失败返回 null 且错误已写入快照。 */
+  async gitInstall(url: string, rootId: RootId, dirs: readonly string[]): Promise<GitInstallResponse | null> {
+    this.set({ gitBusy: 'install', error: null, notice: null })
+    try {
+      const outcome = await skillsApi.gitInstall({
+        url,
+        cwd: this.snapshot.scope === '' ? undefined : this.snapshot.scope,
+        rootId,
+        skills: [...dirs],
+      })
+      if (outcome.installed.length > 0) {
+        this.set({ notice: `已从 Git 安装 ${outcome.installed.length} 个技能：${outcome.installed.map((row) => row.name).join('、')}` })
+        await this.refresh()
+      }
+      return outcome
+    } catch (error) {
+      this.set({ error: errMsg(error) })
+      return null
+    } finally {
+      this.set({ gitBusy: null })
     }
   }
 }

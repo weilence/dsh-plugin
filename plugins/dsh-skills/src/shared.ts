@@ -98,6 +98,53 @@ export interface DeleteRequest {
   path: string
 }
 
+// ---- 从 Git 仓库安装（host 侧 git clone --depth 1 + 目录发现） ----
+
+/** Git 仓库里发现的一个技能候选。 */
+export interface GitSkillCandidate {
+  /** 技能目录在仓库内的相对路径（posix 分隔，安装请求按它回指）。 */
+  dir: string
+  /** 安装名（frontmatter name；缺省回退目录名）。 */
+  name: string
+  description: string
+  whenToUse?: string
+  /** 发现位置：marketplace / plugin.json 声明或标准技能目录。 */
+  origin: 'marketplace' | 'plugin' | 'skills' | 'agents' | 'claude' | 'root'
+  /** 校验问题（缺 description / 非法 name 等）；缺席 = 可安装。 */
+  problem?: string
+}
+
+/** POST /dsh-skills/git-scan 请求。 */
+export interface GitScanRequest {
+  /** git 仓库地址（https:// / ssh:// / git@host:path）。 */
+  url: string
+  cwd?: string
+}
+
+/** POST /dsh-skills/git-scan 响应。 */
+export interface GitScanResponse {
+  skills: GitSkillCandidate[]
+  /** 仓库级提示（跳过的外部插件等）。 */
+  notes: string[]
+}
+
+/** POST /dsh-skills/git-install 请求。 */
+export interface GitInstallRequest {
+  url: string
+  cwd?: string
+  rootId: RootId
+  /** 选中的候选目录（git-scan 下发的 dir 原值）。 */
+  skills: string[]
+}
+
+/** POST /dsh-skills/git-install 响应：部分成功允许。 */
+export interface GitInstallResponse {
+  installed: { name: string; path: string }[]
+  /** 目标根已有同名技能，未覆盖。 */
+  conflicts: { name: string; path: string }[]
+  failed: { name: string; error: string }[]
+}
+
 /** 来源的中文标签；未知来源回退原文。 */
 export const SOURCE_LABELS: Record<string, string> = {
   'project-dsh': '项目 · .dsh/skills',

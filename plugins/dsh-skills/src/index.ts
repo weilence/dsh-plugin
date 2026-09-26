@@ -23,6 +23,9 @@ import {
   sourceOrder,
   type DeleteRequest,
   type FileResponse,
+  type GitInstallRequest,
+  type GitScanRequest,
+  type GitSkillCandidate,
   type ListResponse,
   type RootId,
   type SaveRequest,
@@ -31,6 +34,7 @@ import {
   type SkillRow,
 } from './shared'
 import { applyKnown, formatOfPath, renderFile, splitFrontmatter } from './frontmatter'
+import { cloneToTemp, discoverRepoSkills, gitUrlProblem, installCandidates } from './gitInstall'
 import { RootMatcher, managedRoots, rootInfos } from './roots'
 import { scanRoot } from './scan'
 
@@ -40,6 +44,8 @@ export const LIST_PATH = '/dsh-skills/list'
 export const FILE_PATH = '/dsh-skills/file'
 export const SAVE_PATH = '/dsh-skills/save'
 export const DELETE_PATH = '/dsh-skills/delete'
+export const GIT_SCAN_PATH = '/dsh-skills/git-scan'
+export const GIT_INSTALL_PATH = '/dsh-skills/git-install'
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 
@@ -412,6 +418,99 @@ export function apply(ctx: Context): void {
         },
       }),
     'dsh-skills: delete bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: GIT_SCAN_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          let temp: string | undefined
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as GitScanRequest
+            const url = optionalString(request.url)
+            if (url === undefined) throw new HttpError(400, '缺少仓库地址')
+            const problem = gitUrlProblem(url)
+            if (problem !== null) throw new HttpError(400, problem)
+            try {
+              temp = await cloneToTemp(url)
+            } catch (error) {
+              throw new HttpError(400, error instanceof Error ? error.message : String(error))
+            }
+            const { skills, notes } = await discoverRepoSkills(temp)
+            writeJson(res, 200, { skills, notes })
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          } finally {
+            if (temp !== undefined) await rm(temp, { recursive: true, force: true })
+          }
+        },
+      }),
+    'dsh-skills: git-scan bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: GIT_INSTALL_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          let temp: string | undefined
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as GitInstallRequest
+            const url = optionalString(request.url)
+            if (url === undefined) throw new HttpError(400, '缺少仓库地址')
+            const problem = gitUrlProblem(url)
+            if (problem !== null) throw new HttpError(400, problem)
+            const dirs = Array.isArray(request.skills)
+              ? request.skills.filter((dir): dir is string => typeof dir === 'string')
+              : []
+            if (dirs.length === 0) throw new HttpError(400, '未选择任何技能')
+            const cwd = optionalString(request.cwd)
+            const roots = await managedRoots(cwd)
+            const target = roots.find((root) => root.id === request.rootId)
+            if (target === undefined) throw new HttpError(400, `未知的目标根「${String(request.rootId)}」`)
+            try {
+              temp = await cloneToTemp(url)
+            } catch (error) {
+              throw new HttpError(400, error instanceof Error ? error.message : String(error))
+            }
+            const { skills: candidates } = await discoverRepoSkills(temp)
+            const byDir = new Map<string, GitSkillCandidate>(candidates.map((skill) => [skill.dir, skill]))
+            const selected: GitSkillCandidate[] = dirs.map((dir) => {
+              const found = byDir.get(dir)
+              if (found !== undefined) return found
+              return {
+                dir,
+                name: dir.split('/').pop() ?? dir,
+                description: '',
+                origin: 'skills',
+                problem: '仓库里未找到该技能（内容可能已变化），请重新扫描',
+              }
+            })
+            const outcome = await installCandidates(target, selected, temp)
+            writeJson(res, 200, outcome as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          } finally {
+            if (temp !== undefined) await rm(temp, { recursive: true, force: true })
+          }
+        },
+      }),
+    'dsh-skills: git-install bridge',
   )
 }
 

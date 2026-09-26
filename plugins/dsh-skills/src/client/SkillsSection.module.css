@@ -16,18 +16,10 @@
   gap: 16px;
 }
 
-/* 头部左侧标题列可收缩（副标题换行）；按钮列保持整行不换字——
-   CJK 文本的最小内容宽度只有一个字符，flex 收缩会把按钮挤成竖排。 */
+/* 头部标题列可收缩（副标题换行）。 */
 .panelHeadMain {
   min-width: 0;
   flex: 1;
-}
-
-.headActions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 
 .panelTitle {
@@ -80,6 +72,14 @@
   line-height: 17px;
   color: var(--dsw-alias-label-tertiary);
   padding-bottom: 9px;
+}
+
+/* 列表工具条：新建 / 刷新贴着技能列表上方，不放页面头部右上角。 */
+.listToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* 技能卡片列表。 */
@@ -206,6 +206,9 @@
 .dialog {
   width: min(720px, calc(100vw - 48px));
 }
+
+/* Git 安装弹窗。候选勾选清单是共享组件 PickList
+   （@dsh-plugins/client-ui），样式在 shared.module.css。 */
 
 .bodyField {
   display: flex;

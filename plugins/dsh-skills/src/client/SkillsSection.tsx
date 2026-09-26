@@ -13,6 +13,7 @@ import type { RootInfo, SkillRow } from '../shared'
 import { sourceLabel, sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
 import { SkillEditor } from './SkillEditor'
+import { GitInstallDialog } from './GitInstallDialog'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SkillsSection.module.css'
 
@@ -79,6 +80,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   const [editing, setEditing] = useState<SkillRow | undefined>(undefined)
   const [viewing, setViewing] = useState<SkillRow | undefined>(undefined)
   const [deleting, setDeleting] = useState<SkillRow | undefined>(undefined)
+  const [installing, setInstalling] = useState(false)
 
   const ordered = useMemo(
     () =>
@@ -101,18 +103,6 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             管理当前工作区与用户级（全局）的技能：直接扫描标准技能根并按官方规则校验， 新建 / 编辑 /
             删除技能文件；内置与自定义目录等只读来源仅查看。
           </p>
-        </div>
-        <div className={styles.headActions}>
-          <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
-            新建技能
-          </Button>
-          <Button
-            variant="outline"
-            disabled={state.status === 'loading'}
-            onClick={() => void store.refresh()}
-          >
-            刷新
-          </Button>
         </div>
       </header>
 
@@ -153,6 +143,21 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
       {state.notice !== null ? (
         <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
+      <div className={styles.listToolbar}>
+        <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
+          新建技能
+        </Button>
+        <Button variant="outline" disabled={state.status !== 'ready'} onClick={() => setInstalling(true)}>
+          从 Git 安装
+        </Button>
+        <Button
+          variant="outline"
+          disabled={state.status === 'loading'}
+          onClick={() => void store.refresh()}
+        >
+          刷新
+        </Button>
+      </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取技能目录…</div> : null}
 
       <div className={styles.rows}>
@@ -185,6 +190,17 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           error={state.error}
           store={store}
           onCancel={() => setCreating(false)}
+        />
+      ) : null}
+      {installing ? (
+        <GitInstallDialog
+          store={store}
+          roots={state.roots}
+          busy={state.gitBusy !== null}
+          scanning={state.gitBusy === 'scan'}
+          installing={state.gitBusy === 'install'}
+          error={state.error}
+          onClose={() => setInstalling(false)}
         />
       ) : null}
       {editing !== undefined ? (
