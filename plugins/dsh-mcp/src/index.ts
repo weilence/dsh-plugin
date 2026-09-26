@@ -1,0 +1,503 @@
+/**
+ * dsh-mcp host half：设置页「MCP 管理」面板的 HTTP 桥。
+ *
+ * DSH 的 MCP 服务器就是 cordis patch 里的一个 mcp-client 插件行，本插件
+ * 不做第二套配置存储：读写都落在两层用户 patch 上（profile 层
+ * `<profile>/cordis.patch.yml` 与 home 层 `<DSH_HOME>/cordis.patch.yml`），
+ * bundle / `--patch` 覆盖引入的行只读展示。写入为注释保留的 YAML 编辑 +
+ * 原子替换落盘；HMR 的 patch watcher 监视这两层文件，改动即刻在线重整
+ * （无 HMR 的组合保存后需重启，面板会提示）。
+ *
+ * 读侧另从 Loader 条目树取每个实例的 fiber 状态，从工具注册表取
+ * `mcp__<serverName>__*` 的实时清单；loader / tools / hmr 服务都经可选
+ * 访问，缺席时相应降级。
+ *
+ * @module dsh-mcp
+ */
+
+import { readFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import {
+  MCP_PLUGIN_NAME,
+  rowIdOf,
+  type DeleteRequest,
+  type ListResponse,
+  type McpRow,
+  type McpScope,
+  type SaveRequest,
+  type SaveResponse,
+  type SetEnabledRequest,
+} from './shared'
+import { ConfigError, mergeForEdit, normalizeDraft } from './mcpConfig'
+import { collectLiveMcp } from './live'
+import {
+  appendMcpInsert,
+  emptyPatchDoc,
+  parsePatchDoc,
+  removeInsertRow,
+  removeOverridesOf,
+  renderPatchDoc,
+  scanPatchDoc,
+  setEnabledInDoc,
+  setInsertConfig,
+  setOverrideConfig,
+  writeTextAtomic,
+  type Document,
+  type InsertRow,
+  type OverrideRow,
+} from './patchFile'
+
+export const inject: string[] = ['webServer']
+
+export const LIST_PATH = '/dsh-mcp/list'
+export const SAVE_PATH = '/dsh-mcp/save'
+export const SET_ENABLED_PATH = '/dsh-mcp/set-enabled'
+export const DELETE_PATH = '/dsh-mcp/delete'
+
+const MAX_BODY_BYTES = 2 * 1024 * 1024
+
+/** 携带 HTTP 状态的业务错误。 */
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+// URL.hostname 保留 IPv6 字面量的方括号，且 127/8 整段都是 loopback。
+function isLoopbackHostname(hostname: string) {
+  const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+  return (
+    bare === 'localhost' || bare === '::1' || bare === '0:0:0:0:0:0:0:1' || /^127(?:\.\d{1,3}){3}$/.test(bare)
+  )
+}
+
+// loopback 绑定接受 localhost / 127.x / ::1 多种拼写；非 loopback 的 Host
+// 头一律拒绝——这是本同源桥不服务 DNS-rebinding 页面的依据。
+export function isExpectedHost(req: IncomingMessage, expectedHost: string) {
+  const authority = req.headers.host
+  if (!authority || /[\/@?#]/.test(authority)) return false
+  try {
+    const actual = new URL(`http://${authority}`).hostname
+    if (actual === expectedHost) return true
+    return isLoopbackHostname(expectedHost) && isLoopbackHostname(actual)
+  } catch {
+    return false
+  }
+}
+
+// 跨站请求（含预检外的简单 POST）不带可用的 sec-fetch-site 同源标记；
+// dsh-app: 自定义协议页面该头缺席，与 same-origin 同等放行。
+export function isTrustedFetch(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site']
+  return site === undefined || site === 'same-origin' || site === 'none'
+}
+
+function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
+  const payload = Buffer.from(JSON.stringify(body))
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(payload.byteLength),
+    'cache-control': 'no-store',
+  })
+  res.end(payload)
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, '请求体过大')
+    chunks.push(chunk as Buffer)
+  }
+  if (chunks.length === 0) throw new HttpError(400, '缺少 JSON 请求体')
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new HttpError(400, '请求体必须是 JSON 对象')
+    }
+    return parsed as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw new HttpError(400, '无效的 JSON 请求体')
+  }
+}
+
+// ---- profile / loader / tools 的结构化最小访问 ----
+
+interface ProfileContextLike {
+  name?: unknown
+  patchPath?: unknown
+  home?: unknown
+}
+
+interface Layer {
+  scope: McpScope
+  file: string
+  doc: Document
+}
+
+/** 组合出的一条受管 MCP 行：insert 声明 + 按序 fold 的裸覆盖。 */
+interface ManagedRow {
+  scope: McpScope
+  insert: InsertRow
+  layer: Layer
+  overrides: { layer: Layer; row: OverrideRow }[]
+  effectiveConfig: Record<string, unknown>
+  disabled: boolean
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
+
+async function readPatchText(file: string): Promise<string | null> {
+  try {
+    return await readFile(file, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
+async function loadLayers(profile: { patchPath: string; home: string }): Promise<Layer[]> {
+  const files: { scope: McpScope; file: string }[] = [
+    { scope: 'profile', file: profile.patchPath },
+    { scope: 'home', file: join(profile.home, 'cordis.patch.yml') },
+  ]
+  const layers: Layer[] = []
+  for (const { scope, file } of files) {
+    const text = await readPatchText(file)
+    try {
+      layers.push({ scope, file, doc: text === null ? emptyPatchDoc() : parsePatchDoc(text) })
+    } catch (error) {
+      throw new HttpError(500, `${file} 解析失败：${String(error instanceof Error ? error.message : error)}`)
+    }
+  }
+  return layers
+}
+
+/** 扫描两层文件并组合受管行（profile 行在前、home 行在后的 fold 序）。 */
+export function composeManaged(layers: readonly Layer[]): ManagedRow[] {
+  const inserts: { layer: Layer; row: InsertRow }[] = []
+  const overrides: { layer: Layer; row: OverrideRow }[] = []
+  for (const layer of layers) {
+    const scanned = scanPatchDoc(layer.doc)
+    inserts.push(
+      ...scanned.inserts.filter((row) => row.name === MCP_PLUGIN_NAME).map((row) => ({ layer, row })),
+    )
+    overrides.push(...scanned.overrides.map((row) => ({ layer, row })))
+  }
+  return inserts.map(({ layer, row }) => {
+    const own = overrides.filter(({ row: candidate }) => candidate.id === row.id)
+    let effectiveConfig = asRecord(row.config)
+    let disabled = row.disabled
+    for (const { row: candidate } of own) {
+      if (candidate.config !== undefined) effectiveConfig = asRecord(candidate.config)
+      if (candidate.disabled !== undefined) disabled = candidate.disabled
+    }
+    const managed: ManagedRow = {
+      scope: layer.scope,
+      insert: row,
+      layer,
+      overrides: own,
+      effectiveConfig,
+      disabled: disabled === true,
+    }
+    return managed
+  })
+}
+
+function serverNameOf(config: Record<string, unknown>): string | undefined {
+  return typeof config.serverName === 'string' && config.serverName.length > 0 ? config.serverName : undefined
+}
+
+/** 落盘一层（仅写变更过的文件）。 */
+async function writeLayers(touched: Iterable<Layer>): Promise<void> {
+  for (const layer of touched) {
+    await writeTextAtomic(layer.file, renderPatchDoc(layer.doc))
+  }
+}
+
+function scopeOfRequest(value: unknown): McpScope {
+  if (value === 'profile' || value === 'home') return value
+  throw new HttpError(400, 'scope 必须是 profile 或 home')
+}
+
+export function apply(ctx: Context): void {
+  // profileContext / loader / tools / hmr 都是可选访问：官方 web/desktop
+  // 组合均提供，缺席时按能力降级而不是拒绝加载。
+  const profileContextOf = (): { name: string | null; patchPath: string; home: string } | undefined => {
+    const profile = ctx.get('profileContext') as ProfileContextLike | undefined
+    if (profile === undefined || typeof profile.patchPath !== 'string' || typeof profile.home !== 'string') {
+      return undefined
+    }
+    return {
+      name: typeof profile.name === 'string' ? profile.name : null,
+      patchPath: profile.patchPath,
+      home: profile.home,
+    }
+  }
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: LIST_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const profile = profileContextOf()
+            if (profile === undefined) {
+              writeJson(res, 503, {
+                error: '当前宿主未提供 profileContext（非 profile 启动），无法定位 patch 层',
+              })
+              return
+            }
+            const layers = await loadLayers(profile)
+            const managed = composeManaged(layers)
+            const live = await collectLiveMcp(
+              ctx.get('loader') as Parameters<typeof collectLiveMcp>[0],
+              ctx.get('tools') as Parameters<typeof collectLiveMcp>[1],
+            )
+
+            const matched = new Set<string>()
+            const servers: McpRow[] = managed.map((row): McpRow => {
+              // 受管行只与根树条目匹配（bundle 子树里的同局部 id 不相干）。
+              const entry = live.find(
+                (candidate) => candidate.patchId === row.insert.id && !candidate.inSubtree,
+              )
+              if (entry !== undefined) matched.add(entry.patchId)
+              return {
+                id: row.insert.id,
+                scope: row.scope,
+                config: row.effectiveConfig,
+                disabled: row.disabled,
+                editable: true,
+                live:
+                  entry === undefined
+                    ? null
+                    : {
+                        status: entry.status,
+                        tools: entry.tools,
+                        ...(entry.error !== undefined ? { error: entry.error } : {}),
+                      },
+              }
+            })
+            // 只读来源：bundle 子树行 + 根树上未匹配两层的行（--patch 覆盖）。
+            for (const entry of live) {
+              if (!entry.inSubtree && matched.has(entry.patchId)) continue
+              if (!entry.inSubtree && managed.some((row) => row.insert.id === entry.patchId)) continue
+              servers.push({
+                id: entry.patchId,
+                scope: entry.inSubtree ? 'bundle' : 'overlay',
+                config: entry.config,
+                disabled: entry.disabled,
+                editable: false,
+                live: {
+                  status: entry.status,
+                  tools: entry.tools,
+                  ...(entry.error !== undefined ? { error: entry.error } : {}),
+                },
+              })
+            }
+            servers.sort((left, right) => {
+              const nameOf = (row: McpRow): string => serverNameOf(row.config) ?? row.id
+              return nameOf(left) < nameOf(right) ? -1 : nameOf(left) > nameOf(right) ? 1 : 0
+            })
+            const response: ListResponse = {
+              profileName: profile.name,
+              patchPaths: { profile: layers[0]?.file ?? '', home: layers[1]?.file ?? '' },
+              hotApply: ctx.get('hmr') !== undefined,
+              servers,
+            }
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            writeJson(res, 500, { error: String(error) })
+          }
+        },
+      }),
+    'dsh-mcp: list bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: SAVE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as SaveRequest
+            const scope = scopeOfRequest(request.scope)
+            const profile = profileContextOf()
+            if (profile === undefined)
+              throw new HttpError(503, '当前宿主未提供 profileContext，无法定位 patch 层')
+            let draft
+            try {
+              draft = normalizeDraft(request.config)
+            } catch (error) {
+              const status = error instanceof ConfigError ? 400 : 500
+              throw new HttpError(status, error instanceof Error ? error.message : String(error))
+            }
+
+            const layers = await loadLayers(profile)
+            const managed = composeManaged(layers)
+            const editing = typeof request.id === 'string' && request.id.length > 0 ? request.id : undefined
+
+            // serverName 全局唯一（运行时按它预留命名空间，撞名行会失败）。
+            const duplicate = managed.find(
+              (row) => row.insert.id !== editing && serverNameOf(row.effectiveConfig) === draft.serverName,
+            )
+            if (duplicate !== undefined) {
+              throw new HttpError(409, `serverName「${draft.serverName}」已被 ${duplicate.insert.id} 使用`)
+            }
+
+            if (editing === undefined) {
+              const id = rowIdOf(draft.serverName)
+              for (const layer of layers) {
+                if (scanPatchDoc(layer.doc).inserts.some((row) => row.id === id)) {
+                  throw new HttpError(409, `patch 行 id「${id}」已被占用（${layer.file}）`)
+                }
+              }
+              const layer = layers.find((candidate) => candidate.scope === scope)
+              if (layer === undefined) throw new HttpError(400, `未知的作用域「${scope}」`)
+              appendMcpInsert(layer.doc, { id, config: draft })
+              await writeLayers([layer])
+              const response: SaveResponse = { id, scope }
+              writeJson(res, 200, response as unknown as Record<string, unknown>)
+              return
+            }
+
+            const row = managed.find(
+              (candidate) => candidate.insert.id === editing && candidate.scope === scope,
+            )
+            if (row === undefined)
+              throw new HttpError(404, `没有找到 id 为「${editing}」的 MCP 行（作用域 ${scope}）`)
+            const merged = mergeForEdit([asRecord(row.insert.config), row.effectiveConfig], draft)
+            setInsertConfig(row.layer.doc, row.insert, merged)
+            const touched = new Set<Layer>([row.layer])
+            for (const override of row.overrides) {
+              if (override.row.config === undefined) continue
+              setOverrideConfig(override.layer.doc, override.row.patchIndex, merged)
+              touched.add(override.layer)
+            }
+            await writeLayers(touched)
+            const response: SaveResponse = { id: editing, scope }
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-mcp: save bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: SET_ENABLED_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as SetEnabledRequest
+            const scope = scopeOfRequest(request.scope)
+            if (typeof request.id !== 'string' || request.id.length === 0) throw new HttpError(400, '缺少 id')
+            if (typeof request.enabled !== 'boolean') throw new HttpError(400, 'enabled 必须是布尔值')
+            const profile = profileContextOf()
+            if (profile === undefined)
+              throw new HttpError(503, '当前宿主未提供 profileContext，无法定位 patch 层')
+
+            const layers = await loadLayers(profile)
+            const managed = composeManaged(layers)
+            const row = managed.find(
+              (candidate) => candidate.insert.id === request.id && candidate.scope === scope,
+            )
+            if (row === undefined)
+              throw new HttpError(404, `没有找到 id 为「${request.id}」的 MCP 行（作用域 ${scope}）`)
+
+            // 已有携带 disabled 的覆盖行时改最后一处（它才是生效声明），
+            // 否则在 insert 所在层追加官方形态的裸行。
+            const bearing = [...row.overrides]
+              .reverse()
+              .find(({ row: candidate }) => candidate.disabled !== undefined)
+            const target = bearing?.layer ?? row.layer
+            const changed = setEnabledInDoc(target.doc, request.id, request.enabled)
+            if (changed) await writeLayers([target])
+            writeJson(res, 200, { id: request.id, enabled: request.enabled })
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-mcp: set-enabled bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: DELETE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as DeleteRequest
+            const scope = scopeOfRequest(request.scope)
+            if (typeof request.id !== 'string' || request.id.length === 0) throw new HttpError(400, '缺少 id')
+            const profile = profileContextOf()
+            if (profile === undefined)
+              throw new HttpError(503, '当前宿主未提供 profileContext，无法定位 patch 层')
+
+            const layers = await loadLayers(profile)
+            const managed = composeManaged(layers)
+            const row = managed.find(
+              (candidate) => candidate.insert.id === request.id && candidate.scope === scope,
+            )
+            if (row === undefined)
+              throw new HttpError(404, `没有找到 id 为「${request.id}」的 MCP 行（作用域 ${scope}）`)
+
+            removeInsertRow(row.layer.doc, row.insert)
+            const touched = new Set<Layer>([row.layer])
+            if (row.overrides.length > 0) {
+              for (const layer of layers) {
+                removeOverridesOf(layer.doc, request.id)
+                touched.add(layer)
+              }
+            }
+            await writeLayers(touched)
+            writeJson(res, 200, { removed: true })
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-mcp: delete bridge',
+  )
+}

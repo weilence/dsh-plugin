@@ -1,0 +1,85 @@
+{
+  "name": "dsh-mcp",
+  "version": "0.1.0",
+  "description": "DSH web 插件（MCP 管理）：设置页新增「MCP 管理」菜单——以官方 mcp-client 组合行为唯一事实源，浏览当前 profile 的 MCP 服务器（profile 层 / 全局 ~/.dsh 层 / bundle·overlay 只读来源）及其运行态（fiber 状态、注册的 mcp__ 工具清单），对两层用户 patch 做 comment 保留的新建 / 编辑 / 启停 / 删除；写入经原子替换落盘后由 HMR 的 patch watcher 在线重整，无需重启。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "mcp",
+    "model-context-protocol",
+    "mcp-management"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weilence/dsh-plugins.git",
+    "directory": "plugins/dsh-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/weilence/dsh-plugins/issues"
+  },
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-mcp#readme",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.2 <0.2.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "devDependencies": {
+    "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/tsdown-config": "workspace:*",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@deepseek-ai/dsh-mcp-client": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "yaml": "^2.9.0"
+  }
+}
