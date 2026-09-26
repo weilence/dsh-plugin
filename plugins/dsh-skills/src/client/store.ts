@@ -89,7 +89,10 @@ export class SkillsStore {
 
   /** 切换项目作用域并立即刷新。 */
   setScope(scope: string): void {
-    if (scope === this.snapshot.scope) return
+    // 值未变时短路避免重复刷新；但 idle（从未加载过）必须放行——store 是
+    // 应用级单例，面板首次挂载若档位恰为全局，effectiveCwd 与初始 scope
+    // 同为 ''，短路会让首次列表请求永不发出。
+    if (scope === this.snapshot.scope && this.snapshot.status !== 'idle') return
     this.set({ scope, status: 'loading', error: null, notice: null, skills: [], roots: [], updates: {} })
     void this.refresh()
   }
