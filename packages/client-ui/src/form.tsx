@@ -35,7 +35,8 @@ export function TextField(props: {
   /** 输入框右侧的联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
   addon?: { label: string; onClick(): void; disabled?: boolean }
 }) {
-  const { label, value, onChange, type, placeholder, list, inputMode, autoComplete, disabled, wide, addon } = props
+  const { label, value, onChange, type, placeholder, list, inputMode, autoComplete, disabled, wide, addon } =
+    props
   return (
     <Field label={label} wide={wide}>
       {addon === undefined ? (
@@ -63,7 +64,12 @@ export function TextField(props: {
             disabled={disabled}
             onChange={(event) => onChange(event.target.value)}
           />
-          <button type="button" className={styles.addonButton} disabled={disabled || addon.disabled} onClick={addon.onClick}>
+          <button
+            type="button"
+            className={styles.addonButton}
+            disabled={disabled || addon.disabled}
+            onClick={addon.onClick}
+          >
             {addon.label}
           </button>
         </div>

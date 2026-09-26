@@ -25,7 +25,11 @@ export interface PickItem {
   problem?: string
 }
 
-export function PickList(props: { items: readonly PickItem[]; picked: ReadonlySet<string>; onToggle(key: string): void }) {
+export function PickList(props: {
+  items: readonly PickItem[]
+  picked: ReadonlySet<string>
+  onToggle(key: string): void
+}) {
   const { items, picked, onToggle } = props
   if (items.length === 0) return null
   return (
@@ -42,7 +46,9 @@ export function PickList(props: { items: readonly PickItem[]; picked: ReadonlySe
             <span className={styles.pickMain}>
               <span className={styles.pickName}>
                 {item.title}
-                {item.titleMeta !== undefined ? <span className={styles.pickMeta}> · {item.titleMeta}</span> : null}
+                {item.titleMeta !== undefined ? (
+                  <span className={styles.pickMeta}> · {item.titleMeta}</span>
+                ) : null}
               </span>
               {(item.lines ?? []).map((line, index) => (
                 <span key={index} className={styles.pickMeta}>

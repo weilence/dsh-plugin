@@ -43,13 +43,7 @@ import { RootMatcher, managedRoots, rootInfos, type ManagedRoot } from './roots'
 import { scanRoot } from './scan'
 // 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
-import {
-  HttpError,
-  isExpectedHost,
-  isTrustedFetch,
-  readJsonBody,
-  writeJson,
-} from '@dsh-plugins/shared/http'
+import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 
 export const inject: string[] = ['webServer']
 
@@ -162,7 +156,9 @@ export function apply(ctx: Context): void {
             // 时 dest = join(root, name)，目录名即技能名）；索引陈旧条目
             // （目录已被外部删掉）自然不命中。
             const gitIndexes = new Map<RootId, RootGitIndex>()
-            await Promise.all(roots.map(async (root) => gitIndexes.set(root.id, await readGitIndex(root.path))))
+            await Promise.all(
+              roots.map(async (root) => gitIndexes.set(root.id, await readGitIndex(root.path))),
+            )
             for (const row of rows) {
               if (row.rootId === undefined || row.format !== 'bundle' || row.path === undefined) continue
               const record = gitIndexes.get(row.rootId)?.skills[basename(dirname(row.path))]

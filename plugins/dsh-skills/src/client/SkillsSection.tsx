@@ -48,7 +48,12 @@ function dateLabelOf(iso: string): string {
 /** 行上的来源 chip 只保留只读来源（内置 / 自定义目录 / 运行时）；四个可写
  *  根的作用域（工作区级 / 全局）由顶部下拉表达，不在行内重复。 */
 function readonlyLabelOf(source: string): string | null {
-  if (source === 'project-dsh' || source === 'project-agents' || source === 'user-dsh' || source === 'user-agents') {
+  if (
+    source === 'project-dsh' ||
+    source === 'project-agents' ||
+    source === 'user-dsh' ||
+    source === 'user-agents'
+  ) {
     return null
   }
   return sourceLabel(source)
@@ -136,10 +141,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
       keyword.length === 0
         ? ordered
         : ordered.filter((skill) =>
-            [skill.name, skill.description, skill.whenToUse ?? '']
-              .join('\n')
-              .toLowerCase()
-              .includes(keyword),
+            [skill.name, skill.description, skill.whenToUse ?? ''].join('\n').toLowerCase().includes(keyword),
           ),
     [ordered, keyword],
   )
@@ -253,7 +255,9 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             skill={skill}
             roots={state.roots}
             busy={busy || state.busy === skill.name}
-            update={skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined}
+            update={
+              skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined
+            }
             updating={state.gitBusy === 'update'}
             onView={() => setViewing(skill)}
             onEdit={() => setEditing(skill)}
@@ -267,9 +271,8 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
               <>没有匹配「{filter.trim()}」的技能</>
             ) : (
               <>
-                当前作用域下没有发现技能。工作区级技能放在{' '}
-                <code className={styles.code}>.dsh/skills/</code> 或{' '}
-                <code className={styles.code}>.agents/skills/</code>，全局技能放在{' '}
+                当前作用域下没有发现技能。工作区级技能放在 <code className={styles.code}>.dsh/skills/</code>{' '}
+                或 <code className={styles.code}>.agents/skills/</code>，全局技能放在{' '}
                 <code className={styles.code}>~/.dsh/skills/</code> 或{' '}
                 <code className={styles.code}>~/.agents/skills/</code>；点「新建技能」开始。
               </>
@@ -404,7 +407,10 @@ function SkillCard(props: {
             </span>
           ) : null}
           {update?.status === 'local' ? (
-            <span className={styles.rowFlagUpdate} title="上游有新版本；本地内容也被修改过，更新将覆盖本地改动">
+            <span
+              className={styles.rowFlagUpdate}
+              title="上游有新版本；本地内容也被修改过，更新将覆盖本地改动"
+            >
               有更新 · 本地已修改
             </span>
           ) : null}
@@ -427,7 +433,12 @@ function SkillCard(props: {
       </div>
       <div className={styles.rowActions}>
         {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
-          <Button variant="outline" size="sm" disabled={props.busy || props.updating} onClick={props.onUpdate}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={props.busy || props.updating}
+            onClick={props.onUpdate}
+          >
             更新
           </Button>
         ) : null}

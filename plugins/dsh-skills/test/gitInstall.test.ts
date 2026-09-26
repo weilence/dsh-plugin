@@ -100,8 +100,14 @@ describe('discoverRepoSkills：marketplace / plugin.json 声明', () => {
         plugins: [{ name: 'p1', source: 'p1', skills: ['./skills/review'] }],
       }),
     )
-    await write(join(repo, 'plugins', 'p1', 'skills', 'review', 'SKILL.md'), skillMd('review', '声明路径技能'))
-    await write(join(repo, 'plugins', 'p1', 'skills', 'extra', 'SKILL.md'), skillMd('extra', '插件 skills 容器技能'))
+    await write(
+      join(repo, 'plugins', 'p1', 'skills', 'review', 'SKILL.md'),
+      skillMd('review', '声明路径技能'),
+    )
+    await write(
+      join(repo, 'plugins', 'p1', 'skills', 'extra', 'SKILL.md'),
+      skillMd('extra', '插件 skills 容器技能'),
+    )
     const { skills, notes } = await discoverRepoSkills(repo)
     expect(notes).toEqual([])
     const dirs = skills.map((skill) => skill.dir)
@@ -140,9 +146,15 @@ describe('cloneToTemp：部分克隆 + 稀疏检出', () => {
     await write(join(repo, 'docs', 'big.md'), '# 大文档，不应被检出')
     await write(
       join(repo, '.claude-plugin', 'marketplace.json'),
-      JSON.stringify({ metadata: { pluginRoot: './plugins' }, plugins: [{ name: 'p1', source: 'p1', skills: ['./skills/review'] }] }),
+      JSON.stringify({
+        metadata: { pluginRoot: './plugins' },
+        plugins: [{ name: 'p1', source: 'p1', skills: ['./skills/review'] }],
+      }),
     )
-    await write(join(repo, 'plugins', 'p1', 'skills', 'review', 'SKILL.md'), skillMd('review', '声明路径技能'))
+    await write(
+      join(repo, 'plugins', 'p1', 'skills', 'review', 'SKILL.md'),
+      skillMd('review', '声明路径技能'),
+    )
     await gitInit(repo)
 
     const dest = await cloneToTemp(fileUrlOf(repo))

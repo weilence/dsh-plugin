@@ -35,13 +35,7 @@ import { ConfigError, extrasOf, mergeForEdit, normalizeDraft } from './mcpConfig
 import { collectLiveMcp } from './live'
 // 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
-import {
-  HttpError,
-  isExpectedHost,
-  isTrustedFetch,
-  readJsonBody,
-  writeJson,
-} from '@dsh-plugins/shared/http'
+import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import {
   appendMcpInsert,
   emptyPatchDoc,

@@ -285,7 +285,8 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
     }
     const otherKeys = transport === 'stdio' ? HTTP_ONLY_KEYS : STDIO_ONLY_KEYS
     const dropped = otherKeys.filter((field) => value[field] !== undefined)
-    if (dropped.length > 0) notes.push(`已忽略 ${transport === 'stdio' ? 'HTTP' : 'stdio'} 专属键：${dropped.join(' / ')}`)
+    if (dropped.length > 0)
+      notes.push(`已忽略 ${transport === 'stdio' ? 'HTTP' : 'stdio'} 专属键：${dropped.join(' / ')}`)
     const extras: Record<string, unknown> = {}
     for (const [field, fieldValue] of Object.entries(value)) {
       if (field !== 'type' && !KNOWN_KEYS.has(field)) extras[field] = fieldValue
@@ -307,7 +308,10 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
       if (server === undefined) problems.push({ name: key, message: '不是服务器配置对象' })
       else consume(key.trim(), server)
     }
-  } else if (wrapped === undefined && ['command', 'url', 'type', 'transport'].some((key) => root[key] !== undefined)) {
+  } else if (
+    wrapped === undefined &&
+    ['command', 'url', 'type', 'transport'].some((key) => root[key] !== undefined)
+  ) {
     const derived = deriveServerName(root)
     if (derived === undefined) {
       problems.push({ name: '', message: '无法从配置推导 serverName：请改用 {"服务器名": {...}} 包装' })
@@ -337,7 +341,10 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
 function deriveServerName(value: Record<string, unknown>): string | undefined {
   let raw: string | undefined
   if (typeof value.command === 'string' && value.command.length > 0) {
-    raw = value.command.split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat)$/i, '')
+    raw = value.command
+      .split(/[\\/]/)
+      .pop()
+      ?.replace(/\.(exe|cmd|bat)$/i, '')
   } else if (typeof value.url === 'string' && value.url.length > 0) {
     try {
       raw = new URL(value.url).hostname

@@ -86,7 +86,12 @@ function runGit(args: string[], cwd: string): Promise<string> {
     child.on('close', (code) => {
       clearTimeout(timer)
       if (code === 0) resolveRun(stdout.trim())
-      else rejectRun(new Error(`git clone 失败：${stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`}`))
+      else
+        rejectRun(
+          new Error(
+            `git clone 失败：${stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`}`,
+          ),
+        )
     })
   })
 }
@@ -143,7 +148,10 @@ export async function cloneToTemp(url: string): Promise<string> {
   const dest = await mkdtemp(join(tmpdir(), 'dsh-skills-'))
   const trimmed = url.trim()
   try {
-    await runGit(['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--quiet', '--', trimmed, dest], dest)
+    await runGit(
+      ['clone', '--depth', '1', '--filter=blob:none', '--sparse', '--quiet', '--', trimmed, dest],
+      dest,
+    )
     await runGit(['sparse-checkout', 'set', ...SPARSE_BASE_DIRS], dest)
     const extra = await declaredPluginDirs(dest)
     if (extra.length > 0) await runGit(['sparse-checkout', 'add', ...extra], dest)
@@ -242,7 +250,11 @@ type Collector = (dirAbs: string, origin: GitSkillCandidate['origin']) => void
 
 /** 容器目录下发现技能：子目录含 SKILL.md 即命中且不再下探，否则继续
  * 下探（最多 3 层，覆盖 skills/<category>/<name> 分类布局）。 */
-async function scanContainer(container: string, origin: GitSkillCandidate['origin'], add: Collector): Promise<void> {
+async function scanContainer(
+  container: string,
+  origin: GitSkillCandidate['origin'],
+  add: Collector,
+): Promise<void> {
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 3) return
     let entries
@@ -263,7 +275,11 @@ async function scanContainer(container: string, origin: GitSkillCandidate['origi
 }
 
 /** 读取技能目录的 SKILL.md 并按官方规则校验，产出候选行。 */
-async function candidateOf(root: string, dirAbs: string, origin: GitSkillCandidate['origin']): Promise<GitSkillCandidate> {
+async function candidateOf(
+  root: string,
+  dirAbs: string,
+  origin: GitSkillCandidate['origin'],
+): Promise<GitSkillCandidate> {
   let raw = ''
   try {
     raw = await readFile(join(dirAbs, 'SKILL.md'), { encoding: 'utf8' })
@@ -295,15 +311,17 @@ export async function discoverRepoSkills(
 
   // ① Claude 插件市场清单：声明的插件目录与技能路径。
   const marketplaceDoc = asRecord(await readJsonFile(join(root, '.claude-plugin', 'marketplace.json')))
-  const pluginDoc = marketplaceDoc === undefined
-    ? asRecord(await readJsonFile(join(root, '.claude-plugin', 'plugin.json')))
-    : undefined
+  const pluginDoc =
+    marketplaceDoc === undefined
+      ? asRecord(await readJsonFile(join(root, '.claude-plugin', 'plugin.json')))
+      : undefined
   if (marketplaceDoc !== undefined || pluginDoc !== undefined) {
-    const pluginRoot = marketplaceDoc !== undefined
-      ? (typeof (asRecord(marketplaceDoc.metadata) ?? {}).pluginRoot === 'string'
+    const pluginRoot =
+      marketplaceDoc !== undefined
+        ? typeof (asRecord(marketplaceDoc.metadata) ?? {}).pluginRoot === 'string'
           ? (asRecord(marketplaceDoc.metadata) as { pluginRoot: string }).pluginRoot
-          : './plugins')
-      : '.'
+          : './plugins'
+        : '.'
     const entries: unknown[] =
       marketplaceDoc !== undefined
         ? Array.isArray(marketplaceDoc.plugins)

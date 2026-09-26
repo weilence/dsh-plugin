@@ -37,7 +37,9 @@ export function GitInstallDialog(props: {
   const [scan, setScan] = useState<GitScanResponse | null>(null)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [rootId, setRootId] = useState<RootId>(() =>
-    props.roots.some((root) => root.id === 'user-agents') ? 'user-agents' : (props.roots[0]?.id ?? 'user-agents'),
+    props.roots.some((root) => root.id === 'user-agents')
+      ? 'user-agents'
+      : (props.roots[0]?.id ?? 'user-agents'),
   )
   const [result, setResult] = useState<GitInstallResponse | null>(null)
   const [scanError, setScanError] = useState<string | null>(null)
@@ -55,7 +57,9 @@ export function GitInstallDialog(props: {
       return
     }
     setScan(response)
-    setPicked(new Set(response.skills.filter((skill) => skill.problem === undefined).map((skill) => skill.dir)))
+    setPicked(
+      new Set(response.skills.filter((skill) => skill.problem === undefined).map((skill) => skill.dir)),
+    )
   }
 
   const doInstall = async (): Promise<void> => {
@@ -155,9 +159,7 @@ export function GitInstallDialog(props: {
         ) : null}
         {notes.length > 0 ? <IssueList issues={notes.map((note) => ({ message: note }))} /> : null}
 
-        {scan !== null && !done ? (
-          <PickList items={items} picked={picked} onToggle={togglePick} />
-        ) : null}
+        {scan !== null && !done ? <PickList items={items} picked={picked} onToggle={togglePick} /> : null}
 
         {result !== null ? (
           <>
@@ -188,7 +190,8 @@ export function GitInstallDialog(props: {
 
         <p className={styles.hint}>
           host 用部分克隆 + 稀疏检出只拉取技能相关目录（skills/、.agents/skills/、.claude-plugin/
-          及清单声明的插件目录，docs 等其余内容不落盘；复用本机 git 凭据，私有仓库可用），扫描后整目录复制到目标根；
+          及清单声明的插件目录，docs 等其余内容不落盘；复用本机 git
+          凭据，私有仓库可用），扫描后整目录复制到目标根；
           临时目录随即删除。同名技能已存在时不覆盖，请先删除或换目标根。
         </p>
       </div>

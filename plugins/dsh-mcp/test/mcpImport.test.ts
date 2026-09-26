@@ -75,14 +75,18 @@ describe('parseMcpJsonText', () => {
   })
 
   it('sse 归一为 streamable-http 并提示已弃用', () => {
-    const result = parseMcpJsonText(JSON.stringify({ mcpServers: { a: { type: 'sse', url: 'https://x/sse' } } }))
+    const result = parseMcpJsonText(
+      JSON.stringify({ mcpServers: { a: { type: 'sse', url: 'https://x/sse' } } }),
+    )
     expect(result.entries[0]?.draft.transport).toBe('streamable-http')
     expect(result.entries[0]?.notes[0]).toContain('已弃用')
   })
 
   it('${PLUGIN_ROOT} 类占位符报为问题条目', () => {
     const result = parseMcpJsonText(
-      JSON.stringify({ mcpServers: { a: { type: 'stdio', command: './bin/x', args: ['${PLUGIN_ROOT}/c'] } } }),
+      JSON.stringify({
+        mcpServers: { a: { type: 'stdio', command: './bin/x', args: ['${PLUGIN_ROOT}/c'] } },
+      }),
     )
     expect(result.entries).toHaveLength(0)
     expect(result.problems[0]?.message).toContain('占位符')
@@ -90,7 +94,9 @@ describe('parseMcpJsonText', () => {
 
   it('非法 serverName 键与缺少必填字段进入 problems', () => {
     const result = parseMcpJsonText(
-      JSON.stringify({ mcpServers: { 'bad name!': { command: 'x' }, b: { type: 'stdio' }, c: { type: 'http' } } }),
+      JSON.stringify({
+        mcpServers: { 'bad name!': { command: 'x' }, b: { type: 'stdio' }, c: { type: 'http' } },
+      }),
     )
     expect(result.entries).toHaveLength(0)
     expect(result.problems).toHaveLength(3)
@@ -117,7 +123,13 @@ describe('parseMcpJsonText', () => {
 describe('extrasOf', () => {
   it('剔除已知键与 type，只留高级键', () => {
     expect(
-      extrasOf({ type: 'stdio', command: 'x', transport: 'stdio', reconnect: { retries: 1 }, maxInstructionBytes: 5 }),
+      extrasOf({
+        type: 'stdio',
+        command: 'x',
+        transport: 'stdio',
+        reconnect: { retries: 1 },
+        maxInstructionBytes: 5,
+      }),
     ).toEqual({ reconnect: { retries: 1 }, maxInstructionBytes: 5 })
   })
 

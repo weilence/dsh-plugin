@@ -12,7 +12,14 @@
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, PickList, SelectField, TextAreaField, TextField, type PickItem } from '@dsh-plugins/client-ui'
+import {
+  IssueList,
+  PickList,
+  SelectField,
+  TextAreaField,
+  TextField,
+  type PickItem,
+} from '@dsh-plugins/client-ui'
 import type { McpRow, McpScope, McpTransport, SaveRequest } from '../shared'
 import { SERVER_NAME_PATTERN } from '../shared'
 import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
@@ -366,7 +373,9 @@ function pickItemsOf(parsed: McpJsonParseResult | null): PickItem[] {
     title: entry.serverName,
     lines: [
       `${entry.draft.transport} · ${endpointOf({ ...entry.draft }) || '（缺端点）'}`,
-      ...(Object.keys(entry.extras).length > 0 ? [`透传高级键：${Object.keys(entry.extras).join(', ')}`] : []),
+      ...(Object.keys(entry.extras).length > 0
+        ? [`透传高级键：${Object.keys(entry.extras).join(', ')}`]
+        : []),
     ],
     notes: entry.notes,
   }))

@@ -84,11 +84,7 @@ function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
         <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
           新建服务器
         </Button>
-        <Button
-          variant="outline"
-          disabled={state.status === 'loading'}
-          onClick={() => void store.refresh()}
-        >
+        <Button variant="outline" disabled={state.status === 'loading'} onClick={() => void store.refresh()}>
           刷新
         </Button>
       </div>

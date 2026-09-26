@@ -67,10 +67,7 @@ describe('gitMeta：根级索引读写', () => {
   it('缺失 / 损坏回空索引；读写往返保留记录', async () => {
     const root = join(work, 'meta-root')
     expect((await readGitIndex(root)).skills).toEqual({})
-    await write(
-      join(root, '.dsh-skills.json'),
-      '{ not json',
-    )
+    await write(join(root, '.dsh-skills.json'), '{ not json')
     expect((await readGitIndex(root)).skills).toEqual({})
     await writeGitIndex(root, {
       version: 1,

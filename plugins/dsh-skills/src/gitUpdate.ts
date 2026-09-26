@@ -156,7 +156,8 @@ export async function checkGitUpdates(roots: readonly ManagedRoot[]): Promise<Gi
   }
   results.sort(
     (left, right) =>
-      left.rootId.localeCompare(right.rootId) || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+      left.rootId.localeCompare(right.rootId) ||
+      (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
   )
   return { results, repoErrors }
 }

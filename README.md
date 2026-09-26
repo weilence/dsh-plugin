@@ -15,30 +15,6 @@
 
 各插件的功能、安装与配置说明见其目录内 README。
 
-## 仓库结构
-
-```
-├── plugins/            # 可发布插件（npm 包）
-│   ├── dsh-mcp/
-│   ├── dsh-models/
-│   ├── dsh-notify/
-│   ├── dsh-skills/
-│   └── dsh-zhipu-tools/
-├── packages/
-│   ├── client-ui/      # @dsh-plugins/client-ui（私有）：DSH 插件共享 client UI 组件
-│   └── tsdown-config/  # @dsh-plugins/tsdown-config（私有）：DSH 插件共享构建工厂
-├── pnpm-workspace.yaml # workspace + catalog（共享版本表）
-└── tsconfig.base.json  # 各插件 tsconfig 的公共基座
-```
-
-- **版本集中**：`@deepseek-ai/*` 平台包与工具链版本集中在 `pnpm-workspace.yaml`
-  的 catalog，各包以 `"catalog:"` 引用——升级 DSH 平台只改一处。
-- **构建工厂**：各插件 `tsdown.config.ts` 只声明差异点（入口、externals、
-  打包白名单），node / browser 双 half 产物与 CSS Modules 内联的公共逻辑在
-  `@dsh-plugins/tsdown-config`。
-- **产物约定**：每个插件构建出 `lib/index.js`（node half，ESM）与
-  `lib/client.js`（browser half，宿主 ModuleLoader factory），`lib/` 不入库。
-
 ## 开发
 
 ```bash
@@ -52,6 +28,8 @@ pnpm format           # prettier 格式化
 
 Node >= 20；包管理器固定为 pnpm（`packageManager` 字段 + corepack）。
 
+仓库结构、双 half 架构与工程约定见 [AGENTS.md](AGENTS.md)。
+
 ## 发布
 
 一仓多包，标签带插件名前缀（见 `.github/workflows/publish.yml`）：
@@ -63,9 +41,3 @@ git push origin develop --tags
 # 3. CI 暂存发布（staged）→ npm stage list 查看
 # 4. npm stage approve <stage-id> --otp 上线
 ```
-
-## 从三个独立仓库迁移
-
-本仓库由 `dsh-models`、`dsh-notify`、`dsh-zhipu-tools` 三个独立仓库经
-`git subtree add` 合并而成（各插件完整提交历史保留在 `plugins/<name>/` 路径下，
-`git log -- plugins/<name>` 可查）。

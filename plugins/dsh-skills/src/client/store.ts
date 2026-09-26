@@ -76,9 +76,7 @@ export class SkillsStore {
 
   /** wire 请求参数：工作区档的 cwd 与作用域标签。 */
   private requestScope(): { cwd?: string; scope: 'user' | 'workspace' } {
-    return this.snapshot.scope === ''
-      ? { scope: 'user' }
-      : { cwd: this.snapshot.scope, scope: 'workspace' }
+    return this.snapshot.scope === '' ? { scope: 'user' } : { cwd: this.snapshot.scope, scope: 'workspace' }
   }
 
   dismissNotice(): void {
@@ -225,7 +223,9 @@ export class SkillsStore {
         skills: [...dirs],
       })
       if (outcome.installed.length > 0) {
-        this.set({ notice: `已从 Git 安装 ${outcome.installed.length} 个技能：${outcome.installed.map((row) => row.name).join('、')}` })
+        this.set({
+          notice: `已从 Git 安装 ${outcome.installed.length} 个技能：${outcome.installed.map((row) => row.name).join('、')}`,
+        })
         await this.refresh()
       }
       return outcome
