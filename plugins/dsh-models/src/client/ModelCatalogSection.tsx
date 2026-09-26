@@ -220,11 +220,6 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
             ；点「编辑」在弹窗中编辑该 Provider。
           </p>
         </div>
-        <div className={styles.actions}>
-          <Button variant="outline" onClick={() => setCreating(true)}>
-            新建 Provider
-          </Button>
-        </div>
       </header>
 
       {!writable ? <div className={styles.notice}>当前 Settings Provider 不可写，面板为只读。</div> : null}
@@ -238,6 +233,18 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
           onDone={() => props.store.dismissNotice()}
         />
       ) : null}
+      <div className={styles.listToolbar}>
+        <Button variant="primary" onClick={() => setCreating(true)}>
+          新建 Provider
+        </Button>
+        <Button
+          variant="outline"
+          disabled={state.status === 'loading' || busyProvider !== null}
+          onClick={() => void props.store.refresh()}
+        >
+          刷新
+        </Button>
+      </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取 llm-pi-ai 配置…</div> : null}
 
       <div className={styles.routes}>

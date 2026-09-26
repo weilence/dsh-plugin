@@ -31,6 +31,14 @@
   margin: 3px 0 0;
 }
 
+/* 列表工具条：新建 / 刷新贴着 provider 列表上方，不放页面头部右上角。 */
+.listToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .routes {
   display: flex;
   flex-direction: column;
