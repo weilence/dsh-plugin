@@ -1,17 +1,18 @@
 /**
- * 设置页「Skills 管理」面板：管理范围固定两档——「当前工作区 + 用户级」
- * （自动跟随主视图会话的工作目录）与「用户级（全局）」——外加技能目录
- * 列表、新建 / 编辑 / 查看弹窗与删除确认。数据经 SkillsStore 与 host
- * 桥交互；面板卸载时清一次性提示（Toast 计时只在挂载期间有效）。
+ * 设置页「Skills 管理」面板：管理范围固定两档——「工作区级」（跟随主视图
+ * 会话的工作目录）与「全局」——外加技能目录列表、新建 / 编辑弹窗、删除
+ * 确认、Git 安装与更新跟踪。数据经 SkillsStore 与 host 桥交互；面板卸载
+ * 时清一次性提示（Toast 计时只在挂载期间有效）。
  */
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { ConfirmDialog, ToneChip } from '@dsh-plugins/client-ui'
-import type { RootInfo, SkillRow } from '../shared'
+import { ConfirmDialog, fieldInputCls } from '@dsh-plugins/client-ui'
+import type { GitCheckResult, RootInfo, SkillRow } from '../shared'
 import { sourceLabel, sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
+import { updateKey } from './store'
 import { SkillEditor } from './SkillEditor'
 import { GitInstallDialog } from './GitInstallDialog'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -21,7 +22,39 @@ const styles = { ...shared, ...local }
 
 const MODE_KEY = 'dsh-skills/scope-mode'
 
-/** 管理范围档位：仅当前工作区 + 全局，不提供任意目录选择。 */
+/** 仓库地址 → 短标（owner/repo；解析不出回退主机名）。 */
+function repoLabelOf(url: string): string {
+  try {
+    const parsed = new URL(url.replaceAll('\\', '/'))
+    const segments = parsed.pathname.split('/').filter((part) => part.length > 0 && part !== ':')
+    const repo = segments.pop()?.replace(/\.git$/, '')
+    const owner = segments.pop()
+    if (repo !== undefined && owner !== undefined) return `${owner}/${repo}`
+    if (repo !== undefined) return repo
+    return parsed.hostname
+  } catch {
+    return url
+  }
+}
+
+/** ISO 时间 → 本地短日期（2025-01-02）。 */
+function dateLabelOf(iso: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** 行上的来源 chip 只保留只读来源（内置 / 自定义目录 / 运行时）；四个可写
+ *  根的作用域（工作区级 / 全局）由顶部下拉表达，不在行内重复。 */
+function readonlyLabelOf(source: string): string | null {
+  if (source === 'project-dsh' || source === 'project-agents' || source === 'user-dsh' || source === 'user-agents') {
+    return null
+  }
+  return sourceLabel(source)
+}
+
+/** 管理范围档位：工作区级 / 全局，不提供任意目录选择。 */
 type ScopeMode = 'user' | 'workspace'
 
 /** 当前主视图工作区的可订阅来源（client.tsx 装配，主会话 cwd 或 undefined）。 */
@@ -69,6 +102,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
 
   const changeMode = (next: ScopeMode): void => {
     setMode(next)
+    setFilter('')
     try {
       window.localStorage.setItem(MODE_KEY, next)
     } catch {
@@ -81,6 +115,10 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   const [viewing, setViewing] = useState<SkillRow | undefined>(undefined)
   const [deleting, setDeleting] = useState<SkillRow | undefined>(undefined)
   const [installing, setInstalling] = useState(false)
+  /** 列表过滤关键字（名称 / 描述 / 适用场景，大小写不敏感）。 */
+  const [filter, setFilter] = useState('')
+  /** 「本地已修改」行的更新需确认（将覆盖本地改动）。 */
+  const [confirmUpdate, setConfirmUpdate] = useState<SkillRow | undefined>(undefined)
 
   const ordered = useMemo(
     () =>
@@ -92,6 +130,33 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
     [state.skills],
   )
 
+  const keyword = filter.trim().toLowerCase()
+  const visible = useMemo(
+    () =>
+      keyword.length === 0
+        ? ordered
+        : ordered.filter((skill) =>
+            [skill.name, skill.description, skill.whenToUse ?? '']
+              .join('\n')
+              .toLowerCase()
+              .includes(keyword),
+          ),
+    [ordered, keyword],
+  )
+
+  const hasGitSkills = state.skills.some((skill) => skill.git !== undefined)
+  const gitWorking = state.gitBusy !== null
+
+  /** 发起单技能更新；「本地已修改」先弹确认。 */
+  const requestUpdate = (skill: SkillRow): void => {
+    const status = skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined
+    if (status?.status === 'local') {
+      setConfirmUpdate(skill)
+      return
+    }
+    if (skill.rootId !== undefined) void store.updateSkills([{ rootId: skill.rootId, name: skill.name }])
+  }
+
   const busy = state.busy !== null || state.loadingFile !== null
 
   return (
@@ -100,8 +165,8 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         <div className={styles.panelHeadMain}>
           <h2 className={styles.panelTitle}>Skills 管理</h2>
           <p className={styles.panelSubtitle}>
-            管理当前工作区与用户级（全局）的技能：直接扫描标准技能根并按官方规则校验， 新建 / 编辑 /
-            删除技能文件；内置与自定义目录等只读来源仅查看。
+            管理工作区级与全局的技能：直接扫描标准技能根（.dsh/skills 与 .agents/skills）并按官方规则校验，
+            新建 / 编辑 / 删除技能文件；内置与自定义目录等只读来源仅展示。
           </p>
         </div>
       </header>
@@ -114,9 +179,9 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             value={mode}
             onChange={(event) => changeMode(event.target.value as ScopeMode)}
           >
-            <option value="user">用户级（全局技能）</option>
+            <option value="user">全局</option>
             <option value="workspace" disabled={workspaceCwd === undefined}>
-              当前工作区 + 用户级
+              工作区级
             </option>
           </select>
         </label>
@@ -126,7 +191,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
               {workspaceCwd}
             </span>
           ) : (
-            <span className={styles.scopeHint}>当前没有打开的工作区会话，先显示用户级技能</span>
+            <span className={styles.scopeHint}>当前没有打开的工作区会话，先显示全局技能</span>
           )
         ) : null}
       </div>
@@ -152,7 +217,15 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         </Button>
         <Button
           variant="outline"
-          disabled={state.status === 'loading'}
+          disabled={!hasGitSkills || gitWorking}
+          title={hasGitSkills ? undefined : '当前作用域没有从 Git 安装的技能'}
+          onClick={() => void store.checkUpdates()}
+        >
+          {state.gitBusy === 'check' ? '检查中…' : '检查更新'}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={state.status === 'loading' || gitWorking}
           onClick={() => void store.refresh()}
         >
           刷新
@@ -160,23 +233,47 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
       </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取技能目录…</div> : null}
 
+      {state.status === 'ready' ? (
+        <div className={styles.searchRow}>
+          <Input
+            className={fieldInputCls(false)}
+            type="text"
+            value={filter}
+            placeholder="搜索过滤：名称 / 描述 / 适用场景"
+            autoComplete="off"
+            onChange={(event) => setFilter(event.target.value)}
+          />
+        </div>
+      ) : null}
+
       <div className={styles.rows}>
-        {ordered.map((skill) => (
+        {visible.map((skill) => (
           <SkillCard
             key={`${skill.source}:${skill.name}:${skill.path ?? ''}`}
             skill={skill}
             roots={state.roots}
             busy={busy || state.busy === skill.name}
+            update={skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined}
+            updating={state.gitBusy === 'update'}
             onView={() => setViewing(skill)}
             onEdit={() => setEditing(skill)}
             onDelete={() => setDeleting(skill)}
+            onUpdate={() => requestUpdate(skill)}
           />
         ))}
-        {ordered.length === 0 && state.status === 'ready' ? (
+        {visible.length === 0 && state.status === 'ready' ? (
           <div className={styles.empty}>
-            当前作用域下没有发现技能。项目级技能放在{' '}
-            <code className={styles.code}>.dsh/skills/&lt;name&gt;.md</code>，用户级放在{' '}
-            <code className={styles.code}>~/.dsh/skills/</code>；点「新建技能」开始。
+            {keyword.length > 0 ? (
+              <>没有匹配「{filter.trim()}」的技能</>
+            ) : (
+              <>
+                当前作用域下没有发现技能。工作区级技能放在{' '}
+                <code className={styles.code}>.dsh/skills/</code> 或{' '}
+                <code className={styles.code}>.agents/skills/</code>，全局技能放在{' '}
+                <code className={styles.code}>~/.dsh/skills/</code> 或{' '}
+                <code className={styles.code}>~/.agents/skills/</code>；点「新建技能」开始。
+              </>
+            )}
           </div>
         ) : null}
       </div>
@@ -246,6 +343,23 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           }}
         />
       ) : null}
+
+      {confirmUpdate !== undefined ? (
+        <ConfirmDialog
+          title={`更新技能 ${confirmUpdate.name}`}
+          body={`本地内容在安装后被修改过，更新将用上游版本覆盖本地改动（来源：${confirmUpdate.git?.url ?? ''}）。是否继续？`}
+          confirmLabel="覆盖更新"
+          busy={gitWorking}
+          onCancel={() => setConfirmUpdate(undefined)}
+          onConfirm={() => {
+            const target = confirmUpdate
+            setConfirmUpdate(undefined)
+            if (target.rootId !== undefined) {
+              void store.updateSkills([{ rootId: target.rootId, name: target.name }])
+            }
+          }}
+        />
+      ) : null}
     </div>
   )
 }
@@ -254,59 +368,90 @@ function SkillCard(props: {
   skill: SkillRow
   roots: readonly RootInfo[]
   busy: boolean
+  update?: GitCheckResult
+  updating: boolean
   onView(): void
   onEdit(): void
   onDelete(): void
+  onUpdate(): void
 }) {
   const { skill } = props
+  const update = props.update
   return (
     <section className={styles.row}>
       <div className={styles.rowMain}>
         <div className={styles.rowTitleLine}>
           <span className={styles.rowName}>{skill.name}</span>
-          <span className={styles.rowSource}>{sourceLabel(skill.source)}</span>
+          {readonlyLabelOf(skill.source) !== null ? (
+            <span className={styles.rowSource} title={skill.path}>
+              {readonlyLabelOf(skill.source)}
+            </span>
+          ) : null}
+          {skill.git !== undefined ? (
+            <span
+              className={styles.rowGit}
+              title={`Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`}
+            >
+              Git · {repoLabelOf(skill.git.url)}
+            </span>
+          ) : null}
+          {update?.status === 'update' ? (
+            <span
+              className={styles.rowFlagUpdate}
+              title={update.description !== undefined ? `上游描述：${update.description}` : '上游有新版本'}
+            >
+              有更新
+            </span>
+          ) : null}
+          {update?.status === 'local' ? (
+            <span className={styles.rowFlagUpdate} title="上游有新版本；本地内容也被修改过，更新将覆盖本地改动">
+              有更新 · 本地已修改
+            </span>
+          ) : null}
+          {update?.status === 'removed' ? (
+            <span className={styles.rowFlagGone} title="上游仓库里已发现不到该技能目录">
+              上游已移除
+            </span>
+          ) : null}
           {skill.invalid !== undefined ? (
             <span className={styles.rowFlagErr} title={skill.invalid}>
               无效：{skill.invalid}
             </span>
-          ) : skill.effective ? (
-            <span className={styles.rowFlagOn}>生效中</span>
-          ) : (
+          ) : skill.effective ? null : (
             <span className={styles.rowFlagOff}>被同名来源遮蔽</span>
           )}
-          {skill.modelInvocable ? null : <span className={styles.rowFlagOff}>模型不可调用</span>}
           {skill.userInvocable ? null : <span className={styles.rowFlagOff}>用户不可调用</span>}
         </div>
         <p className={styles.rowDesc}>{skill.description.length > 0 ? skill.description : '（无描述）'}</p>
         {skill.whenToUse !== undefined ? <p className={styles.rowWhen}>适用：{skill.whenToUse}</p> : null}
-        {skill.path !== undefined ? (
-          <p className={styles.rowPath} title={skill.path}>
-            {skill.path}
-          </p>
-        ) : (
-          <p className={styles.rowPath}>（虚拟技能，无文件）</p>
-        )}
       </div>
       <div className={styles.rowActions}>
-        {skill.editable ? <ToneChip tone="ok">可编辑</ToneChip> : <ToneChip tone="warn">只读</ToneChip>}
-        <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
-          查看
-        </Button>
+        {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
+          <Button variant="outline" size="sm" disabled={props.busy || props.updating} onClick={props.onUpdate}>
+            更新
+          </Button>
+        ) : null}
+        {/* 查看：给不可编辑的行（只读来源 / Git 安装）留信息入口；可编辑行用编辑看详情。 */}
+        {!skill.editable || skill.git !== undefined ? (
+          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
+            查看
+          </Button>
+        ) : null}
+        {skill.editable && skill.git === undefined ? (
+          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
+            编辑
+          </Button>
+        ) : null}
         {skill.editable ? (
-          <>
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
-              编辑
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={styles.dangerGhost}
-              disabled={props.busy}
-              onClick={props.onDelete}
-            >
-              删除
-            </Button>
-          </>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.dangerGhost}
+            disabled={props.busy}
+            onClick={props.onDelete}
+          >
+            删除
+          </Button>
         ) : null}
       </div>
     </section>

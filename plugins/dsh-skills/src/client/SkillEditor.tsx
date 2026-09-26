@@ -122,13 +122,9 @@ export function SkillEditor(props: SkillEditorProps) {
       contentClassName={styles.scrollBody}
       footer={
         <>
-          <span className={styles.footerMeta}>
-            {mode === 'view'
-              ? (skill?.path ?? '虚拟技能，无文件')
-              : mode === 'edit'
-                ? (skill?.path ?? '')
-                : targetHint(draft, props.roots)}
-          </span>
+          {mode === 'create' ? (
+            <span className={styles.footerMeta}>{targetHint(draft, props.roots)}</span>
+          ) : null}
           {mode !== 'view' ? (
             <>
               <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
@@ -147,6 +143,13 @@ export function SkillEditor(props: SkillEditorProps) {
           <div className={styles.metaGrid}>
             <MetaItem label="名称" value={skill?.name} />
             <MetaItem label="来源" value={skill !== undefined ? sourceLabel(skill.source) : undefined} />
+            {skill?.git !== undefined ? (
+              <MetaItem
+                label="Git 仓库"
+                value={`${skill.git.url}（${skill.git.dir}，安装于 ${skill.git.installedAt.slice(0, 10)}）`}
+                wide
+              />
+            ) : null}
             <MetaItem label="描述" value={skill?.description} wide />
             {skill?.whenToUse !== undefined ? (
               <MetaItem label="适用时机" value={skill.whenToUse} wide />
@@ -203,7 +206,7 @@ export function SkillEditor(props: SkillEditorProps) {
           ) : (
             <div className={styles.grid}>
               <TextField label="名称（编辑时不可改）" value={draft.name} disabled onChange={() => {}} />
-              <div className={styles.fieldWide}>
+              <div className={styles.field}>
                 <span className={styles.label}>目标</span>
                 <span className={styles.hintLine}>{skill?.path}</span>
               </div>

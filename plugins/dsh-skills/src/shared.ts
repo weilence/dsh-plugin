@@ -51,6 +51,8 @@ export interface SkillRow {
   invalid?: string
   /** 文件形态。 */
   format?: SkillFormat
+  /** Git 安装来源（读写根内 .dsh-skills.json 索引命中时下发）。 */
+  git?: GitSourceInfo
 }
 
 /** GET /dsh-skills/list 响应。 */
@@ -70,7 +72,7 @@ export type SkillFormat = 'flat' | 'bundle'
 
 /** POST /dsh-skills/save 请求。 */
 export interface SaveRequest {
-  /** 项目作用域（工作区 cwd）；缺席 = 仅用户级根。 */
+  /** 工作区级作用域（工作区 cwd）；缺席 = 仅全局根。 */
   cwd?: string
   /** 新建时的目标根（编辑时忽略，以 editPath 所属根为准）。 */
   rootId: RootId
@@ -96,6 +98,30 @@ export interface SaveResponse {
 export interface DeleteRequest {
   cwd?: string
   path: string
+}
+
+/** Git 安装技能在行上的来源信息（list 时由根级索引文件合并）。 */
+export interface GitSourceInfo {
+  /** 安装时的仓库地址（回指更新的依据）。 */
+  url: string
+  /** 技能目录在仓库内的相对路径（posix 分隔）。 */
+  dir: string
+  /** 安装 / 最近更新时的 HEAD 提交号（短 7 位；缺失 = 未知）。 */
+  commit?: string
+  /** 安装 / 最近更新时间（ISO）。 */
+  installedAt: string
+}
+
+/** 根级 Git 索引文件（<root>/.dsh-skills.json）里的一条安装记录。 */
+export interface GitSkillRecord {
+  url: string
+  dir: string
+  origin: GitSkillCandidate['origin']
+  /** 安装时仓库 HEAD（缺失 = 记录时不可得）。 */
+  commit?: string
+  /** 安装时目录内容哈希（检出本地修改的基线）。 */
+  contentHash?: string
+  installedAt: string
 }
 
 // ---- 从 Git 仓库安装（host 侧 git clone --depth 1 + 目录发现） ----
@@ -145,13 +171,61 @@ export interface GitInstallResponse {
   failed: { name: string; error: string }[]
 }
 
+// ---- Git 安装记录与更新跟踪 ----
+
+/** 检查更新的结果状态。 */
+export type GitUpdateStatus =
+  | 'current' // 已最新
+  | 'update' // 上游有新版本，本地未动过
+  | 'local' // 本地已修改（上游同时有新版本，更新会覆盖本地改动）
+  | 'removed' // 上游已发现不到该技能目录
+
+/** 单个技能的检查结果。 */
+export interface GitCheckResult {
+  rootId: RootId
+  name: string
+  dir: string
+  status: GitUpdateStatus
+  /** 上游候选的描述（有更新时的对照信息）。 */
+  description?: string
+}
+
+/** POST /dsh-skills/git-check 请求（检查当前作用域全部 Git 安装技能）。 */
+export interface GitCheckRequest {
+  cwd?: string
+  /** 'workspace' 只查项目根；缺省（'user'）只查用户根——与列表作用域一致。 */
+  scope?: 'user' | 'workspace'
+}
+
+/** POST /dsh-skills/git-check 响应。 */
+export interface GitCheckResponse {
+  results: GitCheckResult[]
+  /** 克隆失败的仓库及其原因（其下技能未判定）。 */
+  repoErrors: { url: string; error: string }[]
+}
+
+/** POST /dsh-skills/git-update 请求。 */
+export interface GitUpdateRequest {
+  cwd?: string
+  /** 'workspace' 只动项目根；缺省（'user'）只动用户根——与列表作用域一致。 */
+  scope?: 'user' | 'workspace'
+  skills: { rootId: RootId; name: string }[]
+}
+
+/** POST /dsh-skills/git-update 响应：部分成功允许。 */
+export interface GitUpdateResponse {
+  updated: { name: string; path: string }[]
+  failed: { name: string; error: string }[]
+  repoErrors: { url: string; error: string }[]
+}
+
 /** 来源的中文标签；未知来源回退原文。 */
 export const SOURCE_LABELS: Record<string, string> = {
-  'project-dsh': '项目 · .dsh/skills',
-  'project-agents': '项目 · .agents/skills',
+  'project-dsh': '工作区级 · .dsh/skills',
+  'project-agents': '工作区级 · .agents/skills',
   custom: '自定义目录',
-  'user-dsh': '用户 · ~/.dsh/skills',
-  'user-agents': '用户 · ~/.agents/skills',
+  'user-dsh': '全局 · ~/.dsh/skills',
+  'user-agents': '全局 · ~/.agents/skills',
   bundled: '内置',
   runtime: '运行时',
 }

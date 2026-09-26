@@ -23,9 +23,11 @@ import {
   sourceOrder,
   type DeleteRequest,
   type FileResponse,
+  type GitCheckRequest,
   type GitInstallRequest,
   type GitScanRequest,
   type GitSkillCandidate,
+  type GitUpdateRequest,
   type ListResponse,
   type RootId,
   type SaveRequest,
@@ -35,7 +37,9 @@ import {
 } from './shared'
 import { applyKnown, formatOfPath, renderFile, splitFrontmatter } from './frontmatter'
 import { cloneToTemp, discoverRepoSkills, gitUrlProblem, installCandidates } from './gitInstall'
-import { RootMatcher, managedRoots, rootInfos } from './roots'
+import { readGitIndex, writeGitIndex, type RootGitIndex } from './gitMeta'
+import { applyGitUpdates, checkGitUpdates, recordInstalls } from './gitUpdate'
+import { RootMatcher, managedRoots, rootInfos, type ManagedRoot } from './roots'
 import { scanRoot } from './scan'
 
 export const inject: string[] = ['webServer']
@@ -46,6 +50,8 @@ export const SAVE_PATH = '/dsh-skills/save'
 export const DELETE_PATH = '/dsh-skills/delete'
 export const GIT_SCAN_PATH = '/dsh-skills/git-scan'
 export const GIT_INSTALL_PATH = '/dsh-skills/git-install'
+export const GIT_CHECK_PATH = '/dsh-skills/git-check'
+export const GIT_UPDATE_PATH = '/dsh-skills/git-update'
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024
 
@@ -136,9 +142,14 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-/** 解析查询里的 cwd：空白或缺席 = 用户级作用域。 */
+/** 解析查询里的 cwd：空白或缺席 = 全局作用域。 */
 function cwdOf(value: string | null): string | undefined {
   return optionalString(value)
+}
+
+/** 作用域过滤：workspace 只留项目根，user（缺省）只留用户根——两档互斥。 */
+function scopeRoots(roots: readonly ManagedRoot[], workspace: boolean): ManagedRoot[] {
+  return roots.filter((root) => (workspace ? root.id.startsWith('project-') : root.id.startsWith('user-')))
 }
 
 function skillRowOf(
@@ -187,21 +198,43 @@ export function apply(ctx: Context): void {
             }
             const url = new URL(req.url ?? '/', 'http://localhost')
             const cwd = cwdOf(url.searchParams.get('cwd'))
-            const roots = await managedRoots(cwd)
+            const workspace = url.searchParams.get('scope') === 'workspace'
+            const roots = scopeRoots(await managedRoots(cwd), workspace)
             const scanned = (await Promise.all(roots.map((root) => scanRoot(root)))).flat()
             const rows: SkillRow[] = scanned.map((skill) =>
               skillRowOf({ ...skill, provider: 'scan' }, skill.source, false),
             )
             // 全局注册表补充：落在四个可写根之外的条目（内置 / 自定义 /
-            // 运行时）作只读展示。注册表缺席（组合未挂载）时跳过。
+            // 运行时）作只读展示；另一档作用域的可写根条目随作用域一并隐藏。
+            // 注册表缺席（组合未挂载）时跳过。
             const registry = ctx.get('skills')
             if (registry !== undefined) {
               const seenPaths = new Set(rows.map((row) => row.path))
               const snapshot = await registry.snapshot(cwd === undefined ? {} : { cwd })
               for (const summary of snapshot.skills) {
                 if (summary.path === undefined || seenPaths.has(summary.path)) continue
+                const otherScope = workspace
+                  ? summary.source.startsWith('user-')
+                  : summary.source.startsWith('project-')
+                if (otherScope) continue
                 seenPaths.add(summary.path)
                 rows.push(skillRowOf(summary, undefined, false))
+              }
+            }
+            // Git 安装来源合并：目录包行按「根下目录名」查根级索引（安装
+            // 时 dest = join(root, name)，目录名即技能名）；索引陈旧条目
+            // （目录已被外部删掉）自然不命中。
+            const gitIndexes = new Map<RootId, RootGitIndex>()
+            await Promise.all(roots.map(async (root) => gitIndexes.set(root.id, await readGitIndex(root.path))))
+            for (const row of rows) {
+              if (row.rootId === undefined || row.format !== 'bundle' || row.path === undefined) continue
+              const record = gitIndexes.get(row.rootId)?.skills[basename(dirname(row.path))]
+              if (record === undefined) continue
+              row.git = {
+                url: record.url,
+                dir: record.dir,
+                ...(record.commit !== undefined ? { commit: record.commit.slice(0, 7) } : {}),
+                installedAt: record.installedAt,
               }
             }
             // 遮蔽判定在合并全集上做：同名合法条目按来源 rank 取最低者为
@@ -407,6 +440,13 @@ export function apply(ctx: Context): void {
               } catch {
                 throw new HttpError(404, '技能目录不存在（可能已被外部删除），请刷新')
               }
+              // Git 安装的目录包：同步摘除根索引里的来源记录。
+              const name = basename(dirname(path))
+              const index = await readGitIndex(matched.root.path)
+              if (index.skills[name] !== undefined) {
+                delete index.skills[name]
+                await writeGitIndex(matched.root.path, index)
+              }
             } else {
               throw new HttpError(400, `不是可删除的技能实体：${rel.join(sep)}`)
             }
@@ -501,6 +541,11 @@ export function apply(ctx: Context): void {
               }
             })
             const outcome = await installCandidates(target, selected, temp)
+            // 复制成功即登记来源（commit + 内容哈希），供后续检查更新回指。
+            const installedNames = outcome.installed.map((row) => row.name)
+            if (installedNames.length > 0) {
+              await recordInstalls(target.path, url, temp, selected, installedNames)
+            }
             writeJson(res, 200, outcome as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
@@ -511,6 +556,67 @@ export function apply(ctx: Context): void {
         },
       }),
     'dsh-skills: git-install bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: GIT_CHECK_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as GitCheckRequest
+            const cwd = optionalString(request.cwd)
+            const roots = scopeRoots(await managedRoots(cwd), request.scope === 'workspace')
+            const response = await checkGitUpdates(roots)
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-skills: git-check bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: GIT_UPDATE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as GitUpdateRequest
+            const skills = Array.isArray(request.skills)
+              ? request.skills.filter(
+                  (item): item is { rootId: RootId; name: string } =>
+                    typeof item === 'object' &&
+                    item !== null &&
+                    typeof (item as { name?: unknown }).name === 'string',
+                )
+              : []
+            if (skills.length === 0) throw new HttpError(400, '未选择任何技能')
+            const cwd = optionalString(request.cwd)
+            const roots = scopeRoots(await managedRoots(cwd), request.scope === 'workspace')
+            const response = await applyGitUpdates(roots, skills)
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-skills: git-update bridge',
   )
 }
 

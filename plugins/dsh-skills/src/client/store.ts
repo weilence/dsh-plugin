@@ -5,13 +5,26 @@
  */
 
 import { skillsApi, errMsg } from './api'
-import type { GitInstallResponse, GitScanResponse, RootId, RootInfo, SaveRequest, SkillRow } from '../shared'
+import type {
+  GitCheckResult,
+  GitInstallResponse,
+  GitScanResponse,
+  RootId,
+  RootInfo,
+  SaveRequest,
+  SkillRow,
+} from '../shared'
+
+/** 检查结果在 store 里的 key（rootId + 技能名，刷新列表后仍可对上）。 */
+export function updateKey(rootId: RootId, name: string): string {
+  return `${rootId}::${name}`
+}
 
 export interface SkillsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   notice: string | null
-  /** 当前项目作用域（''= 用户级）。 */
+  /** 当前作用域 cwd（''= 全局档，非空 = 工作区级档）。 */
   scope: string
   roots: RootInfo[]
   skills: SkillRow[]
@@ -19,8 +32,10 @@ export interface SkillsState {
   busy: string | null
   /** 正在加载原文的技能名（编辑 / 查看弹窗）。 */
   loadingFile: string | null
-  /** Git 安装弹窗占用中（克隆扫描 / 复制安装）。 */
-  gitBusy: 'scan' | 'install' | null
+  /** Git 弹窗 / 更新操作占用中（克隆扫描 / 复制安装 / 检查 / 更新）。 */
+  gitBusy: 'scan' | 'install' | 'check' | 'update' | null
+  /** 最近一次检查更新的结果（key 见 updateKey；仅在检查后存在）。 */
+  updates: Record<string, GitCheckResult>
 }
 
 const INITIAL: SkillsState = {
@@ -33,6 +48,7 @@ const INITIAL: SkillsState = {
   busy: null,
   loadingFile: null,
   gitBusy: null,
+  updates: {},
 }
 
 export class SkillsStore {
@@ -57,6 +73,13 @@ export class SkillsStore {
     for (const listener of this.listeners) listener()
   }
 
+  /** wire 请求参数：工作区档的 cwd 与作用域标签。 */
+  private requestScope(): { cwd?: string; scope: 'user' | 'workspace' } {
+    return this.snapshot.scope === ''
+      ? { scope: 'user' }
+      : { cwd: this.snapshot.scope, scope: 'workspace' }
+  }
+
   dismissNotice(): void {
     if (this.snapshot.notice !== null) this.set({ notice: null })
   }
@@ -68,7 +91,7 @@ export class SkillsStore {
   /** 切换项目作用域并立即刷新。 */
   setScope(scope: string): void {
     if (scope === this.snapshot.scope) return
-    this.set({ scope, status: 'loading', error: null, notice: null, skills: [], roots: [] })
+    this.set({ scope, status: 'loading', error: null, notice: null, skills: [], roots: [], updates: {} })
     void this.refresh()
   }
 
@@ -100,7 +123,8 @@ export class SkillsStore {
     const scope = this.snapshot.scope
     if (this.snapshot.status === 'idle') this.set({ status: 'loading' })
     try {
-      const response = await skillsApi.list(scope === '' ? undefined : scope)
+      const { cwd, scope: tag } = this.requestScope()
+      const response = await skillsApi.list(cwd, tag)
       // 作用域在请求期间又变了：丢弃过期响应。
       if (scope !== this.snapshot.scope) return
       this.set({
@@ -207,6 +231,65 @@ export class SkillsStore {
     } catch (error) {
       this.set({ error: errMsg(error) })
       return null
+    } finally {
+      this.set({ gitBusy: null })
+    }
+  }
+
+  /** 检查全部 Git 安装技能的更新（按源仓库分组克隆）。结果写入 updates。 */
+  async checkUpdates(): Promise<void> {
+    this.set({ gitBusy: 'check', error: null, notice: null })
+    try {
+      const response = await skillsApi.gitCheck(this.requestScope())
+      const updates: Record<string, GitCheckResult> = {}
+      let updatable = 0
+      let removed = 0
+      for (const result of response.results) {
+        updates[updateKey(result.rootId, result.name)] = result
+        if (result.status === 'update' || result.status === 'local') updatable += 1
+        if (result.status === 'removed') removed += 1
+      }
+      this.set({ updates })
+      const parts: string[] = []
+      if (updatable > 0) parts.push(`${updatable} 个技能有更新`)
+      if (removed > 0) parts.push(`${removed} 个上游已移除`)
+      if (response.repoErrors.length > 0) parts.push(`${response.repoErrors.length} 个仓库检查失败`)
+      if (parts.length === 0) parts.push('所有 Git 安装技能均为最新')
+      this.set({ notice: `检查完成：${parts.join('，')}` })
+    } catch (error) {
+      this.set({ error: errMsg(error) })
+    } finally {
+      this.set({ gitBusy: null })
+    }
+  }
+
+  /** 更新选中的 Git 安装技能（host 侧覆盖式换名）。失败明细写入 error。 */
+  async updateSkills(items: readonly { rootId: RootId; name: string }[]): Promise<boolean> {
+    if (items.length === 0) return false
+    this.set({ gitBusy: 'update', error: null, notice: null })
+    try {
+      const response = await skillsApi.gitUpdate({
+        ...this.requestScope(),
+        skills: [...items],
+      })
+      if (response.updated.length > 0) {
+        const updates = { ...this.snapshot.updates }
+        for (const item of items) delete updates[updateKey(item.rootId, item.name)]
+        this.set({
+          updates,
+          notice: `已更新 ${response.updated.length} 个技能：${response.updated.map((row) => row.name).join('、')}`,
+        })
+        await this.refresh()
+      }
+      const problems = [
+        ...response.failed.map((row) => `${row.name}：${row.error}`),
+        ...response.repoErrors.map((row) => `${row.url}：${row.error}`),
+      ]
+      if (problems.length > 0) this.set({ error: `部分技能更新失败——${problems.join('；')}` })
+      return response.failed.length === 0 && response.repoErrors.length === 0
+    } catch (error) {
+      this.set({ error: errMsg(error) })
+      return false
     } finally {
       this.set({ gitBusy: null })
     }

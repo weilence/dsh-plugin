@@ -15,10 +15,10 @@ import type { RootId, RootInfo } from './shared'
 
 /** 根的展示标签（wire 上的 label）。 */
 export const ROOT_LABELS: Record<RootId, string> = {
-  'project-dsh': '项目 .dsh/skills',
-  'project-agents': '项目 .agents/skills',
-  'user-dsh': '用户 ~/.dsh/skills',
-  'user-agents': '用户 ~/.agents/skills',
+  'project-dsh': '工作区级 .dsh/skills',
+  'project-agents': '工作区级 .agents/skills',
+  'user-dsh': '全局 ~/.dsh/skills',
+  'user-agents': '全局 ~/.agents/skills',
 }
 
 /** 一个待判定的可写根（present 标志由调用方补充）。 */
@@ -61,7 +61,7 @@ export async function findProjectRoot(
 }
 
 /**
- * 列出当前作用域的全部可写根。cwd 缺席（用户级作用域）时不列项目根，
+ * 列出当前作用域的全部可写根。cwd 缺席（全局作用域）时不列工作区根，
  * 与官方 provider「cwd 缺席则跳过项目根」的行为一致。
  */
 export async function managedRoots(cwd: string | undefined): Promise<ManagedRoot[]> {

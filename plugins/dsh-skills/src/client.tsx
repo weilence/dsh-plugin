@@ -5,7 +5,7 @@
  * dsh-client-modules 扫描宿主 Loader 中已激活条目的 dsh.client 声明
  * 生成），本半侧经 slots 注入 settings.section。当前工作区 = 主视图会话
  * （sessions 快照里 retainedBy.mainView > 0）的 cwd，作为可订阅源供面板
- * 跟随；管理范围固定为「当前工作区 + 用户级」两档，不提供任意目录选择。
+ * 跟随；管理范围固定为「工作区级 / 全局」两档，不提供任意目录选择。
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'

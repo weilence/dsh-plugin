@@ -82,6 +82,11 @@
   flex-wrap: wrap;
 }
 
+/* 列表上方的搜索过滤框：占满一整行。 */
+.searchRow {
+  display: flex;
+}
+
 /* 技能卡片列表。 */
 .rows {
   display: flex;
@@ -138,15 +143,6 @@
   padding: 1px 8px;
 }
 
-.rowFlagOn {
-  font-size: 11px;
-  line-height: 17px;
-  color: var(--dsw-alias-state-success-primary);
-  background: var(--dsw-alias-state-success-bg);
-  border-radius: 999px;
-  padding: 1px 8px;
-}
-
 .rowFlagErr {
   font-size: 11px;
   line-height: 17px;
@@ -157,6 +153,41 @@
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Git 来源短标（owner/repo），完整地址与安装时间在 title 里。 */
+.rowGit {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-brand-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 检查更新后的状态徽标：有更新 / 本地已修改用 warn 色，上游移除用弱化色。 */
+.rowFlagUpdate {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-state-warn-primary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.rowFlagGone {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 999px;
+  padding: 1px 8px;
   white-space: nowrap;
 }
 
@@ -174,18 +205,6 @@
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
-}
-
-.rowPath {
-  margin: 0;
-  font-family: var(--ds-font-family-code);
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
 }
 
 .rowActions {

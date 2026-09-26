@@ -7,10 +7,14 @@
 import type {
   DeleteRequest,
   FileResponse,
+  GitCheckRequest,
+  GitCheckResponse,
   GitInstallRequest,
   GitInstallResponse,
   GitScanRequest,
   GitScanResponse,
+  GitUpdateRequest,
+  GitUpdateResponse,
   ListResponse,
   SaveRequest,
   SaveResponse,
@@ -62,10 +66,10 @@ function withQuery(path: string, params: Record<string, string | undefined>): st
   return query.length > 0 ? `${path}?${query}` : path
 }
 
-/** 面板用到的四个桥操作。 */
+/** 面板用到的桥操作。scope 与列表作用域一致：'user'（缺省）只看用户根，'workspace' 只看项目根。 */
 export const skillsApi = {
-  list(cwd: string | undefined): Promise<ListResponse> {
-    return request(withQuery('/dsh-skills/list', { cwd }))
+  list(cwd: string | undefined, scope?: 'user' | 'workspace'): Promise<ListResponse> {
+    return request(withQuery('/dsh-skills/list', { cwd, scope }))
   },
   file(path: string, cwd: string | undefined): Promise<FileResponse> {
     return request(withQuery('/dsh-skills/file', { path, cwd }))
@@ -81,6 +85,12 @@ export const skillsApi = {
   },
   gitInstall(requestBody: GitInstallRequest): Promise<GitInstallResponse> {
     return request('/dsh-skills/git-install', { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  gitCheck(requestBody: GitCheckRequest): Promise<GitCheckResponse> {
+    return request('/dsh-skills/git-check', { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  gitUpdate(requestBody: GitUpdateRequest): Promise<GitUpdateResponse> {
+    return request('/dsh-skills/git-update', { method: 'POST', body: JSON.stringify(requestBody) })
   },
 }
 

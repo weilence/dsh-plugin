@@ -20,6 +20,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -59,14 +60,18 @@ export function gitUrlProblem(url: string): string | null {
   return '无法识别的 git 地址（支持 https:// 、ssh:// 与 git@host:owner/repo 形式）'
 }
 
-function runGit(args: string[], cwd: string): Promise<void> {
+function runGit(args: string[], cwd: string): Promise<string> {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    let stdout = ''
     let stderr = ''
     const timer = setTimeout(() => {
       child.kill()
       rejectRun(new Error('git clone 超时（120 秒）'))
     }, CLONE_TIMEOUT_MS)
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8')
+    })
     child.stderr?.on('data', (chunk: Buffer) => {
       if (stderr.length < 2000) stderr += chunk.toString('utf8')
     })
@@ -80,7 +85,7 @@ function runGit(args: string[], cwd: string): Promise<void> {
     })
     child.on('close', (code) => {
       clearTimeout(timer)
-      if (code === 0) resolveRun()
+      if (code === 0) resolveRun(stdout.trim())
       else rejectRun(new Error(`git clone 失败：${stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`}`))
     })
   })
@@ -153,6 +158,44 @@ export async function cloneToTemp(url: string): Promise<string> {
       throw error
     }
   }
+}
+
+/** 仓库当前 HEAD 提交号（浅克隆也有）；不可得时回 undefined（更新检查退化为内容比对）。 */
+export async function headCommit(repo: string): Promise<string | undefined> {
+  try {
+    const sha = await runGit(['rev-parse', 'HEAD'], repo)
+    return /^[0-9a-f]{40}$/.test(sha) ? sha : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 技能目录的内容指纹：按 posix 相对路径排序，逐文件 sha256 内容哈希，
+ * 再对「路径 + 文件哈希」序列做总哈希。与 mtime / 检出时间无关，
+ * 安装基线与当前目录之间可直接比对（检出本地修改的依据）。
+ */
+export async function treeHash(dir: string): Promise<string> {
+  const lines: string[] = []
+  const walk = async (current: string, prefix: string): Promise<void> => {
+    const entries = (await readdir(current, { withFileTypes: true })).sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0,
+    )
+    for (const entry of entries) {
+      if (entry.name === '.git') continue
+      // 与复制规则一致：符号链接一律跳过。
+      if (entry.isSymbolicLink()) continue
+      if (entry.isDirectory()) {
+        await walk(join(current, entry.name), `${prefix}${entry.name}/`)
+        continue
+      }
+      if (!entry.isFile()) continue
+      const content = await readFile(join(current, entry.name))
+      lines.push(`${prefix}${entry.name} ${createHash('sha256').update(content).digest('hex')}`)
+    }
+  }
+  await walk(dir, '')
+  return createHash('sha256').update(lines.sort().join('\n')).digest('hex')
 }
 
 // ---- 仓库内发现 ----
@@ -329,7 +372,7 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-async function copyTree(from: string, to: string): Promise<void> {
+export async function copyTree(from: string, to: string): Promise<void> {
   let files = 0
   let bytes = 0
   const walk = async (source: string, dest: string): Promise<void> => {
