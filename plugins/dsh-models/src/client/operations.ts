@@ -5,7 +5,7 @@ import type { ClientRemote, CredentialInfo, LlmDiscoveredModel } from '@deepseek
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { classifyWrite, type WriteOutcome } from '../pi-ai/ops'
 import type { EffectiveModelFacts as EffectiveModelFactsWire } from '../effective'
-import { errMsg } from './utils'
+import { errMsg } from '@dsh-plugins/shared'
 
 export const PI_AI_NS = 'llm-pi-ai'
 export const EFFECTIVE_PATH = '/dsh-models/effective-models'

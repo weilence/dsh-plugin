@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { toneStyles } from '@dsh-plugins/client-ui/tone'
+import { errMsg } from '@dsh-plugins/shared'
 import type { QuotaWindow, UsageResult } from './usage'
 
 // 本模块不 import 任何组件，避免 pill/panel 之间的循环依赖。
 export type { QuotaWindow, UsageResult }
-
-export function errMsg(error: unknown) {
-  const message = (error as { message?: string } | null | undefined)?.message
-  return message || String(error)
-}
 
 export function fetchQuota(force: boolean): Promise<UsageResult> {
   return fetch('/dsh-zhipu-tools/usage' + (force ? '?force=1' : '')).then((r) => r.json())

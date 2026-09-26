@@ -1,3 +1,5 @@
+import { errMsg } from '@dsh-plugins/shared'
+
 export interface QuotaWindow {
   id: string
   label: string
@@ -34,11 +36,6 @@ function toNum(v: unknown) {
   if (v === null || v === undefined || v === '') return null
   const n = Number(v)
   return n === n ? n : null
-}
-
-function errMsg(error: unknown) {
-  const message = (error as { message?: string } | null | undefined)?.message
-  return message || String(error)
 }
 
 function clampPct(v: number | null) {

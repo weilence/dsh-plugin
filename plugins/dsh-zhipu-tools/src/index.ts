@@ -1,9 +1,11 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import type { StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
+import { errMsg } from '@dsh-plugins/shared'
+import { isLoopbackHostname, writeJson } from '@dsh-plugins/shared/http'
 import { createUsageService } from './usage'
 
 export const inject: string[] = ['webServer', 'credentials', 'tools']
@@ -40,19 +42,6 @@ const MCP_CLIENT_PLUGIN = {
 // credentialRef() 构造需把 in-box 包拉进运行时 bundle，不值得）。
 const KEY_REFS = ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'] as const
 
-function errMsg(error: unknown) {
-  const message = (error as { message?: string } | null | undefined)?.message
-  return message || String(error)
-}
-
-// isLoopbackHostname / isTrusted 导出仅为单测（纯函数）。
-export function isLoopbackHostname(hostname: string) {
-  if (hostname === 'localhost' || hostname === '::1' || hostname === '[::1]') return true
-  const parts = hostname.split('.')
-  if (parts.length !== 4 || parts[0] !== '127') return false
-  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
-}
-
 // IPv6 字面量带端口形如 [::1]:3080，先取 ] 前闭区间；其余按首个 : 切分。
 function hostnameOf(host: string) {
   if (host.startsWith('[')) {
@@ -62,7 +51,9 @@ function hostnameOf(host: string) {
   return host.split(':')[0]
 }
 
-// 只放行 loopback 同源请求，拒绝跨站读取用量。
+// 只放行 loopback 同源请求，拒绝跨站读取用量。isLoopbackHostname 来自
+// @dsh-plugins/shared/http（构建期内联）；本插件的信任模型（Host 必须
+// loopback + origin 匹配）与 sec-fetch-site 模型并存，见共享包注释。
 export function isTrusted(req: IncomingMessage) {
   const host = req.headers.host
   if (!host) return false
@@ -76,15 +67,6 @@ export function isTrusted(req: IncomingMessage) {
   } catch {
     return false
   }
-}
-
-function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
-  const payload = JSON.stringify(body)
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'cache-control': 'no-store',
-  })
-  res.end(payload)
 }
 
 async function apply(ctx: Context) {

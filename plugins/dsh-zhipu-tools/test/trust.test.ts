@@ -2,7 +2,8 @@
 
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage } from 'node:http'
-import { isLoopbackHostname, isTrusted } from '../src/index'
+import { isTrusted } from '../src/index'
+import { isLoopbackHostname } from '@dsh-plugins/shared/http'
 
 function req(headers: Record<string, string | undefined>): IncomingMessage {
   return { headers } as IncomingMessage

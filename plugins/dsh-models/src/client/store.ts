@@ -8,7 +8,7 @@ import { jsonEqual, type WriteOutcome } from '../pi-ai/ops'
 import type { PiAiProviderEntry } from '../pi-ai/types'
 import { buildRoutes, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, type EffectiveModelFacts, type PiAiOperations } from './operations'
-import { errMsg } from './utils'
+import { errMsg } from '@dsh-plugins/shared'
 
 export interface PanelState {
   status: 'idle' | 'loading' | 'ready' | 'error'

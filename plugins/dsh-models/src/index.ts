@@ -2,35 +2,15 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-llm'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { effectiveModelsFor, writeEffectiveJson } from './effective'
-import { CatalogMirror, errMsg } from './mirror'
+import type { IncomingMessage } from 'node:http'
+import { errMsg } from '@dsh-plugins/shared'
+import { isExpectedHost, writeJson } from '@dsh-plugins/shared/http'
+import { effectiveModelsFor } from './effective'
+import { CatalogMirror } from './mirror'
 
 export const inject: string[] = ['webServer']
 export const CATALOG_PATH = '/dsh-models/catalog'
 export const EFFECTIVE_PATH = '/dsh-models/effective-models'
-
-// URL.hostname 保留 IPv6 字面量的方括号，且 127/8 整段都是 loopback。
-function isLoopbackHostname(hostname: string) {
-  const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
-  return (
-    bare === 'localhost' || bare === '::1' || bare === '0:0:0:0:0:0:0:1' || /^127(?:\.\d{1,3}){3}$/.test(bare)
-  )
-}
-
-// loopback 绑定接受 localhost / 127.x / ::1 多种拼写；非 loopback 的 Host 头
-// 一律拒绝——这是本同源桥不服务 DNS-rebinding 页面的依据。
-export function isExpectedHost(req: IncomingMessage, expectedHost: string) {
-  const authority = req.headers.host
-  if (!authority || /[\/@?#]/.test(authority)) return false
-  try {
-    const actual = new URL(`http://${authority}`).hostname
-    if (actual === expectedHost) return true
-    return isLoopbackHostname(expectedHost) && isLoopbackHostname(actual)
-  } catch {
-    return false
-  }
-}
 
 export function etagMatches(header: string | string[] | undefined, etag: string) {
   const raw = Array.isArray(header) ? header.join(',') : header
@@ -41,16 +21,6 @@ export function etagMatches(header: string | string[] | undefined, etag: string)
       candidate === '*' || candidate === etag || candidate.replace(/^W\//, '') === etag.replace(/^W\//, '')
     )
   })
-}
-
-function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
-  const payload = Buffer.from(JSON.stringify(body))
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': String(payload.byteLength),
-    'cache-control': 'no-store',
-  })
-  res.end(payload)
 }
 
 export function readEffectiveProvider(req: IncomingMessage): string | undefined {
@@ -129,7 +99,7 @@ function apply(ctx: Context) {
           path: EFFECTIVE_PATH,
           handler: async (req, res) => {
             if (!isExpectedHost(req, llmCtx.webServer.host)) {
-              writeEffectiveJson(res, 403, { error: 'forbidden' })
+              writeJson(res, 403, { error: 'forbidden' })
               return
             }
             if (req.method !== 'GET') {
@@ -139,18 +109,18 @@ function apply(ctx: Context) {
             }
             const provider = readEffectiveProvider(req)
             if (provider === undefined) {
-              writeEffectiveJson(res, 400, { error: '缺少 provider 查询参数' })
+              writeJson(res, 400, { error: '缺少 provider 查询参数' })
               return
             }
             try {
               const outcome = await effectiveModelsFor(llmCtx, provider)
               if (outcome.kind === 'unavailable') {
-                writeEffectiveJson(res, 404, { error: outcome.message })
+                writeJson(res, 404, { error: outcome.message })
                 return
               }
-              writeEffectiveJson(res, 200, { models: outcome.models })
+              writeJson(res, 200, { models: outcome.models })
             } catch (error) {
-              writeEffectiveJson(res, 500, { error: errMsg(error) })
+              writeJson(res, 500, { error: errMsg(error) })
             }
           },
         }),

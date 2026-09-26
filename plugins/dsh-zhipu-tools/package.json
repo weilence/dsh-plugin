@@ -67,6 +67,7 @@
   },
   "devDependencies": {
     "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/shared": "workspace:*",
     "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",

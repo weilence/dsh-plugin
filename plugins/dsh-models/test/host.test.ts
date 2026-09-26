@@ -1,6 +1,7 @@
 import type { IncomingMessage } from 'node:http'
 import { describe, expect, it } from 'vitest'
-import { etagMatches, isExpectedHost } from '../src/index'
+import { etagMatches } from '../src/index'
+import { isExpectedHost } from '@dsh-plugins/shared/http'
 
 function req(host?: string): IncomingMessage {
   return { headers: { host } } as IncomingMessage

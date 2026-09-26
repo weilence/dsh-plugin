@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage } from 'node:http'
-import { isExpectedHost, isTrustedFetch } from '../src/index'
+import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
 
 function req(headers: Record<string, string | string[] | undefined>): IncomingMessage {
   return { headers } as unknown as IncomingMessage

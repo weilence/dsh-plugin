@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { effectiveModelsFor, writeEffectiveJson } from '../src/effective'
+import { effectiveModelsFor } from '../src/effective'
+import { writeJson } from '@dsh-plugins/shared/http'
 import { readEffectiveProvider } from '../src/index'
 
 /** 只读桥消费的 llm 面（官方 LlmRuntime 的结构子集）。 */
@@ -101,7 +102,7 @@ describe('生效能力只读桥', () => {
       },
       end() {},
     }
-    writeEffectiveJson(res as never, 200, { models: [] })
+    writeJson(res as never, 200, { models: [] })
     expect(headers['content-type']).toContain('application/json')
     expect(headers['cache-control']).toBe('no-store')
   })

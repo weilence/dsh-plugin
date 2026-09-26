@@ -5,7 +5,8 @@
  * 消费；面板是唯一读者。
  */
 
-import { errMsg, mcpApi } from './api'
+import { errMsg } from '@dsh-plugins/shared'
+import { mcpApi } from './api'
 import type { DeleteRequest, ListResponse, McpRow, SaveRequest, SetEnabledRequest } from '../shared'
 
 export interface McpState {

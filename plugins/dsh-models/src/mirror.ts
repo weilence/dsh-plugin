@@ -1,17 +1,13 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { errMsg } from '@dsh-plugins/shared'
 
 export const MODELS_DEV_URL = 'https://models.dev/api.json'
 export const NORMAL_CHECK_MS = 6 * 60 * 60 * 1000
 export const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
 export const MAX_CATALOG_BYTES = 16 * 1024 * 1024
 export const REQUEST_TIMEOUT_MS = 30_000
-
-export function errMsg(error: unknown) {
-  const message = (error as { message?: string } | null | undefined)?.message
-  return message || String(error)
-}
 
 interface PersistedMeta {
   sha256?: string

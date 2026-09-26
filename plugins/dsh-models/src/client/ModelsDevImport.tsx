@@ -8,7 +8,7 @@ import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { effortsLabel, type PanelRoute } from '../pi-ai/view'
 import { ModelTable } from './ModelTable'
 import { Field, TextField, fieldInputCls } from '@dsh-plugins/client-ui'
-import { errMsg } from './utils'
+import { errMsg } from '@dsh-plugins/shared'
 import styles from '@dsh-plugins/client-ui/styles'
 
 export interface ModelsDevImportProps {

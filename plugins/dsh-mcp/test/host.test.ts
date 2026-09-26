@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { apply, isExpectedHost, isTrustedFetch } from '../src/index'
+import { apply } from '../src/index'
+import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
 import { parsePatchDoc, scanPatchDoc } from '../src/patchFile'
 
 function req(headers: Record<string, string | string[] | undefined>): IncomingMessage {

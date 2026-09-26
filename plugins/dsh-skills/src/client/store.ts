@@ -4,7 +4,8 @@
  * 读者，React 经 useSyncExternalStore 消费。
  */
 
-import { skillsApi, errMsg } from './api'
+import { errMsg } from '@dsh-plugins/shared'
+import { skillsApi } from './api'
 import type {
   GitCheckResult,
   GitInstallResponse,

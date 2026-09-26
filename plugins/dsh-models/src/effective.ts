@@ -1,8 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-llm'
-import type { ServerResponse } from 'node:http'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
-import { errMsg } from './mirror'
+import { errMsg } from '@dsh-plugins/shared'
 
 /** 只读桥回答的一条模型能力（client half 经 operations.ts 复用同一契约）。 */
 export interface EffectiveModelFacts {
@@ -55,14 +54,4 @@ export async function effectiveModelsFor(ctx: Context, provider: string): Promis
   } catch (error) {
     return { kind: 'unavailable', message: errMsg(error) }
   }
-}
-
-export function writeEffectiveJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
-  const payload = Buffer.from(JSON.stringify(body))
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': String(payload.byteLength),
-    'cache-control': 'no-store',
-  })
-  res.end(payload)
 }
