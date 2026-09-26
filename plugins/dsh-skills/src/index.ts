@@ -1,0 +1,433 @@
+/**
+ * dsh-skills host half：设置页「Skills 管理」面板的 HTTP 桥。
+ *
+ * 官方 web/desktop 组合刻意禁用 host 级 skill-filesystem（本地发现由各
+ * agent preset 的 scoped 层负责），全局 `ctx.skills` 注册表默认为空，
+ * 因此读侧以「直接扫描四个标准技能根」为主（与官方 provider 同一套
+ * 发现与校验规则），并集上全局注册表里落在这四个根之外的条目（内置 /
+ * 自定义目录 / 运行时技能）作只读展示。写侧直接落盘（node:fs），
+ * frontmatter 只做行级已知键替换，未知字段原样保留；删除只作用于归属
+ * 可写根的单文件 / 目录包。
+ *
+ * @module dsh-skills
+ */
+
+import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { basename, dirname, join, relative, sep } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-skill'
+import {
+  SKILL_NAME_PATTERN,
+  sourceOrder,
+  type DeleteRequest,
+  type FileResponse,
+  type ListResponse,
+  type RootId,
+  type SaveRequest,
+  type SaveResponse,
+  type SkillFormat,
+  type SkillRow,
+} from './shared'
+import { applyKnown, formatOfPath, renderFile, splitFrontmatter } from './frontmatter'
+import { RootMatcher, managedRoots, rootInfos } from './roots'
+import { scanRoot } from './scan'
+
+export const inject: string[] = ['webServer']
+
+export const LIST_PATH = '/dsh-skills/list'
+export const FILE_PATH = '/dsh-skills/file'
+export const SAVE_PATH = '/dsh-skills/save'
+export const DELETE_PATH = '/dsh-skills/delete'
+
+const MAX_BODY_BYTES = 2 * 1024 * 1024
+
+/** 携带 HTTP 状态的业务错误。 */
+export class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+// URL.hostname 保留 IPv6 字面量的方括号，且 127/8 整段都是 loopback。
+function isLoopbackHostname(hostname: string) {
+  const bare = hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname
+  return (
+    bare === 'localhost' || bare === '::1' || bare === '0:0:0:0:0:0:0:1' || /^127(?:\.\d{1,3}){3}$/.test(bare)
+  )
+}
+
+// loopback 绑定接受 localhost / 127.x / ::1 多种拼写；非 loopback 的 Host
+// 头一律拒绝——这是本同源桥不服务 DNS-rebinding 页面的依据。
+export function isExpectedHost(req: IncomingMessage, expectedHost: string) {
+  const authority = req.headers.host
+  if (!authority || /[\/@?#]/.test(authority)) return false
+  try {
+    const actual = new URL(`http://${authority}`).hostname
+    if (actual === expectedHost) return true
+    return isLoopbackHostname(expectedHost) && isLoopbackHostname(actual)
+  } catch {
+    return false
+  }
+}
+
+// 跨站请求（含预检外的简单 POST）不带可用的 sec-fetch-site 同源标记；
+// dsh-app: 自定义协议页面该头缺席，与 same-origin 同等放行。
+export function isTrustedFetch(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site']
+  return site === undefined || site === 'same-origin' || site === 'none'
+}
+
+function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
+  const payload = Buffer.from(JSON.stringify(body))
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(payload.byteLength),
+    'cache-control': 'no-store',
+  })
+  res.end(payload)
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new HttpError(413, '请求体过大')
+    chunks.push(chunk as Buffer)
+  }
+  if (chunks.length === 0) throw new HttpError(400, '缺少 JSON 请求体')
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new HttpError(400, '请求体必须是 JSON 对象')
+    }
+    return parsed as Record<string, unknown>
+  } catch (error) {
+    if (error instanceof HttpError) throw error
+    throw new HttpError(400, '无效的 JSON 请求体')
+  }
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined
+}
+
+function optionalBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 解析查询里的 cwd：空白或缺席 = 用户级作用域。 */
+function cwdOf(value: string | null): string | undefined {
+  return optionalString(value)
+}
+
+function skillRowOf(
+  summary: {
+    name: string
+    description: string
+    whenToUse?: string
+    invocation: { modelInvocable: boolean; userInvocable: boolean }
+    source: string
+    provider: string
+    path?: string
+    invalid?: string
+    format?: SkillFormat
+  },
+  rootId: string | undefined,
+  effective: boolean,
+): SkillRow {
+  return {
+    name: summary.name,
+    description: summary.description,
+    ...(summary.whenToUse !== undefined ? { whenToUse: summary.whenToUse } : {}),
+    modelInvocable: summary.invocation.modelInvocable,
+    userInvocable: summary.invocation.userInvocable,
+    source: summary.source,
+    provider: summary.provider,
+    ...(summary.path !== undefined ? { path: summary.path } : {}),
+    ...(rootId !== undefined ? { rootId: rootId as SkillRow['rootId'] } : {}),
+    ...(summary.format !== undefined ? { format: summary.format } : {}),
+    ...(summary.invalid !== undefined ? { invalid: summary.invalid } : {}),
+    editable: rootId !== undefined,
+    effective,
+  }
+}
+
+export function apply(ctx: Context): void {
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: LIST_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const url = new URL(req.url ?? '/', 'http://localhost')
+            const cwd = cwdOf(url.searchParams.get('cwd'))
+            const roots = await managedRoots(cwd)
+            const scanned = (await Promise.all(roots.map((root) => scanRoot(root)))).flat()
+            const rows: SkillRow[] = scanned.map((skill) =>
+              skillRowOf({ ...skill, provider: 'scan' }, skill.source, false),
+            )
+            // 全局注册表补充：落在四个可写根之外的条目（内置 / 自定义 /
+            // 运行时）作只读展示。注册表缺席（组合未挂载）时跳过。
+            const registry = ctx.get('skills')
+            if (registry !== undefined) {
+              const seenPaths = new Set(rows.map((row) => row.path))
+              const snapshot = await registry.snapshot(cwd === undefined ? {} : { cwd })
+              for (const summary of snapshot.skills) {
+                if (summary.path === undefined || seenPaths.has(summary.path)) continue
+                seenPaths.add(summary.path)
+                rows.push(skillRowOf(summary, undefined, false))
+              }
+            }
+            // 遮蔽判定在合并全集上做：同名合法条目按来源 rank 取最低者为
+            // 胜（custom 300 会盖过用户级 400/500，正如官方注册表的规则）。
+            const winnerPath = new Map<string, string>()
+            for (const row of [...rows].sort(
+              (left, right) => sourceOrder(left.source) - sourceOrder(right.source),
+            )) {
+              if (row.invalid !== undefined) continue
+              if (!winnerPath.has(row.name)) winnerPath.set(row.name, row.path ?? row.name)
+            }
+            for (const row of rows) {
+              row.effective = row.invalid === undefined && winnerPath.get(row.name) === (row.path ?? row.name)
+            }
+            rows.sort(
+              (left, right) =>
+                sourceOrder(left.source) - sourceOrder(right.source) ||
+                (left.name < right.name ? -1 : left.name > right.name ? 1 : 0),
+            )
+            const response: ListResponse = {
+              roots: await rootInfos(roots),
+              skills: rows,
+            }
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            writeJson(res, 500, { error: String(error) })
+          }
+        },
+      }),
+    'dsh-skills: list bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: FILE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const url = new URL(req.url ?? '/', 'http://localhost')
+            const path = optionalString(url.searchParams.get('path'))
+            if (path === undefined) {
+              writeJson(res, 400, { error: '缺少 path 参数' })
+              return
+            }
+            const cwd = cwdOf(url.searchParams.get('cwd'))
+            const roots = await managedRoots(cwd)
+            const matcher = await RootMatcher.create(roots)
+            let allowed = (await matcher.match(path)) !== undefined
+            if (!allowed) {
+              // 只读来源（bundled / custom）按当前目录快照放行精确匹配的路径。
+              const registry = ctx.get('skills')
+              const snapshot =
+                registry === undefined ? undefined : await registry.snapshot(cwd === undefined ? {} : { cwd })
+              allowed = snapshot?.skills.some((skill) => skill.path === path) === true
+            }
+            if (!allowed) {
+              writeJson(res, 403, { error: '该文件不在可管理的技能路径内' })
+              return
+            }
+            let raw: string
+            try {
+              raw = await readFile(path, { encoding: 'utf8' })
+            } catch {
+              writeJson(res, 404, { error: '技能文件不存在或不可读' })
+              return
+            }
+            const response: FileResponse = { path, raw }
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            writeJson(res, 500, { error: String(error) })
+          }
+        },
+      }),
+    'dsh-skills: file bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: SAVE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as SaveRequest
+            const cwd = optionalString(request.cwd)
+            const roots = await managedRoots(cwd)
+            const matcher = await RootMatcher.create(roots)
+
+            const name = typeof request.name === 'string' ? request.name : ''
+            if (!SKILL_NAME_PATTERN.test(name)) {
+              throw new HttpError(400, `技能名称「${name}」不合法：需为 kebab-case（小写字母数字与连字符）`)
+            }
+            const description = typeof request.description === 'string' ? request.description.trim() : ''
+            if (description.length === 0) throw new HttpError(400, '描述不能为空')
+            const whenToUse = optionalString(request.whenToUse)
+            const draft = {
+              name,
+              description,
+              ...(whenToUse !== undefined ? { whenToUse } : {}),
+              modelInvocable: optionalBoolean(request.modelInvocable, true),
+              userInvocable: optionalBoolean(request.userInvocable, true),
+            }
+            const skillBody = typeof request.body === 'string' ? request.body : ''
+            const editPath = optionalString(request.editPath)
+
+            let target: string
+            if (editPath !== undefined) {
+              // 编辑模式：只覆盖 list 下发的原路径；名称不可变（frontmatter
+              // 与文件名一致由创建保证，编辑改名会让两者漂移）。
+              if ((await matcher.match(editPath)) === undefined) {
+                throw new HttpError(403, '该文件不在可管理的技能根内')
+              }
+              const existingName = await frontmatterNameOf(editPath)
+              if (existingName !== undefined && existingName !== name) {
+                throw new HttpError(400, `编辑时不能改名（当前文件声明的名称是「${existingName}」）`)
+              }
+              let existing = ''
+              try {
+                existing = await readFile(editPath, { encoding: 'utf8' })
+              } catch {
+                throw new HttpError(404, '原技能文件不存在（可能已被外部删除），请刷新')
+              }
+              const split = splitFrontmatter(existing) ?? { fm: '', body: existing }
+              const fm = applyKnown(split.fm, draft)
+              target = editPath
+              if (formatOfPath(target) === 'bundle') await mkdir(dirname(target), { recursive: true })
+              await writeFile(target, renderFile(fm, skillBody), { encoding: 'utf8' })
+            } else {
+              // 新建模式：目标根内不得存在同名单文件或同名目录（两者互相遮蔽）。
+              const rootId = request.rootId as RootId
+              const root = roots.find((candidate) => candidate.id === rootId)
+              if (root === undefined) throw new HttpError(400, `未知的目标根「${String(rootId)}」`)
+              const format = request.format === 'bundle' ? 'bundle' : 'flat'
+              const flatPath = join(root.path, `${name}.md`)
+              const bundlePath = join(root.path, name, 'SKILL.md')
+              for (const candidate of [flatPath, bundlePath]) {
+                if (await pathExists(candidate)) {
+                  throw new HttpError(409, `目标根已存在同名技能：${candidate}`)
+                }
+              }
+              target = format === 'bundle' ? bundlePath : flatPath
+              if (format === 'bundle') await mkdir(dirname(target), { recursive: true })
+              else await mkdir(root.path, { recursive: true })
+              await writeFile(target, renderFile(applyKnown('', draft), skillBody), { encoding: 'utf8' })
+            }
+            const response: SaveResponse = { path: target }
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-skills: save bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: DELETE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as DeleteRequest
+            const path = optionalString(request.path)
+            if (path === undefined) throw new HttpError(400, '缺少 path')
+            const cwd = optionalString(request.cwd)
+            const roots = await managedRoots(cwd)
+            const matcher = await RootMatcher.create(roots)
+            const matched = await matcher.matchWithBase(path)
+            if (matched === undefined) throw new HttpError(403, '该文件不在可管理的技能根内')
+            // 形态校验：根下单文件（<name>.md）或目录包（<name>/SKILL.md），
+            // 更深的路径不是官方可发现的技能实体，拒绝删除以免误伤资源目录。
+            // 以实际命中的基座变体（字面或 realpath）计算相对路径。
+            const rel = relative(matched.base, path)
+              .split(/[\\/]/)
+              .filter((segment) => segment.length > 0)
+            const base = basename(path)
+            if (rel.length === 1 && base.endsWith('.md')) {
+              try {
+                await unlink(path)
+              } catch {
+                throw new HttpError(404, '技能文件不存在（可能已被外部删除），请刷新')
+              }
+            } else if (rel.length === 2 && rel[1] === 'SKILL.md') {
+              try {
+                await rm(dirname(path), { recursive: true })
+              } catch {
+                throw new HttpError(404, '技能目录不存在（可能已被外部删除），请刷新')
+              }
+            } else {
+              throw new HttpError(400, `不是可删除的技能实体：${rel.join(sep)}`)
+            }
+            writeJson(res, 200, { removed: true })
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-skills: delete bridge',
+  )
+}
+
+/** 读取现有文件的 frontmatter name（缺文件 / 缺键返回 undefined）。 */
+async function frontmatterNameOf(path: string): Promise<string | undefined> {
+  try {
+    const raw = await readFile(path, { encoding: 'utf8' })
+    const split = splitFrontmatter(raw)
+    if (split === undefined) return undefined
+    const text = /^name:[ \t]+(.*)$/.exec(
+      split.fm.split(/\r?\n/).find((line) => line.startsWith('name:')) ?? '',
+    )?.[1]
+    if (text === undefined) return undefined
+    const trimmed = text.trim().replace(/^['"]|['"]$/g, '')
+    return trimmed.length > 0 ? trimmed : undefined
+  } catch {
+    return undefined
+  }
+}

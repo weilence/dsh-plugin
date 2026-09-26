@@ -1,0 +1,87 @@
+{
+  "name": "dsh-skills",
+  "version": "0.1.0",
+  "description": "DSH web 插件（Skills 管理）：设置页新增「Skills 管理」菜单——浏览宿主 skill 注册表合并后的技能目录（来源/调用策略/文件路径），对四个标准技能根（项目 .dsh/skills、项目 .agents/skills、用户 ~/.dsh/skills、用户 ~/.agents/skills）做新建 / 编辑 / 删除；host half 经 ctx.skills 读取目录、经 node:fs 落盘，frontmatter 结构化编辑并原样保留未知字段，bundled / custom 等只读来源仅查看。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-session-controller"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "skills",
+    "skill-management",
+    "agent-skills"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weilence/dsh-plugins.git",
+    "directory": "plugins/dsh-skills"
+  },
+  "bugs": {
+    "url": "https://github.com/weilence/dsh-plugins/issues"
+  },
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-skills#readme",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.2 <0.2.0",
+    "@deepseek-ai/dsh-home-paths": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "devDependencies": {
+    "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/tsdown-config": "workspace:*",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-api-session-controller": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-home-paths": "catalog:",
+    "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@deepseek-ai/dsh-skill": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

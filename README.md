@@ -9,6 +9,7 @@
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [dsh-models](plugins/dsh-models)           | 设置页「模型目录」：浏览 [models.dev](https://models.dev)、把 Provider / 模型导入 `llm-pi-ai`，编辑能力与推理强度；host 侧带 ETag 感知的目录镜像与只读生效能力桥 |
 | [dsh-notify](plugins/dsh-notify)           | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览静默；desktop 窗口恢复桥                                                                                     |
+| [dsh-skills](plugins/dsh-skills)           | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级往返，未知字段保留）                 |
 | [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；输入框状态栏展示 5 小时 / 7 天用量配额与重置倒计时                                                        |
 
 各插件的功能、安装与配置说明见其目录内 README。
@@ -19,8 +20,10 @@
 ├── plugins/            # 可发布插件（npm 包）
 │   ├── dsh-models/
 │   ├── dsh-notify/
+│   ├── dsh-skills/
 │   └── dsh-zhipu-tools/
 ├── packages/
+│   ├── client-ui/      # @dsh-plugins/client-ui（私有）：DSH 插件共享 client UI 组件
 │   └── tsdown-config/  # @dsh-plugins/tsdown-config（私有）：DSH 插件共享构建工厂
 ├── pnpm-workspace.yaml # workspace + catalog（共享版本表）
 └── tsconfig.base.json  # 各插件 tsconfig 的公共基座

@@ -1,0 +1,11 @@
+# dsh-skills bundle patch
+#
+# 安装后（dependencies 与 dsh.profile.bundles 均含 dsh-skills），
+# 启动时 profile boot 会合并本 patch，把插件行插入 host composition。
+# 只硬依赖 webServer（HTTP 桥）；skill 注册表经 ctx.get('skills') 可选
+# 访问——官方 web/desktop 组合刻意禁用 host 级 skill-filesystem（本地
+# 发现归各 agent preset 的 scoped 层），本插件的目录以直接扫描四个
+# 标准技能根为主，注册表仅作只读来源的补充并集，缺席也能完整工作。
+- insert:
+    - id: dsh-skills
+      name: 'dsh-skills'
