@@ -15,6 +15,6 @@ DSH 插件共享的 client UI 组件。
 
 ## 子路径导出
 
-- `.` 组件（Field 套件 / ConfirmDialog / ToneChip）
+- `.` 组件（Field 套件 / ConfirmDialog / PickList / ToneChip）
 - `./styles` 共享基础样式表的类名映射（领域组件按 `{...shared, ...local}` 合并消费）
 - `./tone` 语气色调色板（toneStyles + ToneChip）

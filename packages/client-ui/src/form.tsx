@@ -32,21 +32,42 @@ export function TextField(props: {
   disabled?: boolean
   /** 跨满网格整行（grid-column: 1 / -1）。 */
   wide?: boolean
+  /** 输入框右侧的联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
+  addon?: { label: string; onClick(): void; disabled?: boolean }
 }) {
-  const { label, value, onChange, type, placeholder, list, inputMode, autoComplete, disabled, wide } = props
+  const { label, value, onChange, type, placeholder, list, inputMode, autoComplete, disabled, wide, addon } = props
   return (
     <Field label={label} wide={wide}>
-      <Input
-        className={fieldInputCls(disabled)}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        list={list}
-        inputMode={inputMode}
-        autoComplete={autoComplete}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      {addon === undefined ? (
+        <Input
+          className={fieldInputCls(disabled)}
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          list={list}
+          inputMode={inputMode}
+          autoComplete={autoComplete}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <div className={styles.inputRow}>
+          <Input
+            className={fieldInputCls(disabled)}
+            type={type}
+            value={value}
+            placeholder={placeholder}
+            list={list}
+            inputMode={inputMode}
+            autoComplete={autoComplete}
+            disabled={disabled}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          <button type="button" className={styles.addonButton} disabled={disabled || addon.disabled} onClick={addon.onClick}>
+            {addon.label}
+          </button>
+        </div>
+      )}
     </Field>
   )
 }
