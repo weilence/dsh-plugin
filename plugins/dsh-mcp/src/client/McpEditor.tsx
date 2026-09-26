@@ -12,9 +12,10 @@
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
+import { IssueList, PickList, SelectField, TextAreaField, TextField, type PickItem } from '@dsh-plugins/client-ui'
 import type { McpRow, McpScope, McpTransport, SaveRequest } from '../shared'
 import { SERVER_NAME_PATTERN } from '../shared'
+import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
 import type { McpStore } from './store'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './McpSection.module.css'
@@ -54,6 +55,15 @@ export function McpEditor(props: McpEditorProps) {
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props))
   const [touched, setTouched] = useState(false)
 
+  // 新建模式的两种输入：结构化表单 / 粘贴 JSON（mcpServers 包装、
+  // 名称直接映射与裸对象三种写法，名称一律来自 JSON）。编辑与查看
+  // 只有表单 / 只读视图。
+  const [inputMode, setInputMode] = useState<'form' | 'json'>('form')
+  const [jsonText, setJsonText] = useState('')
+  const [parsed, setParsed] = useState<McpJsonParseResult | null>(null)
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  const [jsonError, setJsonError] = useState<string | null>(null)
+
   const knownServerNames = useMemo(
     () =>
       new Set(
@@ -66,6 +76,40 @@ export function McpEditor(props: McpEditorProps) {
 
   const issues = validateDraft(draft, mode, knownServerNames)
   const busy = props.busy
+
+  const parseJson = (): void => {
+    setJsonError(null)
+    setParsed(null)
+    try {
+      const result = parseMcpJsonText(jsonText)
+      setParsed(result)
+      setPicked(new Set(result.entries.map((entry) => entry.serverName)))
+    } catch (error) {
+      setJsonError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const togglePick = (name: string): void => {
+    setPicked((previous) => {
+      const next = new Set(previous)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const importSelected = async (): Promise<void> => {
+    if (parsed === null) return
+    for (const entry of parsed.entries.filter((candidate) => picked.has(candidate.serverName))) {
+      const ok = await store.save({
+        scope: draft.scope,
+        config: entry.draft,
+        ...(Object.keys(entry.extras).length > 0 ? { extra: entry.extras } : {}),
+      })
+      if (!ok) return
+    }
+    props.onCancel()
+  }
 
   const submit = async (): Promise<void> => {
     setTouched(true)
@@ -133,9 +177,19 @@ export function McpEditor(props: McpEditorProps) {
               <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
                 取消
               </Button>
-              <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-                {props.busy ? '保存中…' : '保存'}
-              </Button>
+              {mode === 'create' && inputMode === 'json' ? (
+                <Button
+                  variant="primary"
+                  disabled={props.busy || parsed === null || picked.size === 0}
+                  onClick={() => void importSelected()}
+                >
+                  {props.busy ? '导入中…' : `导入选中（${picked.size}）`}
+                </Button>
+              ) : (
+                <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+                  {props.busy ? '保存中…' : '保存'}
+                </Button>
+              )}
             </>
           ) : null}
         </>
@@ -144,14 +198,49 @@ export function McpEditor(props: McpEditorProps) {
       {mode === 'view' ? (
         <ViewBody row={row} />
       ) : (
-        <EditBody
-          draft={draft}
-          setDraft={setDraft}
-          mode={mode}
-          issues={issues}
-          touched={touched}
-          error={props.error}
-        />
+        <>
+          {mode === 'create' ? (
+            <div className={styles.tabRow}>
+              <Button
+                size="sm"
+                variant={inputMode === 'form' ? 'primary' : 'outline'}
+                onClick={() => setInputMode('form')}
+              >
+                表单输入
+              </Button>
+              <Button
+                size="sm"
+                variant={inputMode === 'json' ? 'primary' : 'outline'}
+                onClick={() => setInputMode('json')}
+              >
+                JSON 粘贴
+              </Button>
+            </div>
+          ) : null}
+          {mode === 'create' && inputMode === 'json' ? (
+            <JsonBody
+              jsonText={jsonText}
+              onText={setJsonText}
+              onParse={parseJson}
+              parsed={parsed}
+              picked={picked}
+              onTogglePick={togglePick}
+              scope={draft.scope}
+              onScope={(scope) => setDraft((previous) => ({ ...previous, scope }))}
+              jsonError={jsonError}
+              busy={props.busy}
+            />
+          ) : (
+            <EditBody
+              draft={draft}
+              setDraft={setDraft}
+              mode={mode}
+              issues={issues}
+              touched={touched}
+              error={props.error}
+            />
+          )}
+        </>
       )}
     </Modal>
   )
@@ -199,6 +288,88 @@ function ViewBody(props: { row: McpRow | undefined }) {
       </div>
     </div>
   )
+}
+
+/** 新建模式的 JSON 粘贴页：解析三种方言 → 勾选导入。 */
+function JsonBody(props: {
+  jsonText: string
+  onText(text: string): void
+  onParse(): void
+  parsed: McpJsonParseResult | null
+  picked: ReadonlySet<string>
+  onTogglePick(name: string): void
+  scope: McpScope
+  onScope(scope: McpScope): void
+  jsonError: string | null
+  busy: boolean
+}) {
+  const { parsed } = props
+  return (
+    <div className={styles.section}>
+      <div className={styles.grid}>
+        <SelectField
+          label="目标层"
+          value={props.scope}
+          options={[
+            { value: 'profile', label: 'Profile 层（仅当前 profile）' },
+            { value: 'home', label: '全局层（~/.dsh，所有 profile）' },
+          ]}
+          onChange={(scope) => props.onScope(scope as McpScope)}
+        />
+      </div>
+      <TextAreaField
+        label={'粘贴 JSON（支持 {"mcpServers": {...}} 包装、{"名称": {...}} 直接映射与单个服务器对象）'}
+        value={props.jsonText}
+        placeholder={
+          '{\n  "mcpServers": {\n    "context7": {\n      "type": "stdio",\n      "command": "npx",\n      "args": ["-y", "@upstash/context7-mcp"]\n    }\n  }\n}'
+        }
+        onChange={props.onText}
+      />
+      <div className={styles.parseRow}>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={props.busy || props.jsonText.trim().length === 0}
+          onClick={props.onParse}
+        >
+          解析
+        </Button>
+      </div>
+      {props.jsonError ? (
+        <div className={styles.error} role="alert">
+          {props.jsonError}
+        </div>
+      ) : null}
+      <PickList items={pickItemsOf(parsed)} picked={props.picked} onToggle={props.onTogglePick} />
+      {parsed !== null && parsed.problems.length > 0 ? (
+        <IssueList
+          issues={parsed.problems.map((problem) => ({
+            message: `${problem.name.length > 0 ? problem.name : '（未命名）'}：${problem.message}`,
+          }))}
+        />
+      ) : null}
+      <p className={styles.hint}>
+        {
+          '兼容 Agent Plugins mcp.json 与 Claude .mcp.json 的 mcpServers 格式；{"名称": {...}} 直接映射同样支持，'
+        }
+        裸对象自动从 command / URL 推导名称；http / sse 归一为 streamable-http；表单外的未知键（reconnect
+        等）原样透传，由 Loader 加载时校验；{'${PLUGIN_ROOT}'} 类占位符 DSH 无法解析，会直接报错。
+      </p>
+    </div>
+  )
+}
+
+/** 解析结果 → 勾选清单行。 */
+function pickItemsOf(parsed: McpJsonParseResult | null): PickItem[] {
+  return (parsed?.entries ?? []).map((entry) => ({
+    key: entry.serverName,
+    title: entry.serverName,
+    lines: [
+      `${entry.draft.transport} · ${endpointOf({ ...entry.draft }) || '（缺端点）'}`,
+      ...(Object.keys(entry.extras).length > 0 ? [`透传高级键：${Object.keys(entry.extras).join(', ')}`] : []),
+    ],
+    notes: entry.notes,
+  }))
 }
 
 function EditBody(props: {

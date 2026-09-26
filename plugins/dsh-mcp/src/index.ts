@@ -31,7 +31,7 @@ import {
   type SaveResponse,
   type SetEnabledRequest,
 } from './shared'
-import { ConfigError, mergeForEdit, normalizeDraft } from './mcpConfig'
+import { ConfigError, extrasOf, mergeForEdit, normalizeDraft } from './mcpConfig'
 import { collectLiveMcp } from './live'
 import {
   appendMcpInsert,
@@ -355,6 +355,9 @@ export function apply(ctx: Context): void {
               const status = error instanceof ConfigError ? 400 : 500
               throw new HttpError(status, error instanceof Error ? error.message : String(error))
             }
+            // JSON 导入的高级键透传：已知键已被上方严格校验，这里只合并
+            // 消毒后的未知键（Loader 加载时的 schema 校验兜底）。
+            const extra = extrasOf(request.extra)
 
             const layers = await loadLayers(profile)
             const managed = composeManaged(layers)
@@ -377,7 +380,7 @@ export function apply(ctx: Context): void {
               }
               const layer = layers.find((candidate) => candidate.scope === scope)
               if (layer === undefined) throw new HttpError(400, `未知的作用域「${scope}」`)
-              appendMcpInsert(layer.doc, { id, config: draft })
+              appendMcpInsert(layer.doc, { id, config: extra === undefined ? draft : { ...draft, ...extra } })
               await writeLayers([layer])
               const response: SaveResponse = { id, scope }
               writeJson(res, 200, response as unknown as Record<string, unknown>)
@@ -390,11 +393,12 @@ export function apply(ctx: Context): void {
             if (row === undefined)
               throw new HttpError(404, `没有找到 id 为「${editing}」的 MCP 行（作用域 ${scope}）`)
             const merged = mergeForEdit([asRecord(row.insert.config), row.effectiveConfig], draft)
-            setInsertConfig(row.layer.doc, row.insert, merged)
+            const effective = extra === undefined ? merged : { ...merged, ...extra }
+            setInsertConfig(row.layer.doc, row.insert, effective)
             const touched = new Set<Layer>([row.layer])
             for (const override of row.overrides) {
               if (override.row.config === undefined) continue
-              setOverrideConfig(override.layer.doc, override.row.patchIndex, merged)
+              setOverrideConfig(override.layer.doc, override.row.patchIndex, effective)
               touched.add(override.layer)
             }
             await writeLayers(touched)

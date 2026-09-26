@@ -16,18 +16,10 @@
   gap: 16px;
 }
 
-/* 头部左侧标题列可收缩（副标题换行）；按钮列保持整行不换字——
-   CJK 文本的最小内容宽度只有一个字符，flex 收缩会把按钮挤成竖排。 */
+/* 头部标题列可收缩（副标题换行）。 */
 .panelHeadMain {
   min-width: 0;
   flex: 1;
-}
-
-.headActions {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 
 .panelTitle {
@@ -65,6 +57,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 列表工具条：新建 / 刷新贴着服务器列表上方，不放页面头部右上角。 */
+.listToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* 服务器卡片列表。 */
@@ -217,6 +217,21 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px 16px;
+}
+
+/* 新建弹窗的输入模式切换（表单 / JSON 粘贴）与解析操作行。候选勾选
+   清单是共享组件 PickList（@dsh-plugins/client-ui），样式在
+   shared.module.css。 */
+.tabRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.parseRow {
+  display: flex;
+  justify-content: flex-start;
 }
 
 .meta,

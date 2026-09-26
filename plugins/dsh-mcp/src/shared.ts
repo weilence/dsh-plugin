@@ -93,6 +93,12 @@ export interface SaveRequest {
   /** 编辑时的 patch 行 id；缺省为新建。 */
   id?: string
   config: McpConfigDraft
+  /**
+   * JSON 导入的未知键透传（reconnect / maxInstructionBytes 等高级键）。
+   * host 过滤掉与已知键同名的项后合并进写入配置，Loader 的 schema
+   * 校验兜底；表单模式不提交此字段。
+   */
+  extra?: Record<string, unknown>
 }
 
 export interface SaveResponse {

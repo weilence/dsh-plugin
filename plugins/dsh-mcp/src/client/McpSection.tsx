@@ -54,18 +54,6 @@ function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
             全局层的新建、编辑、启停、删除（bundle 与运行时覆盖来源只读）。
           </p>
         </div>
-        <div className={styles.headActions}>
-          <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
-            新建服务器
-          </Button>
-          <Button
-            variant="outline"
-            disabled={state.status === 'loading'}
-            onClick={() => void store.refresh()}
-          >
-            刷新
-          </Button>
-        </div>
       </header>
 
       {state.list !== null ? (
@@ -92,6 +80,18 @@ function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
       {state.notice !== null ? (
         <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
+      <div className={styles.listToolbar}>
+        <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
+          新建服务器
+        </Button>
+        <Button
+          variant="outline"
+          disabled={state.status === 'loading'}
+          onClick={() => void store.refresh()}
+        >
+          刷新
+        </Button>
+      </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取 MCP 服务器目录…</div> : null}
 
       <div className={styles.rows}>
