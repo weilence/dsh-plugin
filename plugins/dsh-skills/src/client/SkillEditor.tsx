@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react'
 import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
+import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
 import type { RootId, RootInfo, SaveRequest, SkillFormat, SkillRow } from '../shared'
 import { SKILL_NAME_PATTERN, sourceLabel } from '../shared'
 import { bodyForEditor, parseKnown, splitFrontmatter } from '../frontmatter'
@@ -168,7 +168,13 @@ export function SkillEditor(props: SkillEditorProps) {
               {props.error}
             </div>
           ) : null}
-          <textarea className={styles.rawView} readOnly value={loaded ?? '加载中…'} spellCheck={false} />
+          <TextAreaField
+            label="原文"
+            value={loaded ?? '加载中…'}
+            readOnly
+            minHeight={320}
+            spellCheck={false}
+          />
         </div>
       ) : loaded === null ? (
         <div className={styles.loading}>正在读取技能文件…</div>
@@ -244,16 +250,14 @@ export function SkillEditor(props: SkillEditorProps) {
               允许用户 /命令调用
             </label>
           </div>
-          <div className={styles.bodyField}>
-            <span className={styles.label}>正文（Markdown 指令）</span>
-            <textarea
-              className={styles.textareaTall}
-              value={draft.body}
-              placeholder={CREATE_PLACEHOLDER}
-              spellCheck={false}
-              onChange={(event) => setDraft((previous) => ({ ...previous, body: event.target.value }))}
-            />
-          </div>
+          <TextAreaField
+            label="正文（Markdown 指令）"
+            value={draft.body}
+            placeholder={CREATE_PLACEHOLDER}
+            spellCheck={false}
+            minHeight={260}
+            onChange={(body) => setDraft((previous) => ({ ...previous, body }))}
+          />
           <p className={styles.hint}>
             frontmatter 之外的未知字段会在保存时原样保留；两个开关保持开启时不会写入对应键
             （官方缺省即允许）。
@@ -269,15 +273,6 @@ export function SkillEditor(props: SkillEditorProps) {
         </div>
       )}
     </Modal>
-  )
-}
-
-function MetaItem(props: { label: string; value: string | undefined; wide?: boolean }) {
-  return (
-    <div className={props.wide ? styles.metaWide : styles.meta}>
-      <span className={styles.label}>{props.label}</span>
-      <span className={styles.metaValue}>{props.value ?? '—'}</span>
-    </div>
   )
 }
 

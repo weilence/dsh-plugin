@@ -1,41 +1,13 @@
-/* 模型编辑表单（ModelForm，内嵌在 RouteEditor 弹窗里）：
-   表单盒子、内嵌关闭钮与推理档位表。
+/* 模型编辑表单（ModelForm，内嵌在 ExpandableCard 的展开体里）：
+   只保留内部布局——盒子外观（边框 / 底色）由所在卡片承担，表单直铺在
+   卡片表面，不再自带一层卡壳。
    字段网格、勾选行、input 等共用样式见 @dsh-plugins/client-ui 的
    shared.module.css。 */
 
 .modelFormBox {
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: 12px;
-  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--dsw-alias-bg-layer-1);
-}
-
-.formHeader {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-/* 表单内嵌（非 Modal）的关闭按钮：对齐官方 Modal 关闭钮的几何。 */
-.close {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  cursor: pointer;
-}
-
-.close:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .effortTable {

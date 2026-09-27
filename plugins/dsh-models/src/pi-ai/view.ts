@@ -112,6 +112,13 @@ export function buildRoutes(
   )
 }
 
+/** 容量缩写（128000 → 128K）：列表页表格与编辑弹窗的模型卡片共用。 */
+export function formatTokenCount(value: number): string {
+  if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}M`
+  if (value >= 1_000) return `${Math.round(value / 100) / 10}K`
+  return String(value)
+}
+
 export function reasoningLabel(row: PanelModelRow): string {
   if (row.effectiveEfforts === undefined) return '默认'
   if (row.effectiveEfforts.length === 0) return '不支持'

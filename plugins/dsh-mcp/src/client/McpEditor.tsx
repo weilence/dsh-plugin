@@ -14,6 +14,7 @@ import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   IssueList,
+  MetaItem,
   PickList,
   SelectField,
   TextAreaField,
@@ -289,10 +290,13 @@ function ViewBody(props: { row: McpRow | undefined }) {
           </ul>
         </div>
       ) : null}
-      <div className={styles.bodyField}>
-        <span className={styles.label}>生效配置（JSON）</span>
-        <textarea className={styles.rawView} readOnly value={configText} spellCheck={false} />
-      </div>
+      <TextAreaField
+        label="生效配置（JSON）"
+        value={configText}
+        readOnly
+        minHeight={200}
+        spellCheck={false}
+      />
     </div>
   )
 }
@@ -513,15 +517,6 @@ function EditBody(props: {
           {props.error}
         </div>
       ) : null}
-    </div>
-  )
-}
-
-function MetaItem(props: { label: string; value: string | undefined; wide?: boolean }) {
-  return (
-    <div className={props.wide ? styles.metaWide : styles.meta}>
-      <span className={styles.label}>{props.label}</span>
-      <span className={styles.metaValue}>{props.value ?? '—'}</span>
     </div>
   )
 }

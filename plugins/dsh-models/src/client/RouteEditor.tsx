@@ -1,12 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
-import {
-  Button,
-  Input,
-  Modal,
-  StateDot,
-  Switch,
-  IconPlusOutlineRegular,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Modal, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { discoveredToCatalogEntry } from '../catalog/matching'
 import type { ModelsDevCatalog } from '../catalog/types'
 import { jsonEqual } from '../pi-ai/ops'
@@ -24,11 +17,19 @@ import {
   type ModelRow,
 } from '../pi-ai/profile'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
-import { effortsLabel, type PanelRoute } from '../pi-ai/view'
+import { effortsLabel, formatTokenCount, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
 import { ModelForm } from './ModelForm'
-import { ModelTable } from './ModelTable'
-import { ConfirmDialog, TextField, SelectField, fieldInputCls, IssueList } from '@dsh-plugins/client-ui'
+import {
+  ConfirmDialog,
+  ExpandableCard,
+  SelectField,
+  TextField,
+  IssueList,
+  useRowDragReorder,
+  type ExpandableCardInfoItem,
+  type ExpandableCardProps,
+} from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './RouteEditor.module.css'
 
@@ -82,6 +83,9 @@ const BLANK_ROW: ModelRow = {
   writeSite: 'catalog',
 }
 
+// 「新增中」行的 key：NUL 不会出现在合法模型 id 里，避免与真实行撞 key。
+const CREATING_ROW_KEY = '\u0000creating'
+
 // 只标注用户覆盖过的模型：纯目录继承是默认态，手写 route 与显式清单是
 // route 级事实（弹窗标题已表达），逐行重复没有信息量。
 function draftRowLabel(source: PanelRoute['source'], row: ModelRow): string | undefined {
@@ -116,20 +120,16 @@ export function RouteEditor(props: RouteEditorProps) {
   )
   /** 新增模式下已实时应用到草稿的条目 id：支持边输入边改名（移除旧条目再重新规划）。 */
   const formAppliedIdRef = useRef<string | undefined>(undefined)
+  /** 模型卡片列（.modelCards）：「新增中」卡片打开时把它滚进可视区。 */
+  const modelListRef = useRef<HTMLDivElement | null>(null)
 
   const switchModelEdit = (next: ModelEdit | undefined) => {
     formAppliedIdRef.current = undefined
     setModelEdit(next)
   }
-  // 「使用内置配置」：勾选后用户层只保留 API Key 引用，取消勾选时恢复勾选前
-  // 的草稿；备份初始为挂载时的原始 profile（「初始即勾选」的 route 取消勾选
-  // 时必须回到原始配置，否则 apiKeyEnv 会从候选里丢掉）。
-  const [useBuiltin, setUseBuiltin] = useState<boolean>(
-    () => !route.declared && isBuiltinOnly(route.userProfile),
-  )
-  const builtinBackupRef = useRef<PiAiProviderEntry>(
-    route.userProfile === undefined ? {} : (structuredClone(route.userProfile) as PiAiProviderEntry),
-  )
+  // 内置模式不可切换：挂载时按「已存 profile 是否只写了 API Key 引用」定性。
+  // 内置模式只保留显示名与 API Key（显示名可改），其余全部继承安装目录。
+  const useBuiltin = !route.declared && isBuiltinOnly(route.userProfile)
 
   const keyRef =
     typeof draftProfile.apiKeyEnv === 'string' && draftProfile.apiKeyEnv.length > 0
@@ -147,7 +147,7 @@ export function RouteEditor(props: RouteEditorProps) {
     const next = patchUserProfile(
       draftProfile,
       useBuiltin
-        ? {}
+        ? { displayName: providerDraft.displayName.trim() || undefined }
         : {
             displayName: providerDraft.displayName.trim() || undefined,
             api: providerDraft.api.trim() || undefined,
@@ -182,21 +182,6 @@ export function RouteEditor(props: RouteEditorProps) {
     if (keyError !== undefined) list.push(keyError)
     return list
   }, [route.declared, providerDraft, candidate, keyError, useBuiltin])
-
-  const toggleUseBuiltin = (checked: boolean) => {
-    if (checked) {
-      builtinBackupRef.current = draftProfile
-      const rest: PiAiProviderEntry = {}
-      if (typeof draftProfile.apiKeyEnv === 'string' && draftProfile.apiKeyEnv.length > 0) {
-        rest.apiKeyEnv = draftProfile.apiKeyEnv
-      }
-      setDraftProfile(rest)
-      setModelEdit(undefined)
-    } else {
-      setDraftProfile(builtinBackupRef.current)
-    }
-    setUseBuiltin(checked)
-  }
 
   const rowOf = (id: string) => route.rows.find((row) => row.id === id)
   const factsOf = (id: string) => rowOf(id)?.facts
@@ -263,6 +248,8 @@ export function RouteEditor(props: RouteEditorProps) {
 
   const removeModel = (row: ModelRow) => {
     setDraftProfile(removeModelProfile(draftSource, draftProfile, row))
+    // 删的是「新增中」已应用的条目：清掉应用标记，表单的下一次输入按新条目重新规划。
+    if (formAppliedIdRef.current === row.id) formAppliedIdRef.current = undefined
     if (modelEdit !== undefined && modelEdit.row.id === row.id) switchModelEdit(undefined)
   }
 
@@ -337,15 +324,26 @@ export function RouteEditor(props: RouteEditorProps) {
   }
 
   // 仅显式清单 / 手写 route 有序（models 数组顺序即请求与展示顺序）；目录
-  // route 的顺序由安装目录决定，面板不排序。
+  // route 的顺序由安装目录决定，面板不排序。from / to 是卡片下标：
+  // 「新增中」的条目不占卡片位，重排只在可见卡片范围内进行，再把它放回
+  // 末尾（与展示位置一致）。
   const reorderModel = (from: number, to: number) => {
     if (from === to) return
     if (draftSource !== 'explicit' && draftSource !== 'declared') return
-    const entries = [...modelEntries(draftProfile)]
-    const [moved] = entries.splice(from, 1)
-    entries.splice(to, 0, moved)
-    setDraftProfile(patchUserProfile(draftProfile, { models: entries, modelOverrides: undefined }))
+    const entries = modelEntries(draftProfile)
+    const creatingId = modelEdit !== undefined && modelEdit.creating ? formAppliedIdRef.current : undefined
+    const visible = entries.filter((entry) => entry.id !== creatingId)
+    if (from >= visible.length) return
+    const [moved] = visible.splice(from, 1)
+    visible.splice(Math.min(Math.max(to, 0), visible.length), 0, moved)
+    const tail = creatingId !== undefined ? entries.filter((entry) => entry.id === creatingId) : []
+    setDraftProfile(
+      patchUserProfile(draftProfile, { models: [...visible, ...tail], modelOverrides: undefined }),
+    )
   }
+
+  // 模型卡片的拖拽排序与 provider 列表同一控制器（drag.ts）。
+  const modelDrag = useRowDragReorder(reorderModel)
 
   const requestLeave = () => {
     if (dirty) setConfirm({ kind: 'leave' })
@@ -359,22 +357,135 @@ export function RouteEditor(props: RouteEditorProps) {
     requestLeave()
   }
 
+  const editingId = modelEdit !== undefined && !modelEdit.creating ? modelEdit.row.id : undefined
+  // 「新增中」的条目已实时写进草稿：从常规卡片里摘掉、固定以带「新增」徽标的
+  // 卡片显示在清单末尾，避免同一模型出现两张卡。
+  const creatingApplied =
+    modelEdit !== undefined && modelEdit.creating && formAppliedIdRef.current !== undefined
+      ? rows.find((row) => row.id === formAppliedIdRef.current)
+      : undefined
+  const displayRows =
+    creatingApplied !== undefined ? rows.filter((row) => row.id !== creatingApplied.id) : rows
+
+  const modelForm =
+    modelEdit === undefined ? undefined : (
+      <ModelForm
+        key={`${modelEdit.creating ? 'add' : 'edit'}:${modelEdit.row.id}`}
+        row={modelEdit.row}
+        creating={modelEdit.creating}
+        existingRows={modelEdit.creating ? displayRows : rows.filter((row) => row.id !== modelEdit.row.id)}
+        facts={modelEdit.creating ? undefined : factsOf(modelEdit.row.id)}
+        routeDefaults={routeDefaults}
+        catalogIds={route.declared ? undefined : catalogIds}
+        busy={props.busy}
+        onChange={applyModelLive}
+      />
+    )
+
+  // 卡片行头的 label / value 信息项：与列表页表格同一条回退链（条目 → 生效桥
+  // → route 默认），未显式配置的容量显示 —。
+  const modelInfo = (row: ModelRow): ExpandableCardInfoItem[] => {
+    const entry: PiAiModelEntry | undefined = row.userEntry ?? row.catalogEntry
+    const rowFacts = factsOf(row.id)
+    const panelRow = rowOf(row.id)
+    const ctx = entry?.contextWindow ?? rowFacts?.contextWindow ?? panelRow?.effectiveContextWindow
+    const out = entry?.maxTokens ?? rowFacts?.defaultMaxTokens ?? panelRow?.effectiveMaxTokens
+    const input = entry?.input ?? rowFacts?.inputModalities
+    return [
+      { label: 'ctx', value: ctx === undefined ? '—' : formatTokenCount(ctx) },
+      { label: 'out', value: out === undefined ? '—' : formatTokenCount(out) },
+      { label: '模态', value: input === undefined || input.length === 0 ? '—' : input.join('+') },
+      { label: '推理', value: entry === undefined ? '默认' : effortsLabel(entry) },
+    ]
+  }
+
+  const canReorder = draftSource === 'explicit' || draftSource === 'declared'
+  const cardTotal = displayRows.length + (modelEdit !== undefined && modelEdit.creating ? 1 : 0)
+
+  const modelCard = (row: ModelRow, index: number): ExpandableCardProps => {
+    const expanded = row.id === editingId
+    const badge = draftRowLabel(draftSource, row)
+    return {
+      open: expanded,
+      // 再点一次行头收起；点其他卡片切换编辑目标（改动已实时进草稿，无丢失）。
+      onToggle: () => (expanded ? switchModelEdit(undefined) : switchModelEdit({ creating: false, row })),
+      title: row.name,
+      meta: row.id,
+      badge: badge !== undefined ? <Tag>{badge}</Tag> : undefined,
+      info: modelInfo(row),
+      actions: (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={styles.dangerGhost}
+          disabled={props.busy}
+          // 只改草稿，保存时才真正写入：无需二次确认。
+          onClick={() => removeModel(row)}
+        >
+          删除
+        </Button>
+      ),
+      children: expanded ? modelForm : undefined,
+      dragging: modelDrag.isDragging(index),
+      dropLine: modelDrag.lineAt(index, cardTotal),
+      dragHandlers: canReorder ? modelDrag.rowProps(index, row.id) : undefined,
+    }
+  }
+
+  // 「新增中」卡片固定在清单末尾并处于展开编辑态；未输入 id 时只有占位标题。
+  const creatingCard =
+    modelEdit !== undefined && modelEdit.creating ? (
+      <ExpandableCard
+        key={CREATING_ROW_KEY}
+        open
+        onToggle={() => switchModelEdit(undefined)}
+        title={creatingApplied !== undefined ? creatingApplied.name : '新模型'}
+        meta={creatingApplied !== undefined ? creatingApplied.id : undefined}
+        badge={<Tag>新增</Tag>}
+        info={creatingApplied !== undefined ? modelInfo(creatingApplied) : undefined}
+        actions={
+          creatingApplied !== undefined ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.dangerGhost}
+              disabled={props.busy}
+              onClick={() => removeModel(creatingApplied)}
+            >
+              删除
+            </Button>
+          ) : undefined
+        }
+      >
+        {modelForm}
+      </ExpandableCard>
+    ) : undefined
+
+  const modelCards = [
+    ...displayRows.map((row, index) => <ExpandableCard key={row.id} {...modelCard(row, index)} />),
+    ...(creatingCard !== undefined ? [creatingCard] : []),
+  ]
+
+  // 「新增中」卡片追加在清单末尾，展开的表单常在视口外：打开时把它滚进来
+  // （block: 'nearest'，本就在视口内时不产生滚动；输入过程中不重复滚动）。
+  useEffect(() => {
+    if (modelEdit === undefined || !modelEdit.creating) return
+    modelListRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' })
+  }, [modelEdit])
+
   return (
     <Modal
       open
       onClose={handleClose}
       title={`编辑 Provider · ${route.provider}`}
       closeLabel="关闭"
-      description={`${route.declared ? '手写 route（pi-ai 不内置）' : 'pi-ai 目录 route'}${
-        route.active ? ' · 活动中' : ' · 未激活'
-      } · 保存将整值写入该 route 的用户层配置`}
       className={styles.dialog}
       contentClassName={styles.scrollBody}
       footer={
         <div className={styles.footer}>
           <span className={styles.footerMeta}>
             {useBuiltin
-              ? '内置配置：用户层只保留 API Key 引用，其余全部继承安装目录'
+              ? '内置模式：仅保留显示名与 API Key，其余全部继承安装目录'
               : draftSource === 'declared'
                 ? '手写清单：保存将改写该 route 的 models 数组'
                 : draftSource === 'explicit'
@@ -415,191 +526,112 @@ export function RouteEditor(props: RouteEditorProps) {
 
       <div className={styles.editorMain}>
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>API Key</h3>
-          <label className={styles.field}>
-            <span className={styles.label}>新的 API Key</span>
-            <Input
-              className={fieldInputCls(props.busy)}
+          <div className={styles.grid}>
+            <TextField
+              label={
+                <>
+                  新的 API Key
+                  {props.keyConfigured !== undefined ? (
+                    <>
+                      {' '}
+                      <StateDot
+                        className={styles.inlineDot}
+                        state={props.keyConfigured ? 'done' : 'warning'}
+                      />
+                      {props.keyConfigured ? '已配置' : '未配置'}
+                    </>
+                  ) : null}
+                </>
+              }
               type="password"
               autoComplete="off"
               placeholder="留空则不修改"
               value={key}
               disabled={props.busy}
-              onChange={(event) => setKey(event.target.value)}
+              error={keyError}
+              onChange={setKey}
             />
-          </label>{' '}
-          {keyError !== undefined ? <div className={styles.error}>{keyError}</div> : null}
-          <p className={styles.hint}>
-            当前凭据引用：<code className={styles.code}>{keyRef}</code>
-            {props.keyConfigured === undefined ? (
-              <>
-                （<StateDot className={styles.inlineDot} state="idle" /> 状态未知）
-              </>
-            ) : props.keyConfigured ? (
-              <>
-                （<StateDot className={styles.inlineDot} state="done" /> 已配置）
-              </>
-            ) : (
-              <>
-                （<StateDot className={styles.inlineDot} state="warning" /> 未配置）
-              </>
-            )}
-            。密钥只写存入 credentials，settings.yaml 里只保留引用名；与保存一起提交。
-          </p>
-          {!route.declared ? (
-            <label className={styles.check}>
-              <Switch
-                checked={useBuiltin}
+            <TextField
+              label="显示名"
+              value={providerDraft.displayName}
+              disabled={props.busy}
+              placeholder={route.displayName || route.provider}
+              onChange={(value) => setProviderDraft({ ...providerDraft, displayName: value })}
+            />
+            {useBuiltin ? null : (
+              <TextField
+                label="Endpoint（baseURL）"
+                value={providerDraft.baseURL}
                 disabled={props.busy}
-                onChange={toggleUseBuiltin}
-                label="使用内置配置"
+                placeholder={route.baseURL ?? 'https://gateway.example/v1'}
+                onChange={(value) => setProviderDraft({ ...providerDraft, baseURL: value })}
               />
-              使用内置配置
-              <span className={styles.hintInline}>
-                清除显示名、协议、Endpoint 与模型等全部自定义，仅保留 API Key
-              </span>
-            </label>
-          ) : null}
+            )}
+            {useBuiltin ? null : (
+              <SelectField
+                label="API 协议"
+                value={providerDraft.api}
+                disabled={props.busy}
+                options={props.choices.protocols.map((protocol) => ({
+                  value: protocol,
+                  label: protocol,
+                }))}
+                onChange={(value) => setProviderDraft({ ...providerDraft, api: value })}
+              />
+            )}
+          </div>
         </section>
 
         {useBuiltin ? null : (
-          <>
-            <section className={styles.section}>
-              <h3 className={styles.sectionTitle}>连接</h3>
-              <div className={styles.grid}>
-                <TextField
-                  label="显示名"
-                  value={providerDraft.displayName}
-                  disabled={props.busy}
-                  placeholder={route.displayName || route.provider}
-                  onChange={(value) => setProviderDraft({ ...providerDraft, displayName: value })}
-                />
-                <SelectField
-                  label="API 协议"
-                  value={providerDraft.api}
-                  disabled={props.busy}
-                  options={props.choices.protocols.map((protocol) => ({
-                    value: protocol,
-                    label: protocol,
-                  }))}
-                  onChange={(value) => setProviderDraft({ ...providerDraft, api: value })}
-                />
-                <TextField
-                  label="Endpoint（baseURL）"
-                  wide
-                  value={providerDraft.baseURL}
-                  disabled={props.busy}
-                  placeholder={route.baseURL ?? 'https://gateway.example/v1'}
-                  onChange={(value) => setProviderDraft({ ...providerDraft, baseURL: value })}
-                />
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
+            {modelCards.length > 0 ? (
+              <div className={styles.modelCards} ref={modelListRef}>
+                {modelCards}
               </div>
-              <p className={styles.hint}>
-                API 协议留空 = 继承安装目录 / 上一层的协议（pi-ai 不做自动判断）；显式设置 Endpoint
-                会覆盖默认地址（自定义网关常用）。推理参数格式在下方各模型的 compat 里设置。
-              </p>
-            </section>
-
-            <section className={styles.section}>
-              <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
-              {rows.length > 0 ? (
-                <div className={styles.list}>
-                  <ModelTable
-                    rows={rows.map((row) => {
-                      const entry: PiAiModelEntry | undefined = row.userEntry ?? row.catalogEntry
-                      const rowFacts = factsOf(row.id)
-                      // 与列表页同一条回退链：条目 → 生效桥 → route 默认，避免
-                      // 未显式配置的容量显示成 —。
-                      const panelRow = rowOf(row.id)
-                      return {
-                        key: row.id,
-                        name: row.name,
-                        id: row.id,
-                        badge: draftRowLabel(draftSource, row),
-                        ctx:
-                          entry?.contextWindow ?? rowFacts?.contextWindow ?? panelRow?.effectiveContextWindow,
-                        out: entry?.maxTokens ?? rowFacts?.defaultMaxTokens ?? panelRow?.effectiveMaxTokens,
-                        input: entry?.input ?? rowFacts?.inputModalities,
-                        reasoning: entry === undefined ? '默认' : effortsLabel(entry),
-                        onClick: () => switchModelEdit({ creating: false, row }),
-                        actions: (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={props.busy}
-                            // 只改草稿，保存时才真正写入：无需二次确认。
-                            onClick={() => removeModel(row)}
-                          >
-                            删除
-                          </Button>
-                        ),
-                      }
-                    })}
-                    onReorder={
-                      draftSource === 'explicit' || draftSource === 'declared' ? reorderModel : undefined
-                    }
-                  />
-                </div>
-              ) : (
-                <div className={styles.empty}>
-                  {route.declared ? '手写 route 至少需要一个模型' : '没有用户层模型配置，全部继承安装目录'}
-                </div>
-              )}
-              {modelEdit !== undefined ? (
-                <ModelForm
-                  key={`${modelEdit.creating ? 'add' : 'edit'}:${modelEdit.row.id}`}
-                  row={modelEdit.row}
-                  creating={modelEdit.creating}
-                  existingRows={
-                    modelEdit.creating
-                      ? rows.filter((row) => row.id !== formAppliedIdRef.current)
-                      : rows.filter((row) => row.id !== modelEdit.row.id)
-                  }
-                  facts={modelEdit.creating ? undefined : factsOf(modelEdit.row.id)}
-                  routeDefaults={routeDefaults}
-                  catalogIds={route.declared ? undefined : catalogIds}
-                  busy={props.busy}
-                  onCancel={() => switchModelEdit(undefined)}
-                  onChange={applyModelLive}
-                />
-              ) : (
-                <>
-                  <div className={styles.toolbar}>
-                    <Button
-                      variant="outline"
-                      icon={<IconPlusOutlineRegular />}
-                      disabled={props.busy}
-                      onClick={() => switchModelEdit({ creating: true, row: BLANK_ROW })}
-                    >
-                      新增模型
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={props.busy || fetching}
-                      onClick={() => {
-                        void fetchModels()
-                      }}
-                    >
-                      {fetching ? '获取中…' : '获取模型'}
-                    </Button>
-                  </div>
-                  {fetchStatus !== undefined ? (
-                    <div
-                      className={
-                        fetchStatus.kind === 'ok'
-                          ? styles.success
-                          : fetchStatus.kind === 'error'
-                            ? styles.error
-                            : styles.notice
-                      }
-                      role={fetchStatus.kind === 'error' ? 'alert' : undefined}
-                    >
-                      {fetchStatus.text}
-                    </div>
-                  ) : null}
-                </>
-              )}
-            </section>
-          </>
+            ) : (
+              <div className={styles.empty}>
+                {route.declared ? '手写 route 至少需要一个模型' : '没有用户层模型配置，全部继承安装目录'}
+              </div>
+            )}
+            <div className={styles.toolbar}>
+              <Button
+                variant="outline"
+                icon={<IconPlusOutlineRegular />}
+                disabled={props.busy}
+                onClick={() =>
+                  modelEdit !== undefined && modelEdit.creating
+                    ? switchModelEdit(undefined)
+                    : switchModelEdit({ creating: true, row: BLANK_ROW })
+                }
+              >
+                新增模型
+              </Button>
+              <Button
+                variant="outline"
+                disabled={props.busy || fetching}
+                onClick={() => {
+                  void fetchModels()
+                }}
+              >
+                {fetching ? '获取中…' : '获取模型'}
+              </Button>
+            </div>
+            {fetchStatus !== undefined ? (
+              <div
+                className={
+                  fetchStatus.kind === 'ok'
+                    ? styles.success
+                    : fetchStatus.kind === 'error'
+                      ? styles.error
+                      : styles.notice
+                }
+                role={fetchStatus.kind === 'error' ? 'alert' : undefined}
+              >
+                {fetchStatus.text}
+              </div>
+            ) : null}
+          </section>
         )}
       </div>
 

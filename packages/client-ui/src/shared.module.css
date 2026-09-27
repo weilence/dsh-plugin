@@ -61,14 +61,41 @@
   font-weight: 500;
 }
 
+/* 元信息网格（MetaItem）：两列 label / value，metaWide 跨双列。 */
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+}
+
+.meta,
+.metaWide {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.metaWide {
+  grid-column: 1 / -1;
+}
+
+.metaValue {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
 /* select 与 textarea 没有官方对应组件，保留自绘样式；
-   .input 仍被小号数字输入框使用（三者共用同一套规则，不拆分）。 */
+   .input 仍被小号数字输入框使用（三者共用同一套规则，不拆分）。
+   高度对齐官方 Input 原语的 32px，与并排的官方输入框等高。 */
 .input,
 .select,
 .textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 36px;
+  height: 32px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
@@ -103,6 +130,16 @@
   line-height: 17px;
   color: var(--dsw-alias-label-tertiary);
   margin: 0;
+}
+
+/* 只读说明行：字段标签下的 code 字体文本（路径、写入目标等）。 */
+.hintLine {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  padding: 8px 0;
+  overflow-wrap: anywhere;
 }
 
 .checkRow {
@@ -143,6 +180,16 @@
 
 .dangerButton:hover:not(:disabled) {
   background: var(--dsw-alias-state-error-primary);
+}
+
+/* 破坏性行内动作（ghost 底 + 错误色文字）：hover 补淡红底。 */
+.dangerGhost {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.dangerGhost:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* 勾选清单（PickList）：候选行 = 最左垂直居中的 checkbox + 标题 / 元

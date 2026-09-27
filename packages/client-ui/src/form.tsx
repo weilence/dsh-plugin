@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import shared from './shared.module.css'
 import local from './field.module.css'
@@ -10,7 +10,7 @@ export function fieldInputCls(disabled?: boolean): string {
 }
 
 // 字段行统一单列全宽：官方 settings 表单的既定惯例。
-export function Field(props: { label: string; wide?: boolean; children: ReactNode }) {
+export function Field(props: { label: ReactNode; wide?: boolean; children: ReactNode }) {
   return (
     <label className={props.wide ? styles.fieldWide : styles.field}>
       <span className={styles.label}>{props.label}</span>
@@ -20,7 +20,8 @@ export function Field(props: { label: string; wide?: boolean; children: ReactNod
 }
 
 export function TextField(props: {
-  label: string
+  /** 字段标签；可传 ReactNode 以在标签内嵌状态点等附属信息。 */
+  label: ReactNode
   value: string
   onChange(value: string): void
   type?: 'text' | 'password'
@@ -34,9 +35,29 @@ export function TextField(props: {
   wide?: boolean
   /** 输入框右侧的联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
   addon?: { label: string; onClick(): void; disabled?: boolean }
+  /** 控件下方的单条校验错误（非空时渲染）。 */
+  error?: string
+  /** 联想候选：传入即渲染内置 datalist 并自动关联（优先于 list）。 */
+  datalist?: readonly { value: string; label?: string }[]
 }) {
-  const { label, value, onChange, type, placeholder, list, inputMode, autoComplete, disabled, wide, addon } =
-    props
+  const {
+    label,
+    value,
+    onChange,
+    type,
+    placeholder,
+    list,
+    inputMode,
+    autoComplete,
+    disabled,
+    wide,
+    addon,
+    error,
+    datalist,
+  } = props
+  // datalist id 只在组件树内唯一即可，useId 免去调用方手工起名。
+  const listId = useId()
+  const listAttr = datalist !== undefined ? listId : list
   return (
     <Field label={label} wide={wide}>
       {addon === undefined ? (
@@ -45,7 +66,7 @@ export function TextField(props: {
           type={type}
           value={value}
           placeholder={placeholder}
-          list={list}
+          list={listAttr}
           inputMode={inputMode}
           autoComplete={autoComplete}
           disabled={disabled}
@@ -58,7 +79,7 @@ export function TextField(props: {
             type={type}
             value={value}
             placeholder={placeholder}
-            list={list}
+            list={listAttr}
             inputMode={inputMode}
             autoComplete={autoComplete}
             disabled={disabled}
@@ -74,6 +95,16 @@ export function TextField(props: {
           </button>
         </div>
       )}
+      {datalist !== undefined ? (
+        <datalist id={listId}>
+          {datalist.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </datalist>
+      ) : null}
+      {error !== undefined && error.length > 0 ? <div className={styles.error}>{error}</div> : null}
     </Field>
   )
 }
@@ -82,7 +113,7 @@ export function TextField(props: {
 export function SelectField(props: {
   label: string
   value: string
-  options: readonly { value: string; label: string }[]
+  options: readonly { value: string; label: string; disabled?: boolean }[]
   disabled?: boolean
   onChange(value: string): void
 }) {
@@ -96,7 +127,7 @@ export function SelectField(props: {
         onChange={(event) => onChange(event.target.value)}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
@@ -107,19 +138,28 @@ export function SelectField(props: {
 
 /** 多行文本的字段行封装（官方无对应组件，保留自绘 .textarea）。 */
 export function TextAreaField(props: {
-  label: string
+  label: ReactNode
   value: string
-  onChange(value: string): void
+  /** 只读展示时可缺省。 */
+  onChange?(value: string): void
   placeholder?: string
+  /** 只读展示（配置原文等）。 */
+  readOnly?: boolean
+  /** 覆盖默认 96px 的最小高度（多行正文 / 代码原文）。 */
+  minHeight?: number
+  spellCheck?: boolean
 }) {
-  const { label, value, onChange, placeholder } = props
+  const { label, value, onChange, placeholder, readOnly, minHeight, spellCheck } = props
   return (
     <Field label={label}>
       <textarea
         className={styles.textarea}
+        style={minHeight === undefined ? undefined : { minHeight }}
         value={value}
         placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
+        readOnly={readOnly}
+        spellCheck={spellCheck}
+        onChange={(event) => onChange?.(event.target.value)}
       />
     </Field>
   )

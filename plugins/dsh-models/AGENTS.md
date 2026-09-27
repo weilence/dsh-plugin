@@ -9,7 +9,7 @@
 - `src/effective.ts`：只读能力桥（`ctx.llm.resolveModelInfo` 的面板投影，与会话模型选择器同一份事实）。
 - `src/catalog/`：models.dev wire 解析与映射（parse / map / matching / types）。
 - `src/pi-ai/`：纯逻辑层——route 状态判定与写入候选（profile / ops）、官方格式归一化与校验（normalize / validate）、schema 内省（choices / view）、类型（types）。
-- `src/client/`：面板——`index.ts` 接线、store / operations 状态层、列表页（ModelCatalogSection）与编辑器（RouteEditor / ModelForm / ModelTable / CreateProviderDialog / ModelsDevImport）、`drag.ts` 拖拽排序。
+- `src/client/`：面板——`index.ts` 接线、store / operations 状态层、列表页（ModelCatalogSection）与编辑器（RouteEditor / ModelForm / ModelTable / CreateProviderDialog / ModelsDevImport）。可展开卡片（ExpandableCard）、行拖拽（useRowDragReorder）来自 `@dsh-plugins/client-ui`。
 
 ## 改动约定
 

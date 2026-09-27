@@ -13,18 +13,21 @@
   max-height: min(820px, calc(100vh - 48px));
 }
 
-.hintInline {
-  font-size: 11px;
-  color: var(--dsw-alias-label-tertiary);
-  margin-left: 6px;
-}
-
 /* ── 编辑弹窗正文 ─────────────────────────────────────────────── */
 
 .editorMain {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+}
+
+/* 模型卡片列：ExpandableCard 与 provider 列表同款，卡片间 10px 空隙；
+   高度不设上限，滚动交给弹窗正文（scrollBody）。 */
+.modelCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;
 }
 

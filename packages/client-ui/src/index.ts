@@ -2,3 +2,6 @@ export { Field, TextField, SelectField, TextAreaField, IssueList, fieldInputCls 
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog'
 export { PickList, type PickItem } from './PickList'
 export { ToneChip, toneStyles, type Tone } from './tone'
+export { ExpandableCard, type ExpandableCardInfoItem, type ExpandableCardProps } from './ExpandableCard'
+export { useRowDragReorder, type RowDragControllers, type RowDragHandlers } from './drag'
+export { MetaItem } from './MetaItem'

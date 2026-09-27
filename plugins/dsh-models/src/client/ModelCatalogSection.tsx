@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Button, Toast, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { reasoningLabel, type PanelRoute } from '../pi-ai/view'
@@ -8,8 +8,13 @@ import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
 import { CreateProviderDialog } from './CreateProviderDialog'
 import { ModelTable } from './ModelTable'
-import { ConfirmDialog } from '@dsh-plugins/client-ui'
-import { useRowDragReorder, type RowDragHandlers } from './drag'
+import {
+  ConfirmDialog,
+  ExpandableCard,
+  useRowDragReorder,
+  type ExpandableCardInfoItem,
+  type RowDragHandlers,
+} from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './ModelCatalogSection.module.css'
 
@@ -29,59 +34,18 @@ function RouteRow(props: {
 }) {
   const { route, dragHandlers } = props
   const [open, setOpen] = useState(false)
+  const info: ExpandableCardInfoItem[] = []
+  if (route.api !== undefined) info.push({ label: 'API', value: route.api })
+  if (route.baseURL !== undefined) info.push({ label: 'Endpoint', value: route.baseURL })
   return (
-    <section
-      className={[
-        styles.route,
-        open ? styles.routeOpen : '',
-        props.dropLine === 'top' ? styles.routeLineTop : '',
-        props.dropLine === 'bottom' ? styles.routeLineBottom : '',
-        props.dragging ? styles.routeDragging : '',
-      ]
-        .filter(Boolean)
-        .join(' ')}
-      onDragOver={dragHandlers.onDragOver}
-      onDrop={dragHandlers.onDrop}
-    >
-      {/* 整行可点击展开，编辑按钮区域阻止冒泡；对齐官方 settings 卡片布局。 */}
-      <header
-        className={styles.routeHead}
-        role="button"
-        tabIndex={0}
-        aria-expanded={open}
-        aria-label={`展开 ${route.displayName} 的模型清单`}
-        draggable={dragHandlers.draggable}
-        onDragStart={dragHandlers.onDragStart}
-        onDragEnd={dragHandlers.onDragEnd}
-        onClick={() => setOpen(!open)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault()
-            setOpen(!open)
-          }
-        }}
-      >
-        <div className={styles.routeHeadMain}>
-          <span className={styles.routeTitleRow}>
-            <span className={styles.routeDisplayName}>{route.displayName}</span>
-            <span className={styles.routeId}>{route.provider}</span>
-          </span>
-          <div className={styles.routeInfo}>
-            {route.api !== undefined ? (
-              <span className={styles.routeInfoItem}>
-                <span className={styles.routeInfoLabel}>API</span>
-                <span className={styles.routeInfoValue}>{route.api}</span>
-              </span>
-            ) : null}
-            {route.baseURL !== undefined ? (
-              <span className={styles.routeInfoItem}>
-                <span className={styles.routeInfoLabel}>Endpoint</span>
-                <span className={styles.routeInfoValue}>{route.baseURL}</span>
-              </span>
-            ) : null}
-          </div>
-        </div>
-        <div className={styles.routeActions} onClick={(event) => event.stopPropagation()}>
+    <ExpandableCard
+      open={open}
+      onToggle={() => setOpen(!open)}
+      title={route.displayName}
+      meta={route.provider}
+      info={info}
+      actions={
+        <>
           <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
             编辑
           </Button>
@@ -94,34 +58,32 @@ function RouteRow(props: {
           >
             删除
           </Button>
+        </>
+      }
+      notice={route.error !== undefined ? <div className={styles.error}>{route.error}</div> : undefined}
+      scrollBody
+      ariaLabel={`展开 ${route.displayName} 的模型清单`}
+      dragging={props.dragging}
+      dropLine={props.dropLine}
+      dragHandlers={props.dragHandlers}
+    >
+      {route.rows.length > 0 ? (
+        <ModelTable
+          rows={route.rows.map((row) => ({
+            name: row.name,
+            id: row.id,
+            ctx: row.effectiveContextWindow,
+            out: row.effectiveMaxTokens,
+            input: row.effectiveInput,
+            reasoning: reasoningLabel(row),
+          }))}
+        />
+      ) : (
+        <div className={styles.empty}>
+          {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
         </div>
-        <span className={open ? `${styles.routeCaret} ${styles.routeCaretOpen}` : styles.routeCaret}>
-          <IconChevronDownOutlineRegular />
-        </span>
-      </header>
-      {route.error ? <div className={styles.error}>{route.error}</div> : null}
-      {open ? (
-        <div className={styles.routeList}>
-          {route.rows.length > 0 ? (
-            <ModelTable
-              rows={route.rows.map((row) => ({
-                key: row.id,
-                name: row.name,
-                id: row.id,
-                ctx: row.effectiveContextWindow,
-                out: row.effectiveMaxTokens,
-                input: row.effectiveInput,
-                reasoning: reasoningLabel(row),
-              }))}
-            />
-          ) : (
-            <div className={styles.empty}>
-              {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
-            </div>
-          )}
-        </div>
-      ) : null}
-    </section>
+      )}
+    </ExpandableCard>
   )
 }
 

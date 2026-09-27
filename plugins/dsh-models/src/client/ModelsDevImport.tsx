@@ -1,13 +1,13 @@
 import { useMemo, useState, forwardRef, useImperativeHandle } from 'react'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { discoveredToCatalogEntry } from '../catalog/matching'
 import { planProviderCreation } from '../catalog/map'
 import type { ModelsDevCatalog, ModelsDevProvider } from '../catalog/types'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { effortsLabel, type PanelRoute } from '../pi-ai/view'
 import { ModelTable } from './ModelTable'
-import { Field, TextField, fieldInputCls } from '@dsh-plugins/client-ui'
+import { TextField } from '@dsh-plugins/client-ui'
 import { errMsg } from '@dsh-plugins/shared'
 import styles from '@dsh-plugins/client-ui/styles'
 
@@ -167,36 +167,28 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
         {props.catalog ? (
           <>
             <div className={styles.grid}>
-              <Field label="Provider">
-                <Input
-                  className={fieldInputCls()}
-                  value={endpoint}
-                  placeholder="https://api.example.com/v1"
-                  list="dsh-models-endpoint-options"
-                  onChange={(event) => {
-                    const next = event.target.value
-                    setModels(null)
-                    setFetchError(null)
-                    setEndpoint(next)
-                    // datalist 没有独立的「选中」事件，但选中建议时 onChange
-                    // 会带上完整值：命中 models.dev 建议就自动带出协议。
-                    const matched = endpointOptions(props.catalog).find(
-                      (provider) => provider.api === next.trim(),
-                    )
-                    if (matched) {
-                      const protocol = mappedProtocol(matched)
-                      if (protocol !== undefined) setApi(protocol)
-                    }
-                  }}
-                />
-                <datalist id="dsh-models-endpoint-options">
-                  {endpointOptions(props.catalog).map((item) => (
-                    <option key={item.id} value={item.api}>
-                      {item.name}
-                    </option>
-                  ))}
-                </datalist>
-              </Field>
+              <TextField
+                label="Provider"
+                value={endpoint}
+                placeholder="https://api.example.com/v1"
+                datalist={endpointOptions(props.catalog)
+                  .filter((item) => item.api !== undefined)
+                  .map((item) => ({ value: item.api as string, label: item.name }))}
+                onChange={(next) => {
+                  setModels(null)
+                  setFetchError(null)
+                  setEndpoint(next)
+                  // datalist 没有独立的「选中」事件，但选中建议时 onChange
+                  // 会带上完整值：命中 models.dev 建议就自动带出协议。
+                  const matched = endpointOptions(props.catalog).find(
+                    (provider) => provider.api === next.trim(),
+                  )
+                  if (matched) {
+                    const protocol = mappedProtocol(matched)
+                    if (protocol !== undefined) setApi(protocol)
+                  }
+                }}
+              />
               <TextField
                 label="API Key（可选）"
                 type="password"
@@ -215,20 +207,13 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                 value={displayName}
                 onChange={setDisplayName}
               />
-              <Field label="API 协议（api；可留空，创建后在编辑页补全）">
-                <Input
-                  className={fieldInputCls()}
-                  value={api}
-                  placeholder={protocolLabel || 'openai-completions'}
-                  list="dsh-models-api-options"
-                  onChange={(event) => setApi(event.target.value)}
-                />
-                <datalist id="dsh-models-api-options">
-                  {KNOWN_PROTOCOLS.map((protocol) => (
-                    <option key={protocol} value={protocol} />
-                  ))}
-                </datalist>
-              </Field>
+              <TextField
+                label="API 协议（api；可留空，创建后在编辑页补全）"
+                value={api}
+                placeholder={protocolLabel || 'openai-completions'}
+                datalist={KNOWN_PROTOCOLS.map((protocol) => ({ value: protocol }))}
+                onChange={setApi}
+              />
             </div>
             {existing ? (
               <div className={styles.error} role="alert">

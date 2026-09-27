@@ -227,83 +227,12 @@
 }
 
 /* Git 安装弹窗。候选勾选清单是共享组件 PickList
-   （@dsh-plugins/client-ui），样式在 shared.module.css。 */
+   （@dsh-plugins/client-ui），样式在 shared.module.css。
+   正文编辑的 TextAreaField、.hintLine 的样式同样在 shared.module.css。 */
 
 .bodyField {
   display: flex;
   flex-direction: column;
   gap: 5px;
   min-width: 0;
-}
-
-.textareaTall {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 260px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  border-radius: 9px;
-  padding: 8px 11px;
-  font: inherit;
-  font-size: 12px;
-  font-family: var(--ds-font-family-code);
-  line-height: 1.6;
-  resize: vertical;
-}
-
-.textareaTall:focus {
-  outline: none;
-  border-color: var(--dsw-alias-brand-primary);
-}
-
-.hintLine {
-  font-family: var(--ds-font-family-code);
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-  padding: 8px 0;
-  overflow-wrap: anywhere;
-}
-
-/* 查看态的元信息网格与原文。 */
-.metaGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 16px;
-}
-
-.meta,
-.metaWide {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-
-.metaWide {
-  grid-column: 1 / -1;
-}
-
-.metaValue {
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-primary);
-  overflow-wrap: anywhere;
-}
-
-.rawView {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 320px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  border-radius: 9px;
-  padding: 10px 12px;
-  font: inherit;
-  font-size: 12px;
-  font-family: var(--ds-font-family-code);
-  line-height: 1.6;
-  resize: vertical;
 }

@@ -1,9 +1,7 @@
-/* 模型表格（ModelTable）：provider 卡片展开后的模型清单表格与拖拽插入标记。
-   拖拽排序逻辑在 drag.ts；菱形 + 横线的绘制与 provider 卡片
-   （ModelCatalogSection.module.css）同源于官方 workspace 视觉。 */
+/* 只读模型清单表（ModelTable，provider 卡片展开体）：模型列 + ctx/out 列 +
+   模态/推理列。单元格内两行堆叠，跨行按列对齐；无 hover 效果。
+   编辑弹窗的模型清单不用表格，走 ExpandableCard 卡片。 */
 
-/* 模型表格（无表头）：模型列 + ctx/out 列 + 模态/推理列（+ 操作列）。
-   单元格内两行堆叠，跨行按列对齐；无 hover 效果。 */
 .modelTable {
   width: 100%;
   border-collapse: collapse;
@@ -19,6 +17,7 @@
   border-top: 0.5px solid var(--dsw-alias-border-l2);
 }
 
+/* 模型行的名称 + ID 块。 */
 .modelCell {
   min-width: 140px;
 }
@@ -39,69 +38,6 @@
   white-space: nowrap;
 }
 
-.modelDragging td {
-  opacity: 0.45;
-}
-
-/* ── 拖拽插入标记：官方 workspace（dsh-client-ui-workspace Rows.module.css）
-   同款视觉，插入边界语义 ────────────────────────────────────────────
-   模型表格的 <tr> 不能相对定位（border-collapse 布局扰动），横线改用
-   td 的 inset box-shadow、菱形挂首个 td 的伪元素，几何对齐官方。 */
-.modelLineTop > td {
-  box-shadow: inset 0 2px 0 0 var(--dsw-alias-state-business-primary);
-}
-
-.modelLineBottom > td {
-  box-shadow: inset 0 -2px 0 0 var(--dsw-alias-state-business-primary);
-}
-
-/* 首列自绘完整官方组合（菱形 + 横线），不再用 box-shadow 画线：
-   菱形占 x 0..5，横线图层自 x=4 起笔（官方同款 4px 5px / calc(100% - 4px)），
-   线只从菱形右侧开始、不从它的透明部分中间穿过；其余列的线仍由上面的
-   td inset box-shadow 承担，与首列横线在列边界无缝相接。
-   12px 高居中于行边界：top/bottom = -5px，两个变体的线都恰好贴在分割线上。 */
-.modelLineTop > td:first-child,
-.modelLineBottom > td:first-child {
-  position: relative;
-  box-shadow: none;
-}
-
-.modelLineTop > td:first-child::before,
-.modelLineBottom > td:first-child::after {
-  content: '';
-  z-index: 1;
-  height: 12px;
-  background:
-    linear-gradient(
-        55deg,
-        transparent calc(50% - 1px),
-        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-        transparent calc(50% + 1px)
-      )
-      0 0 / 5px 7px no-repeat,
-    linear-gradient(
-        125deg,
-        transparent calc(50% - 1px),
-        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
-        transparent calc(50% + 1px)
-      )
-      0 5px / 5px 7px no-repeat,
-    linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;
-  pointer-events: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-}
-
-.modelLineTop > td:first-child::before {
-  top: -5px;
-}
-
-.modelLineBottom > td:first-child::after {
-  bottom: -5px;
-}
-
-/* 模型行的名称 + ID 块。 */
 .modelName {
   display: block;
   font-size: 13px;
@@ -120,15 +56,4 @@
 
 .model {
   border-radius: 8px;
-}
-
-/* 可点击的模型行（编辑弹窗：点行打开编辑表单）。 */
-.modelRowClickable {
-  cursor: pointer;
-}
-
-.modelRowActions {
-  /* 表格的操作列：按钮靠单元格右侧，不换行。 */
-  text-align: right;
-  white-space: nowrap;
 }

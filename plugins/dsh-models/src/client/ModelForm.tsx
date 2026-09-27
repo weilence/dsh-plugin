@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  DisclosureRow,
-  Switch,
-  IconCloseOutlineRegular,
-  IconSettingsOutlineRegular,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { DisclosureRow, Switch, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { THINKING_LEVELS, type PiAiModelEntry, type PiAiModality, type ThinkingLevel } from '../pi-ai/types'
 import { jsonEqual } from '../pi-ai/ops'
 import { validateModelEntry, type FieldIssue } from '../pi-ai/validate'
@@ -31,8 +26,6 @@ export interface ModelFormProps {
    */
   catalogIds?: ReadonlySet<string>
   busy: boolean
-  /** 关闭表单（右上角 ×）；已实时应用的修改保留在草稿中。 */
-  onCancel(): void
   /** 实时应用：任一有效修改立即折叠进所在页面的草稿（不写文件）。 */
   onChange(entry: PiAiModelEntry): void
 }
@@ -189,23 +182,8 @@ export function ModelForm(props: ModelFormProps) {
 
   return (
     <div className={styles.modelFormBox}>
-      <header className={styles.formHeader}>
-        <div className={styles.titleBlock}>
-          <h3 className={styles.sectionTitle}>
-            {props.creating ? '新增模型' : `编辑模型 · ${props.row.id}`}
-          </h3>
-          <p className={styles.subtitle}>修改实时折叠进草稿；最终由外层「保存」写入文件。</p>
-        </div>
-        <button
-          type="button"
-          className={styles.close}
-          aria-label="关闭"
-          disabled={props.busy}
-          onClick={props.onCancel}
-        >
-          <IconCloseOutlineRegular size={14} />
-        </button>
-      </header>
+      {/* 编辑态卡片行头已标识模型，不再重复标题；新增态保留，标示这是新条目表单。 */}
+      {props.creating ? <h3 className={styles.sectionTitle}>新增模型</h3> : null}
 
       {mutated && allIssues.length > 0 ? <IssueList issues={allIssues} /> : null}
 

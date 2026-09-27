@@ -1,0 +1,190 @@
+/* ExpandableCard：可展开卡片行。规则源自官方 PluginCard
+   （ui-settings-plugins，dsh-v0.1.5-rc.2）——收起 layer-3 底 / border-l4；
+   展开（正在编辑的那张）layer-2 底 / label-dimmed 边框；hover 只提亮边框；
+   16px 圆角 + 0.16s 过渡。 */
+
+.card {
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 16px;
+  background: var(--dsw-alias-bg-layer-3);
+  transition:
+    border-color 0.16s,
+    background 0.16s;
+}
+
+.card:hover {
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+.cardOpen {
+  background: var(--dsw-alias-bg-layer-2);
+  border-color: var(--dsw-alias-label-dimmed);
+}
+
+.cardDragging {
+  opacity: 0.5;
+}
+
+/* 卡片行头（官方 .header）：标题居左，动作按钮与展开箭头靠右、按钮在
+   箭头左侧；整行可点击展开 / 收起（按钮与箭头阻止冒泡），可拖拽。 */
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.head:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+
+.headMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 标题 + 次级文本同一行。 */
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* 标题（官方 .name）：15px / 600。 */
+.title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 行头展示的信息（label / value 项）：官方 .description 的 13px/1.5
+   tertiary 字级。 */
+.info {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.infoItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.infoLabel {
+  color: var(--dsw-alias-label-tertiary);
+  flex-shrink: 0;
+}
+
+.infoValue {
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* 展开指示箭头（官方 .chevron / .chevronOpen 同款）：朝下 = 收起，
+   展开旋转 180°。 */
+.caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  transition: transform 0.16s;
+}
+
+.caretOpen {
+  transform: rotate(180deg);
+}
+
+/* 展开体：顶部细分割线、左右内缩 16px；bodyScroll 供长清单内部滚动。 */
+.body {
+  margin: 0 16px;
+  padding: 8px 0;
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.bodyScroll {
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* ── 拖拽插入标记：官方 workspace（dsh-client-ui-workspace Rows.module.css）
+   同款视觉，插入边界语义 ────────────────────────────────────────────
+   12px 高的伪元素 = 左端 5×12 蓝色菱形箭头（55°/125° 两段渐变三角）+
+   2px 横线（自 4px 起、右端留 4px），颜色 state-business-primary。
+   标记画在「插入边界」上；卡片间 10px 空隙，绝对定位原点是 padding box
+   （0.5px 边框内侧），-12px 的视觉落点居中在空隙正中。 */
+.lineTop,
+.lineBottom {
+  position: relative;
+}
+
+.lineTop::before,
+.lineBottom::after {
+  content: '';
+  z-index: 1;
+  background:
+    linear-gradient(
+        55deg,
+        transparent calc(50% - 1px),
+        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+        transparent calc(50% + 1px)
+      )
+      0 0 / 5px 7px no-repeat,
+    linear-gradient(
+        125deg,
+        transparent calc(50% - 1px),
+        var(--dsw-alias-state-business-primary) calc(50% - 1px) calc(50% + 1px),
+        transparent calc(50% + 1px)
+      )
+      0 5px / 5px 7px no-repeat,
+    linear-gradient(var(--dsw-alias-state-business-primary) 0 0) 4px 5px / calc(100% - 4px) 2px no-repeat;
+  pointer-events: none;
+  height: 12px;
+  position: absolute;
+  left: 0;
+  right: 4px;
+}
+
+.lineTop::before {
+  top: -12px;
+}
+
+.lineBottom::after {
+  bottom: -12px;
+}

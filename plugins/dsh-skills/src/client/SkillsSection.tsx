@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { ConfirmDialog, fieldInputCls } from '@dsh-plugins/client-ui'
+import { ConfirmDialog, SelectField, fieldInputCls } from '@dsh-plugins/client-ui'
 import type { GitCheckResult, RootInfo, SkillRow } from '../shared'
 import { sourceLabel, sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
@@ -174,19 +174,17 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
       </header>
 
       <div className={styles.scopeBar}>
-        <label className={styles.scopeField}>
-          <span className={styles.label}>管理范围</span>
-          <select
-            className={styles.select}
+        <div className={styles.scopeField}>
+          <SelectField
+            label="管理范围"
             value={mode}
-            onChange={(event) => changeMode(event.target.value as ScopeMode)}
-          >
-            <option value="user">全局</option>
-            <option value="workspace" disabled={workspaceCwd === undefined}>
-              工作区级
-            </option>
-          </select>
-        </label>
+            options={[
+              { value: 'user', label: '全局' },
+              { value: 'workspace', label: '工作区级', disabled: workspaceCwd === undefined },
+            ]}
+            onChange={(value) => changeMode(value as ScopeMode)}
+          />
+        </div>
         {mode === 'workspace' ? (
           workspaceCwd !== undefined ? (
             <span className={styles.scopePath} title={workspaceCwd}>
