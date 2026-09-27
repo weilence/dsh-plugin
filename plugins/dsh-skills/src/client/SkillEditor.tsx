@@ -118,7 +118,7 @@ export function SkillEditor(props: SkillEditorProps) {
       }}
       title={title}
       closeLabel="关闭"
-      className={styles.dialog}
+      className={styles.dialogSm}
       contentClassName={styles.scrollBody}
       footer={
         <>

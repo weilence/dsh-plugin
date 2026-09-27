@@ -69,7 +69,7 @@ export function CreateProviderDialog(props: {
       }}
       title="新建 Provider"
       closeLabel="关闭"
-      className={mode === 'modelsdev' ? styles.dialog : styles.dialogSmall}
+      className={mode === 'modelsdev' ? styles.dialogLg : styles.dialogXs}
       contentClassName={styles.scrollBody}
       footer={
         mode === 'modelsdev' ? (

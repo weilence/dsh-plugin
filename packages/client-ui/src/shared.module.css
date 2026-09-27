@@ -142,6 +142,21 @@
   overflow-wrap: anywhere;
 }
 
+/* 路径短标：code 字体弱化底的圆角小条（超出省略，完整值看 title）。 */
+.scopePath {
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .checkRow {
   display: flex;
   gap: 14px;
@@ -253,6 +268,207 @@
   gap: 8px;
   flex-wrap: wrap;
   justify-content: space-between;
+}
+
+/* 列表工具条：新建 / 刷新贴着列表上方，不放页面头部右上角。 */
+.listToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── 设置页面板骨架（Panel）───────────────────────────────────────── */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* 头部标题列可收缩（副标题换行）。 */
+.panelHeadMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.panelTitle {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.panelSubtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  max-width: 560px;
+}
+
+/* ── 行卡片（RowCard）与卡片列表 ──────────────────────────────────── */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rowTitleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rowName {
+  font-family: var(--ds-font-family-code);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* 状态 pill：base 为弱化底，tone 类只覆盖配色；超长文本省略。 */
+.pill {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-2);
+  border-radius: 999px;
+  padding: 1px 8px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillOk {
+  color: var(--dsw-alias-state-success-primary);
+  background: var(--dsw-alias-state-success-bg);
+}
+
+.pillErr {
+  color: var(--dsw-alias-state-error-primary);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+.pillWarn {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.pillBrand {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.rowDesc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+.rowWhen {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.rowErrText {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.rowPath {
+  margin: 0;
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 展示型字段：label 下的内容列（只读原文、工具清单等）。 */
+.bodyField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* 行内状态圆点（官方 StateDot）与文字的基线对齐。 */
+.inlineDot {
+  display: inline-block;
+  vertical-align: -1px;
+  margin: 0 1px;
+}
+
+/* ── Modal 宽度档位：挂在官方卡片 className 上（滚动在 content 区）──── */
+.dialogXs {
+  width: min(560px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+}
+
+.dialogSm {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.dialogLg {
+  width: min(920px, 100%);
+  max-height: min(820px, calc(100vh - 48px));
+}
+
+@media (max-width: 680px) {
+  .dialogXs,
+  .dialogLg {
+    max-height: calc(100vh - 48px);
+  }
 }
 
 .list {

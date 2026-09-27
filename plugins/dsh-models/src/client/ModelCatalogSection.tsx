@@ -11,14 +11,14 @@ import { ModelTable } from './ModelTable'
 import {
   ConfirmDialog,
   ExpandableCard,
+  Panel,
   useRowDragReorder,
   type ExpandableCardInfoItem,
   type RowDragHandlers,
 } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
-import local from './ModelCatalogSection.module.css'
 
-const styles = { ...shared, ...local }
+const styles = { ...shared }
 
 const PROVIDER_ORDER_KEY = 'dsh-models/provider-order'
 
@@ -173,17 +173,15 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
   const providerDrag = useRowDragReorder(moveProvider)
 
   return (
-    <div className={styles.panel}>
-      <header className={styles.panelHead}>
-        <div>
-          <h2 className={styles.panelTitle}>模型目录</h2>
-          <p className={styles.panelSubtitle}>
-            浏览 models.dev 并写入 <code className={styles.code}>llm-pi-ai</code>
-            ；点「编辑」在弹窗中编辑该 Provider。
-          </p>
-        </div>
-      </header>
-
+    <Panel
+      title="模型目录"
+      subtitle={
+        <>
+          浏览 models.dev 并写入 <code className={styles.code}>llm-pi-ai</code>
+          ；点「编辑」在弹窗中编辑该 Provider。
+        </>
+      }
+    >
       {!writable ? <div className={styles.notice}>当前 Settings Provider 不可写，面板为只读。</div> : null}
       {state.error ? <div className={styles.error}>{state.error}</div> : null}
       {/* 一次性提示走官方 Toast：淡出后由 dismissNotice 清空 store。 */}
@@ -209,7 +207,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
       </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取 llm-pi-ai 配置…</div> : null}
 
-      <div className={styles.routes}>
+      <div className={styles.rows}>
         {orderedRoutes.map((route, index) => (
           <RouteRow
             key={route.provider}
@@ -288,6 +286,6 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
           onError={(message) => props.store.fail(message)}
         />
       ) : null}
-    </div>
+    </Panel>
   )
 }

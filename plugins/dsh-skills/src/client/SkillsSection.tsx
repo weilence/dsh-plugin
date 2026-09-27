@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { ConfirmDialog, SelectField, fieldInputCls } from '@dsh-plugins/client-ui'
+import { ConfirmDialog, Panel, RowCard, SelectField, fieldInputCls } from '@dsh-plugins/client-ui'
 import type { GitCheckResult, RootInfo, SkillRow } from '../shared'
 import { sourceLabel, sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
@@ -162,17 +162,10 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   const busy = state.busy !== null || state.loadingFile !== null
 
   return (
-    <div className={styles.panel}>
-      <header className={styles.panelHead}>
-        <div className={styles.panelHeadMain}>
-          <h2 className={styles.panelTitle}>Skills 管理</h2>
-          <p className={styles.panelSubtitle}>
-            管理工作区级与全局的技能：直接扫描标准技能根（.dsh/skills 与 .agents/skills）并按官方规则校验，
-            新建 / 编辑 / 删除技能文件；内置与自定义目录等只读来源仅展示。
-          </p>
-        </div>
-      </header>
-
+    <Panel
+      title="Skills 管理"
+      subtitle="管理工作区级与全局的技能：直接扫描标准技能根（.dsh/skills 与 .agents/skills）并按官方规则校验，新建 / 编辑 / 删除技能文件；内置与自定义目录等只读来源仅展示。"
+    >
       <div className={styles.scopeBar}>
         <div className={styles.scopeField}>
           <SelectField
@@ -361,7 +354,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           }}
         />
       ) : null}
-    </div>
+    </Panel>
   )
 }
 
@@ -379,90 +372,86 @@ function SkillCard(props: {
   const { skill } = props
   const update = props.update
   return (
-    <section className={styles.row}>
-      <div className={styles.rowMain}>
-        <div className={styles.rowTitleLine}>
-          <span className={styles.rowName}>{skill.name}</span>
-          {readonlyLabelOf(skill.source) !== null ? (
-            <span className={styles.rowSource} title={skill.path}>
-              {readonlyLabelOf(skill.source)}
-            </span>
-          ) : null}
-          {skill.git !== undefined ? (
-            <span
-              className={styles.rowGit}
-              title={`Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`}
+    <RowCard
+      title={skill.name}
+      pills={[
+        ...(readonlyLabelOf(skill.source) !== null
+          ? [{ text: readonlyLabelOf(skill.source), title: skill.path }]
+          : []),
+        ...(skill.git !== undefined
+          ? [
+              {
+                text: <>Git · {repoLabelOf(skill.git.url)}</>,
+                tone: 'brand' as const,
+                title: `Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`,
+              },
+            ]
+          : []),
+        ...(update?.status === 'update'
+          ? [
+              {
+                text: '有更新' as const,
+                tone: 'warn' as const,
+                title: update.description !== undefined ? `上游描述：${update.description}` : '上游有新版本',
+              },
+            ]
+          : []),
+        ...(update?.status === 'local'
+          ? [
+              {
+                text: '有更新 · 本地已修改' as const,
+                tone: 'warn' as const,
+                title: '上游有新版本；本地内容也被修改过，更新将覆盖本地改动',
+              },
+            ]
+          : []),
+        ...(update?.status === 'removed'
+          ? [{ text: '上游已移除' as const, title: '上游仓库里已发现不到该技能目录' }]
+          : []),
+        ...(skill.invalid !== undefined
+          ? [{ text: <>无效：{skill.invalid}</>, tone: 'err' as const, title: skill.invalid }]
+          : []),
+        ...(skill.effective ? [] : [{ text: '被同名来源遮蔽' as const }]),
+        ...(skill.userInvocable ? [] : [{ text: '用户不可调用' as const }]),
+      ]}
+      description={skill.description.length > 0 ? skill.description : '（无描述）'}
+      note={skill.whenToUse !== undefined ? <>适用：{skill.whenToUse}</> : undefined}
+      actions={
+        <>
+          {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={props.busy || props.updating}
+              onClick={props.onUpdate}
             >
-              Git · {repoLabelOf(skill.git.url)}
-            </span>
+              更新
+            </Button>
           ) : null}
-          {update?.status === 'update' ? (
-            <span
-              className={styles.rowFlagUpdate}
-              title={update.description !== undefined ? `上游描述：${update.description}` : '上游有新版本'}
+          {/* 查看：给不可编辑的行（只读来源 / Git 安装）留信息入口；可编辑行用编辑看详情。 */}
+          {!skill.editable || skill.git !== undefined ? (
+            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
+              查看
+            </Button>
+          ) : null}
+          {skill.editable && skill.git === undefined ? (
+            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
+              编辑
+            </Button>
+          ) : null}
+          {skill.editable ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={styles.dangerGhost}
+              disabled={props.busy}
+              onClick={props.onDelete}
             >
-              有更新
-            </span>
+              删除
+            </Button>
           ) : null}
-          {update?.status === 'local' ? (
-            <span
-              className={styles.rowFlagUpdate}
-              title="上游有新版本；本地内容也被修改过，更新将覆盖本地改动"
-            >
-              有更新 · 本地已修改
-            </span>
-          ) : null}
-          {update?.status === 'removed' ? (
-            <span className={styles.rowFlagGone} title="上游仓库里已发现不到该技能目录">
-              上游已移除
-            </span>
-          ) : null}
-          {skill.invalid !== undefined ? (
-            <span className={styles.rowFlagErr} title={skill.invalid}>
-              无效：{skill.invalid}
-            </span>
-          ) : skill.effective ? null : (
-            <span className={styles.rowFlagOff}>被同名来源遮蔽</span>
-          )}
-          {skill.userInvocable ? null : <span className={styles.rowFlagOff}>用户不可调用</span>}
-        </div>
-        <p className={styles.rowDesc}>{skill.description.length > 0 ? skill.description : '（无描述）'}</p>
-        {skill.whenToUse !== undefined ? <p className={styles.rowWhen}>适用：{skill.whenToUse}</p> : null}
-      </div>
-      <div className={styles.rowActions}>
-        {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={props.busy || props.updating}
-            onClick={props.onUpdate}
-          >
-            更新
-          </Button>
-        ) : null}
-        {/* 查看：给不可编辑的行（只读来源 / Git 安装）留信息入口；可编辑行用编辑看详情。 */}
-        {!skill.editable || skill.git !== undefined ? (
-          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
-            查看
-          </Button>
-        ) : null}
-        {skill.editable && skill.git === undefined ? (
-          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
-            编辑
-          </Button>
-        ) : null}
-        {skill.editable ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className={styles.dangerGhost}
-            disabled={props.busy}
-            onClick={props.onDelete}
-          >
-            删除
-          </Button>
-        ) : null}
-      </div>
-    </section>
+        </>
+      }
+    />
   )
 }

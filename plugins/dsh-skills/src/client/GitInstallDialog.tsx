@@ -98,7 +98,7 @@ export function GitInstallDialog(props: {
       }}
       title="从 Git 仓库安装技能"
       closeLabel="关闭"
-      className={styles.dialog}
+      className={styles.dialogSm}
       contentClassName={styles.scrollBody}
       footer={
         <>

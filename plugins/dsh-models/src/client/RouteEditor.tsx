@@ -479,7 +479,7 @@ export function RouteEditor(props: RouteEditorProps) {
       onClose={handleClose}
       title={`编辑 Provider · ${route.provider}`}
       closeLabel="关闭"
-      className={styles.dialog}
+      className={styles.dialogLg}
       contentClassName={styles.scrollBody}
       footer={
         <div className={styles.footer}>
@@ -586,7 +586,7 @@ export function RouteEditor(props: RouteEditorProps) {
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
             {modelCards.length > 0 ? (
-              <div className={styles.modelCards} ref={modelListRef}>
+              <div className={styles.rows} ref={modelListRef}>
                 {modelCards}
               </div>
             ) : (

@@ -173,7 +173,7 @@ export function McpEditor(props: McpEditorProps) {
       }}
       title={title}
       closeLabel="关闭"
-      className={styles.dialog}
+      className={styles.dialogSm}
       contentClassName={styles.scrollBody}
       footer={
         <>

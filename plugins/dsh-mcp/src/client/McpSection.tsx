@@ -8,7 +8,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { ConfirmDialog, ToneChip } from '@dsh-plugins/client-ui'
+import { ConfirmDialog, Panel, RowCard, ToneChip } from '@dsh-plugins/client-ui'
 import type { McpRow } from '../shared'
 import { SCOPE_LABELS } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
@@ -45,17 +45,10 @@ function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
   const busy = state.busy !== null
 
   return (
-    <div className={styles.panel}>
-      <header className={styles.panelHead}>
-        <div className={styles.panelHeadMain}>
-          <h2 className={styles.panelTitle}>MCP 管理</h2>
-          <p className={styles.panelSubtitle}>
-            以官方 mcp-client 组合行为唯一事实源：浏览当前 profile 的 MCP 服务器与运行态，对 profile 层 /
-            全局层的新建、编辑、启停、删除（bundle 与运行时覆盖来源只读）。
-          </p>
-        </div>
-      </header>
-
+    <Panel
+      title="MCP 管理"
+      subtitle="以官方 mcp-client 组合行为唯一事实源：浏览当前 profile 的 MCP 服务器与运行态，对 profile 层 / 全局层的新建、编辑、启停、删除（bundle 与运行时覆盖来源只读）。"
+    >
       {state.list !== null ? (
         <div className={styles.scopeBar}>
           <span className={styles.scopePath} title={state.list.patchPaths.profile}>
@@ -162,7 +155,7 @@ function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
           }}
         />
       ) : null}
-    </div>
+    </Panel>
   )
 }
 
@@ -197,58 +190,49 @@ function McpCard(props: {
   const badge = statusBadge(row)
   const editable = row.editable && (row.scope === 'profile' || row.scope === 'home')
   const serverName = row.config.serverName ?? '（未命名）'
+  const transport = transportOf(row.config)
   return (
-    <section className={styles.row}>
-      <div className={styles.rowMain}>
-        <div className={styles.rowTitleLine}>
-          <span className={styles.rowName}>{serverName}</span>
-          <span className={styles.rowSource}>{SCOPE_LABELS[row.scope]}</span>
-          {transportOf(row.config) !== undefined ? (
-            <span className={styles.rowSource}>{transportOf(row.config) === 'stdio' ? 'stdio' : 'HTTP'}</span>
+    <RowCard
+      title={serverName}
+      pills={[
+        { text: SCOPE_LABELS[row.scope] },
+        ...(transport !== undefined ? [{ text: transport === 'stdio' ? 'stdio' : 'HTTP' }] : []),
+        {
+          text: badge.text,
+          tone: badge.kind === 'on' ? 'ok' : badge.kind === 'err' ? 'err' : 'neutral',
+          title: badge.title,
+        },
+      ]}
+      description={endpointOf(row.config) || '（缺少端点信息）'}
+      error={row.live?.error}
+      path={<>patch id：{row.id}</>}
+      actions={
+        <>
+          <ToneChip tone={editable ? 'ok' : 'warn'}>{editable ? '可编辑' : '只读'}</ToneChip>
+          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
+            查看
+          </Button>
+          {editable ? (
+            <>
+              <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
+                编辑
+              </Button>
+              <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onToggle}>
+                {row.disabled ? '启用' : '停用'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={styles.dangerGhost}
+                disabled={props.busy}
+                onClick={props.onDelete}
+              >
+                删除
+              </Button>
+            </>
           ) : null}
-          {badge.kind === 'on' ? (
-            <span className={styles.rowFlagOn}>{badge.text}</span>
-          ) : badge.kind === 'err' ? (
-            <span className={styles.rowFlagErr} title={badge.title ?? ''}>
-              {badge.text}
-            </span>
-          ) : (
-            <span className={styles.rowFlagOff}>{badge.text}</span>
-          )}
-        </div>
-        <p className={styles.rowDesc}>{endpointOf(row.config) || '（缺少端点信息）'}</p>
-        {row.live?.error !== undefined ? (
-          <p className={styles.rowErrText} title={row.live.error}>
-            {row.live.error}
-          </p>
-        ) : null}
-        <p className={styles.rowPath}>patch id：{row.id}</p>
-      </div>
-      <div className={styles.rowActions}>
-        <ToneChip tone={editable ? 'ok' : 'warn'}>{editable ? '可编辑' : '只读'}</ToneChip>
-        <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
-          查看
-        </Button>
-        {editable ? (
-          <>
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
-              编辑
-            </Button>
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onToggle}>
-              {row.disabled ? '启用' : '停用'}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={styles.dangerGhost}
-              disabled={props.busy}
-              onClick={props.onDelete}
-            >
-              删除
-            </Button>
-          </>
-        ) : null}
-      </div>
-    </section>
+        </>
+      }
+    />
   )
 }
