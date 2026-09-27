@@ -3,7 +3,6 @@ import {
   materializeWithNewModel,
   patchUserProfile,
   removeModelProfile,
-  resetToCatalog,
   routeModelRows,
   routeSource,
   saveModelProfile,
@@ -141,12 +140,6 @@ describe('删除与重置', () => {
     expect(removeModelProfile('explicit', { models: [{ id: 'a' }, { id: 'b' }] }, row)).toEqual({
       models: [{ id: 'b' }],
     })
-  })
-
-  it('恢复目录继承清掉 models 与 modelOverrides', () => {
-    expect(
-      resetToCatalog({ models: [{ id: 'a' }], modelOverrides: { b: { id: 'b' } }, apiKeyEnv: 'K' }),
-    ).toEqual({ apiKeyEnv: 'K' })
   })
 })
 

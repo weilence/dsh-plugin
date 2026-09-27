@@ -1,6 +1,5 @@
-/* 只读模型清单表（ModelTable，provider 卡片展开体）：模型列 + ctx/out 列 +
-   模态/推理列。单元格内两行堆叠，跨行按列对齐；无 hover 效果。
-   编辑弹窗的模型清单不用表格，走 ExpandableCard 卡片。 */
+/* 只读模型清单表（ModelTable）：模型列 + ctx/out 列 + 模态/推理列。
+   单元格内两行堆叠，跨行按列对齐；无 hover 效果。 */
 
 .modelTable {
   width: 100%;

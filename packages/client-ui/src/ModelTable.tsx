@@ -1,5 +1,5 @@
 import { Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { formatTokenCount } from '../pi-ai/view'
+import { formatTokenCount } from './format'
 import styles from './ModelTable.module.css'
 
 export interface ModelTableRowData {
@@ -16,7 +16,8 @@ export interface ModelTableProps {
   rows: readonly ModelTableRowData[]
 }
 
-/** 只读模型清单表（provider 卡片展开体；无表头、行贴行细分割线）。 */
+/** 只读模型清单表（无表头）：名称 + ID / ctx·out / 模态·推理 三列，
+ *  单元格内两行堆叠，跨行按列对齐；无 hover 效果。 */
 export function ModelTable(props: ModelTableProps) {
   return (
     <table className={styles.modelTable}>

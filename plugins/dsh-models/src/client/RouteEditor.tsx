@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Modal, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { discoveredToCatalogEntry } from '../catalog/matching'
 import type { ModelsDevCatalog } from '../catalog/types'
 import { jsonEqual } from '../pi-ai/ops'
@@ -9,7 +9,6 @@ import {
   patchUserProfile,
   planAddModel,
   removeModelProfile,
-  resetToCatalog,
   routeModelRows,
   routeSource,
   saveModelProfile,
@@ -17,15 +16,17 @@ import {
   type ModelRow,
 } from '../pi-ai/profile'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
-import { effortsLabel, formatTokenCount, type PanelRoute } from '../pi-ai/view'
+import { effortsLabel, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
 import { ModelForm } from './ModelForm'
 import {
   ConfirmDialog,
+  Dialog,
   ExpandableCard,
   SelectField,
   TextField,
   IssueList,
+  formatTokenCount,
   useRowDragReorder,
   type ExpandableCardInfoItem,
   type ExpandableCardProps,
@@ -95,7 +96,7 @@ function draftRowLabel(source: PanelRoute['source'], row: ModelRow): string | un
 
 type ModelEdit = { creating: boolean; row: ModelRow }
 
-type Confirm = { kind: 'leave' } | { kind: 'reset' } | { kind: 'delete' }
+type Confirm = { kind: 'leave' } | { kind: 'delete' }
 
 function isBuiltinOnly(profile: PiAiProviderEntry | undefined): boolean {
   if (profile === undefined) return true
@@ -175,7 +176,7 @@ export function RouteEditor(props: RouteEditorProps) {
         list.push(
           route.declared
             ? '手写 route 至少要有一个模型'
-            : '模型清单为空；若要恢复目录继承，请点「恢复目录继承」',
+            : '模型清单为空：添加模型后才能保存；不想要任何自定义模型请取消编辑并删除该 Provider',
         )
       }
     }
@@ -474,46 +475,27 @@ export function RouteEditor(props: RouteEditorProps) {
   }, [modelEdit])
 
   return (
-    <Modal
-      open
-      onClose={handleClose}
+    <Dialog
       title={`编辑 Provider · ${route.provider}`}
-      closeLabel="关闭"
-      className={styles.dialogLg}
-      contentClassName={styles.scrollBody}
-      footer={
-        <div className={styles.footer}>
-          <span className={styles.footerMeta}>
-            {useBuiltin
-              ? '内置模式：仅保留显示名与 API Key，其余全部继承安装目录'
-              : draftSource === 'declared'
-                ? '手写清单：保存将改写该 route 的 models 数组'
-                : draftSource === 'explicit'
-                  ? '显式清单：保存将改写 models 数组条目'
-                  : '目录 route：仅写 modelOverrides，其余目录模型保持继承'}
-          </span>
-          <div className={styles.actions}>
-            {!route.declared && !useBuiltin ? (
-              <Button variant="outline" disabled={props.busy} onClick={() => setConfirm({ kind: 'reset' })}>
-                恢复目录继承
-              </Button>
-            ) : null}
-            <Button
-              variant="primary"
-              className={styles.dangerButton}
-              disabled={props.busy}
-              onClick={() => setConfirm({ kind: 'delete' })}
-            >
-              删除 Provider
-            </Button>
-            <Button variant="outline" disabled={props.busy} onClick={requestLeave}>
-              取消
-            </Button>
-            <Button variant="primary" disabled={props.busy || !props.writable} onClick={() => void save()}>
-              {props.busy ? '保存中…' : '保存'}
-            </Button>
-          </div>
-        </div>
+      size="lg"
+      onClose={handleClose}
+      actions={
+        <>
+          <Button
+            variant="primary"
+            className={styles.dangerButton}
+            disabled={props.busy}
+            onClick={() => setConfirm({ kind: 'delete' })}
+          >
+            删除 Provider
+          </Button>
+          <Button variant="outline" disabled={props.busy} onClick={requestLeave}>
+            取消
+          </Button>
+          <Button variant="primary" disabled={props.busy || !props.writable} onClick={() => void save()}>
+            {props.busy ? '保存中…' : '保存'}
+          </Button>
+        </>
       }
     >
       {props.error ? <div className={styles.error}>{props.error}</div> : null}
@@ -637,19 +619,11 @@ export function RouteEditor(props: RouteEditorProps) {
 
       {confirm !== undefined ? (
         <ConfirmDialog
-          title={
-            confirm.kind === 'delete'
-              ? `删除 Provider ${route.provider}`
-              : confirm.kind === 'reset'
-                ? '恢复目录继承'
-                : '放弃未保存的修改？'
-          }
+          title={confirm.kind === 'delete' ? `删除 Provider ${route.provider}` : '放弃未保存的修改？'}
           body={
             confirm.kind === 'delete'
               ? '只删除 llm-pi-ai 用户层里的这条 profile（凭据与组合层配置保留）。未保存的修改将一并丢弃。'
-              : confirm.kind === 'reset'
-                ? '将清空用户层的 models 与 modelOverrides（连接字段保留）；草稿立即反映，保存后生效。'
-                : '有未保存的修改，离开将丢弃。'
+              : '有未保存的修改，离开将丢弃。'
           }
           confirmLabel={confirm.kind === 'delete' ? '删除' : '确定'}
           busy={props.busy}
@@ -658,13 +632,10 @@ export function RouteEditor(props: RouteEditorProps) {
             const target = confirm
             setConfirm(undefined)
             if (target.kind === 'leave') props.onExit()
-            else if (target.kind === 'reset') {
-              setDraftProfile(resetToCatalog(draftProfile))
-              setModelEdit(undefined)
-            } else props.onDelete()
+            else props.onDelete()
           }}
         />
       ) : null}
-    </Modal>
+    </Dialog>
   )
 }

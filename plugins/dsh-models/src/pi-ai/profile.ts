@@ -255,10 +255,6 @@ export function materializeWithNewModel(
   return patchUserProfile(userProfile, { models: list, modelOverrides: undefined })
 }
 
-export function resetToCatalog(userProfile: PiAiProviderEntry | undefined): PiAiProviderEntry {
-  return patchUserProfile(userProfile, { models: undefined, modelOverrides: undefined })
-}
-
 export type AddModelPlan =
   | { kind: 'override'; profile: PiAiProviderEntry }
   | { kind: 'append'; profile: PiAiProviderEntry }

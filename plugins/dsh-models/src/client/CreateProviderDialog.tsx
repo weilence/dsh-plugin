@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react'
-import { Button, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelsDevCatalog } from '../catalog/types'
 import type { PanelRoute } from '../pi-ai/view'
 import { validateApiKey } from './operations'
 import { ModelsDevImport, type ModelsDevImportHandle, type ModelsDevImportProps } from './ModelsDevImport'
-import { IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
+import { Dialog, IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './CreateProviderDialog.module.css'
 
@@ -62,16 +62,13 @@ export function CreateProviderDialog(props: {
   }
 
   return (
-    <Modal
-      open
+    <Dialog
+      title="新建 Provider"
+      size={mode === 'modelsdev' ? 'lg' : 'xs'}
       onClose={() => {
         if (!props.busy) props.onCancel()
       }}
-      title="新建 Provider"
-      closeLabel="关闭"
-      className={mode === 'modelsdev' ? styles.dialogLg : styles.dialogXs}
-      contentClassName={styles.scrollBody}
-      footer={
+      actions={
         mode === 'modelsdev' ? (
           <Button variant="primary" disabled={props.busy} onClick={() => importRef.current?.apply()}>
             {props.busy ? '创建中…' : '创建'}
@@ -144,6 +141,6 @@ export function CreateProviderDialog(props: {
           </div>
         </>
       )}
-    </Modal>
+    </Dialog>
   )
 }

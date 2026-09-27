@@ -4,8 +4,8 @@
  */
 
 import { useState } from 'react'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, PickList, SelectField, TextField, type PickItem } from '@dsh-plugins/client-ui'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Dialog, IssueList, PickList, SelectField, TextField, type PickItem } from '@dsh-plugins/client-ui'
 import type { GitInstallResponse, GitScanResponse, GitSkillCandidate, RootId, RootInfo } from '../shared'
 import type { SkillsStore } from './store'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -91,18 +91,14 @@ export function GitInstallDialog(props: {
     })) ?? []
 
   return (
-    <Modal
-      open
+    <Dialog
+      title="从 Git 仓库安装技能"
       onClose={() => {
         if (!props.busy) props.onClose()
       }}
-      title="从 Git 仓库安装技能"
-      closeLabel="关闭"
-      className={styles.dialogSm}
-      contentClassName={styles.scrollBody}
-      footer={
+      meta="整目录复制 · 同名冲突不覆盖"
+      actions={
         <>
-          <span className={styles.footerMeta}>整目录复制 · 同名冲突不覆盖</span>
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>
             {done ? '关闭' : '取消'}
           </Button>
@@ -195,6 +191,6 @@ export function GitInstallDialog(props: {
           临时目录随即删除。同名技能已存在时不覆盖，请先删除或换目标根。
         </p>
       </div>
-    </Modal>
+    </Dialog>
   )
 }

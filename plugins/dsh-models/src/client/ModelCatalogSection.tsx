@@ -7,7 +7,7 @@ import type { PiAiOperations } from './operations'
 import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
 import { CreateProviderDialog } from './CreateProviderDialog'
-import { ModelTable } from './ModelTable'
+import { ModelTable } from '@dsh-plugins/client-ui'
 import {
   ConfirmDialog,
   ExpandableCard,

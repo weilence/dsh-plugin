@@ -11,8 +11,9 @@
  */
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
-import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
+  Dialog,
   IssueList,
   MetaItem,
   PickList,
@@ -166,41 +167,33 @@ export function McpEditor(props: McpEditorProps) {
         : `查看 ${row?.config.serverName ?? row?.id ?? ''}`
 
   return (
-    <Modal
-      open
+    <Dialog
+      title={title}
       onClose={() => {
         if (!props.busy) props.onCancel()
       }}
-      title={title}
-      closeLabel="关闭"
-      className={styles.dialogSm}
-      contentClassName={styles.scrollBody}
-      footer={
-        <>
-          <span className={styles.footerMeta}>
-            {mode === 'view' ? `patch id：${row?.id ?? ''}` : targetHint(draft, mode, row)}
-          </span>
-          {mode !== 'view' ? (
-            <>
-              <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-                取消
+      meta={mode === 'view' ? `patch id：${row?.id ?? ''}` : targetHint(draft, mode, row)}
+      actions={
+        mode !== 'view' ? (
+          <>
+            <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
+              取消
+            </Button>
+            {mode === 'create' && inputMode === 'json' ? (
+              <Button
+                variant="primary"
+                disabled={props.busy || parsed === null || picked.size === 0}
+                onClick={() => void importSelected()}
+              >
+                {props.busy ? '导入中…' : `导入选中（${picked.size}）`}
               </Button>
-              {mode === 'create' && inputMode === 'json' ? (
-                <Button
-                  variant="primary"
-                  disabled={props.busy || parsed === null || picked.size === 0}
-                  onClick={() => void importSelected()}
-                >
-                  {props.busy ? '导入中…' : `导入选中（${picked.size}）`}
-                </Button>
-              ) : (
-                <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-                  {props.busy ? '保存中…' : '保存'}
-                </Button>
-              )}
-            </>
-          ) : null}
-        </>
+            ) : (
+              <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+                {props.busy ? '保存中…' : '保存'}
+              </Button>
+            )}
+          </>
+        ) : null
       }
     >
       {mode === 'view' ? (
@@ -250,7 +243,7 @@ export function McpEditor(props: McpEditorProps) {
           )}
         </>
       )}
-    </Modal>
+    </Dialog>
   )
 }
 

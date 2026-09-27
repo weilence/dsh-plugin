@@ -10,8 +10,8 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Button, Modal, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
+import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Dialog, IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
 import type { RootId, RootInfo, SaveRequest, SkillFormat, SkillRow } from '../shared'
 import { SKILL_NAME_PATTERN, sourceLabel } from '../shared'
 import { bodyForEditor, parseKnown, splitFrontmatter } from '../frontmatter'
@@ -111,31 +111,23 @@ export function SkillEditor(props: SkillEditorProps) {
         : `查看 ${skill?.name ?? ''}`
 
   return (
-    <Modal
-      open
+    <Dialog
+      title={title}
       onClose={() => {
         if (!props.busy) props.onCancel()
       }}
-      title={title}
-      closeLabel="关闭"
-      className={styles.dialogSm}
-      contentClassName={styles.scrollBody}
-      footer={
-        <>
-          {mode === 'create' ? (
-            <span className={styles.footerMeta}>{targetHint(draft, props.roots)}</span>
-          ) : null}
-          {mode !== 'view' ? (
-            <>
-              <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-                取消
-              </Button>
-              <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-                {props.busy ? '保存中…' : '保存'}
-              </Button>
-            </>
-          ) : null}
-        </>
+      meta={mode === 'create' ? targetHint(draft, props.roots) : undefined}
+      actions={
+        mode !== 'view' ? (
+          <>
+            <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
+              取消
+            </Button>
+            <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+              {props.busy ? '保存中…' : '保存'}
+            </Button>
+          </>
+        ) : null
       }
     >
       {mode === 'view' ? (
@@ -272,7 +264,7 @@ export function SkillEditor(props: SkillEditorProps) {
           ) : null}
         </div>
       )}
-    </Modal>
+    </Dialog>
   )
 }
 
