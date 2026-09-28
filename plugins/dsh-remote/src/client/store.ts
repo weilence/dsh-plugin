@@ -30,6 +30,8 @@ export interface RemoteState {
   testResult: { id: string; result: TestResponse } | null
   /** 删除确认弹窗的目标连接。 */
   deleting: ConnRow | null
+  /** 同步弹窗的目标连接（勾选清单在弹窗内编辑）。 */
+  syncing: ConnRow | null
 }
 
 const INITIAL: RemoteState = {
@@ -43,6 +45,7 @@ const INITIAL: RemoteState = {
   busyId: null,
   testResult: null,
   deleting: null,
+  syncing: null,
 }
 
 const FAST_POLL_MS = 1_200
@@ -170,6 +173,10 @@ export class RemoteStore {
 
   askDelete(row: ConnRow | null): void {
     this.set({ deleting: row })
+  }
+
+  askSync(row: ConnRow | null): void {
+    this.set({ syncing: row })
   }
 
   dismissNotice(): void {

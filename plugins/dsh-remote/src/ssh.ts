@@ -166,10 +166,16 @@ export function startSshForward(alias: string, localPort: number, remotePort: nu
   }
 }
 
-/** tar-over-ssh 单通道推送：本地 tar 打包 stdout 直灌远端 tar 解包 stdin。 */
-export function tarOverSsh(alias: string, localRoot: string, remoteRoot: string): Promise<void> {
+/** tar-over-ssh 单通道推送：本地 tar 打包 stdout 直灌远端 tar 解包 stdin。
+ *  names 指定时只打包根内的这些条目（skills 按勾选推送），缺省整根。 */
+export function tarOverSsh(
+  alias: string,
+  localRoot: string,
+  remoteRoot: string,
+  names?: readonly string[],
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
-    const tar = spawn('tar', ['-C', localRoot, '-cf', '-', '.'], {
+    const tar = spawn('tar', ['-C', localRoot, '-cf', '-', ...(names === undefined ? ['.'] : [...names])], {
       stdio: ['ignore', 'pipe', 'ignore'],
       windowsHide: true,
     })

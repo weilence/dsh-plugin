@@ -8,7 +8,13 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { MCP_PLUGIN_NAME, REMOTE_PLUGIN_NAME, type LocalMcpRow, type LocalPluginRow } from './shared'
+import {
+  MCP_PLUGIN_NAME,
+  REMOTE_PLUGIN_NAME,
+  type LocalMcpRow,
+  type LocalPluginRow,
+  type LocalSkillRow,
+} from './shared'
 import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type PatchInsert } from './patchDoc'
 
 /** 用户级 skills 根（与官方 skill-filesystem 的用户根同一逻辑）。 */
@@ -50,6 +56,33 @@ export async function scanSkillsNames(root: SkillsRoot): Promise<string[]> {
     }
   }
   return names.sort()
+}
+
+/** frontmatter 的 description 首行值（宽容提取；无 frontmatter / 失败为 null）。 */
+async function skillDescription(file: string): Promise<string | null> {
+  try {
+    const text = await readFile(file, 'utf8')
+    if (!text.startsWith('---')) return null
+    const end = text.indexOf('\n---', 3)
+    if (end === -1) return null
+    const match = /^description:[ \t]*(.+)$/m.exec(text.slice(0, end))
+    return match === null ? null : match[1].trim().replace(/^['"]|['"]$/g, '')
+  } catch {
+    return null
+  }
+}
+
+/** 技能根扫描为 wire 行（名字 + 所在根 + description 摘要），供同步弹窗勾选。 */
+export async function scanSkillRows(root: SkillsRoot): Promise<LocalSkillRow[]> {
+  const rows: LocalSkillRow[] = []
+  for (const name of await scanSkillsNames(root)) {
+    // 目录包优先，其次单文件；两者都读不到时 description 为 null（扫描窗口内被删）
+    const description =
+      (await skillDescription(join(root.path, name, 'SKILL.md'))) ??
+      (await skillDescription(`${join(root.path, name)}.md`))
+    rows.push({ name, root: root.key, description })
+  }
+  return rows
 }
 
 /** 一层本机 patch 文件（缺失文件给空文档）。 */

@@ -46,6 +46,8 @@ export interface RemoteConnection {
   /** OpenSSH 主机别名——唯一凭据来源，本插件不读写任何私钥材料。 */
   sshAlias: string
   sync: {
+    /** 勾选同步到远端的技能名清单（跨两个用户级根，manifest 跟踪式删除）。 */
+    skillNames: string[]
     /** 标记「跑在远端」的本机 MCP serverName 清单。 */
     mcpServerNames: string[]
     /** 同步到远端的本地插件名清单（manifest 跟踪式安装 / 移除）。 */
@@ -68,7 +70,8 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。 */
 export interface ConnOp {
-  kind: 'test' | 'deploy' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins'
+  kind:
+    'test' | 'deploy' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-all'
   /** 当前步进（deploy 的 node/npm/install-dsh…，连接的 start/poll/forward…）。 */
   step?: string
   /** 步进的补充说明（版本号、插件名等）。 */
@@ -114,6 +117,15 @@ export interface LocalEnv {
   tar: boolean
 }
 
+/** 本机技能行（两个用户级根扫描，供勾选同步）。 */
+export interface LocalSkillRow {
+  name: string
+  /** 所在根：$DSH_HOME/skills 或 ~/.agents/skills。 */
+  root: 'user-dsh' | 'user-agents'
+  /** frontmatter 的 description（提取失败为 null）。 */
+  description: string | null
+}
+
 /** 本机 MCP 行（两层用户 patch 的只读清单，供勾选下发）。 */
 export interface LocalMcpRow {
   /** patch 行 id（形如 mcp-<serverName>）。 */
@@ -141,6 +153,7 @@ export interface LocalPluginRow {
 
 /** GET /local-rows 的响应。 */
 export interface LocalRowsResponse {
+  skillRows: LocalSkillRow[]
   mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
   /** profileContext 缺席（非 profile 启动）时为 false，清单为空。 */
@@ -155,6 +168,7 @@ export interface SaveRequest {
   label: string
   sshAlias: string
   sync: {
+    skillNames?: string[]
     mcpServerNames: string[]
     pluginNames: string[]
     /** 非本地插件安装方式；缺省 'remote'（远端自行下载）。 */
@@ -191,7 +205,7 @@ export interface OpRequest {
   id: string
 }
 
-export type SyncKind = 'skills' | 'mcp' | 'plugins'
+export type SyncKind = 'skills' | 'mcp' | 'plugins' | 'all'
 
 export interface SyncRequest {
   id: string

@@ -39,7 +39,7 @@ export interface EngineDeps {
   startForward(alias: string, localPort: number, remotePort: number): ForwardHandle
   freeLocalPort(): Promise<number>
   healthCheck(url: string): Promise<boolean>
-  pushTar(alias: string, localRoot: string, remoteRoot: string): Promise<void>
+  pushTar(alias: string, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
   /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
   pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
   readLocalLayers(): Promise<LocalPatchLayer[]>
@@ -517,83 +517,80 @@ export class RemoteEngine {
   // ---- 同步 ----
 
   startSync(id: string, kind: SyncKind): void {
-    if (kind === 'skills') {
-      this.beginOp(
-        id,
-        { kind: 'sync-skills', step: 'scan' },
-        this.runtimeOf(id).running !== null ? 'running' : 'idle',
-      )
-      void this.runSkillsSync(id)
-    } else if (kind === 'mcp') {
-      this.beginOp(
-        id,
-        { kind: 'sync-mcp', step: 'read-local' },
-        this.runtimeOf(id).running !== null ? 'running' : 'idle',
-      )
-      void this.runMcpSync(id)
-    } else {
-      this.beginOp(
-        id,
-        { kind: 'sync-plugins', step: 'read-local' },
-        this.runtimeOf(id).running !== null ? 'running' : 'idle',
-      )
-      void this.runPluginSync(id)
-    }
+    const restPhase = this.runtimeOf(id).running !== null ? 'running' : 'idle'
+    const kindOfOp =
+      kind === 'all'
+        ? 'sync-all'
+        : kind === 'skills'
+          ? 'sync-skills'
+          : kind === 'mcp'
+            ? 'sync-mcp'
+            : 'sync-plugins'
+    this.beginOp(id, { kind: kindOfOp, step: kind === 'skills' ? 'scan' : 'read-local' }, restPhase)
+    void (async () => {
+      const runtime = this.runtimeOf(id)
+      try {
+        if (kind === 'skills' || kind === 'all') await this.doSkillsSync(id)
+        if (kind === 'mcp' || kind === 'all') await this.doMcpSync(id)
+        if (kind === 'plugins' || kind === 'all') await this.doPluginSync(id)
+        this.settle(id, this.restPhase(runtime))
+      } catch (error) {
+        this.fail(id, error)
+      }
+    })()
   }
 
-  /** skills 单向同步：两个用户级根 tar 推送 + manifest 跟踪式删除（仅手动触发）。 */
-  private async runSkillsSync(id: string): Promise<void> {
+  /** skills 单向同步：勾选名按根打包推送 + manifest 跟踪式删除（仅手动触发）。 */
+  private async doSkillsSync(id: string): Promise<void> {
     const runtime = this.runtimeOf(id)
-    try {
-      const connection = this.connectionOf(id)
-      const manifest = this.manifestOf(id)
-      const next: Record<string, string[]> = {}
-      let pushed = 0
-      let deleted = 0
-      let skipped = 0
-      for (const root of await this.deps.scanSkills()) {
-        this.step(id, 'push', root.path)
-        if (root.names.length === 0 || !this.deps.tools.tar) {
-          skipped += 1
-          next[root.key] = root.names
-          continue
-        }
-        const remoteRoot = root.key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
-        await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot)
-        pushed += root.names.length
-        next[root.key] = root.names
+    const connection = this.connectionOf(id)
+    const manifest = this.manifestOf(id)
+    const selected = new Set(connection.sync.skillNames)
+    const next: Record<string, string[]> = {}
+    let pushed = 0
+    let deleted = 0
+    let skipped = 0
+    for (const root of await this.deps.scanSkills()) {
+      // 只推勾选名；本根一个都没勾时记录空集（manifest 删除据此判定）
+      const chosen = root.names.filter((name) => selected.has(name))
+      next[root.key] = chosen
+      if (chosen.length === 0) continue
+      this.step(id, 'push', `${root.key} ${chosen.length} 项`)
+      if (!this.deps.tools.tar) {
+        skipped += chosen.length
+        continue
       }
-      for (const [key, previousNames] of Object.entries(manifest.skills)) {
-        const current = new Set(next[key] ?? [])
-        const gone = previousNames.filter((name) => !current.has(name))
-        if (gone.length === 0) continue
-        this.step(id, 'clean', `${gone.length} 项`)
-        const remoteRoot = key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
-        const targets = gone
-          .map((name) => `${remoteRoot}/${shQuote(name)} ${remoteRoot}/${shQuote(`${name}.md`)}`)
-          .join(' ')
-        const remove = await this.deps.exec(connection.sshAlias, `rm -rf ${targets}`)
-        if (remove.code !== 0) {
-          throw new SshFailure(
-            'remote-cmd-failed',
-            `远端清理失效技能失败：${remove.stderr.trim().slice(0, 200)}`,
-          )
-        }
-        deleted += gone.length
-      }
-      this.store.manifest[id] = { ...this.manifestOf(id), skills: next }
-      await this.persist()
-      runtime.lastSync.skills = { at: this.deps.now(), pushed, deleted, skipped }
-      this.settle(id, this.restPhase(runtime))
-    } catch (error) {
-      this.fail(id, error)
+      const remoteRoot = root.key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
+      await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot, chosen)
+      pushed += chosen.length
     }
+    for (const [key, previousNames] of Object.entries(manifest.skills)) {
+      const current = new Set(next[key] ?? [])
+      const gone = previousNames.filter((name) => !current.has(name))
+      if (gone.length === 0) continue
+      this.step(id, 'clean', `${gone.length} 项`)
+      const remoteRoot = key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
+      const targets = gone
+        .map((name) => `${remoteRoot}/${shQuote(name)} ${remoteRoot}/${shQuote(`${name}.md`)}`)
+        .join(' ')
+      const remove = await this.deps.exec(connection.sshAlias, `rm -rf ${targets}`)
+      if (remove.code !== 0) {
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端清理失效技能失败：${remove.stderr.trim().slice(0, 200)}`,
+        )
+      }
+      deleted += gone.length
+    }
+    this.store.manifest[id] = { ...this.manifestOf(id), skills: next }
+    await this.persist()
+    runtime.lastSync.skills = { at: this.deps.now(), pushed, deleted, skipped }
   }
 
   /** MCP 下发：本机两层 patch fold 出选中 serverName 的生效配置，整块写进远端 profile patch。 */
-  private async runMcpSync(id: string): Promise<void> {
+  private async doMcpSync(id: string): Promise<void> {
     const runtime = this.runtimeOf(id)
-    try {
+    {
       const connection = this.connectionOf(id)
       const layers = await this.deps.readLocalLayers()
       const selected = new Set(connection.sync.mcpServerNames)
@@ -634,18 +631,15 @@ export class RemoteEngine {
       this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
       await this.persist()
       runtime.lastSync.mcp = { at: this.deps.now(), installed, removed }
-      this.settle(id, this.restPhase(runtime))
-    } catch (error) {
-      this.fail(id, error)
     }
   }
 
   /** 插件同步：本地路径安装的插件永远本地打包传输（未发布的开发代码也只有
    *  这条路能到达远端）；registry 插件按连接选项分流（推送 / 远端 npm 下载）。
    *  逐插件版本对比，远端已同版本即跳过——重复同步幂等；取消勾选按 manifest 移除。 */
-  private async runPluginSync(id: string): Promise<void> {
+  private async doPluginSync(id: string): Promise<void> {
     const runtime = this.runtimeOf(id)
-    try {
+    {
       const connection = this.connectionOf(id)
       const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
       const byName = new Map(pluginRows.map((row) => [row.name, row]))
@@ -710,9 +704,6 @@ export class RemoteEngine {
       this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
       await this.persist()
       runtime.lastSync.plugins = { at: this.deps.now(), installed, removed: toRemove, skipped }
-      this.settle(id, this.restPhase(runtime))
-    } catch (error) {
-      this.fail(id, error)
     }
   }
 

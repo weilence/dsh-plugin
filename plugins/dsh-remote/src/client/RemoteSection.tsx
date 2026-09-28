@@ -20,6 +20,7 @@ import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-setti
 import type { ConnRow } from '../shared'
 import { REMOTE_PROFILE } from '../shared'
 import { RemoteForm } from './RemoteForm'
+import { SyncDialog } from './SyncDialog'
 import type { RemoteStore } from './store'
 import local from './RemoteSection.module.css'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -48,6 +49,7 @@ const OP_LABELS: Record<string, string> = {
   'sync-skills': '同步 skills',
   'sync-mcp': '下发 MCP',
   'sync-plugins': '同步插件',
+  'sync-all': '同步',
 }
 
 export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps) {
@@ -130,7 +132,6 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
                 <RemoteForm
                   mode="create"
                   store={store}
-                  localRows={state.localRows}
                   busy={state.busyId === 'new'}
                   error={state.error}
                   onDone={() => store.edit(undefined)}
@@ -187,7 +188,6 @@ function connectionCard(
           action('部署', () => void store.deploy(row.id)),
           action('连接', () => void store.connect(row.id), { variant: 'primary' }),
         ]
-
   const children = (
     <div>
       {row.state.lastSync.skills !== null ? (
@@ -220,23 +220,11 @@ function connectionCard(
         mode="edit"
         row={row}
         store={store}
-        localRows={state.localRows}
         busy={busy}
         error={state.error}
         onDone={() => store.edit(undefined)}
         onCancel={() => store.edit(undefined)}
       />
-      <div className={local.dangerZone}>
-        <Button
-          variant="outline"
-          className={styles.dangerGhost}
-          disabled={busy || opBusy || row.state.running !== null}
-          title={row.state.running !== null ? '先断开连接再删除' : undefined}
-          onClick={() => store.askDelete(row)}
-        >
-          删除连接
-        </Button>
-      </div>
       {state.deleting?.id === row.id ? (
         <ConfirmDialog
           title="删除连接"
@@ -245,6 +233,15 @@ function connectionCard(
           busy={busy}
           onCancel={() => store.askDelete(null)}
           onConfirm={() => void store.remove(row.id)}
+        />
+      ) : null}
+      {state.syncing?.id === row.id ? (
+        <SyncDialog
+          row={row}
+          store={store}
+          localRows={state.localRows}
+          busy={busy || opBusy}
+          onClose={() => store.askSync(null)}
         />
       ) : null}
     </div>
@@ -271,9 +268,17 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        {action('同步 skills', () => void store.sync(row.id, 'skills'))}
-        {action('下发 MCP', () => void store.sync(row.id, 'mcp'))}
-        {action('同步插件', () => void store.sync(row.id, 'plugins'))}
+        {action('同步…', () => store.askSync(row))}
+        <Button
+          size="sm"
+          variant="ghost"
+          className={styles.dangerGhost}
+          disabled={busy || opBusy || row.state.running !== null}
+          title={row.state.running !== null ? '先断开连接再删除' : undefined}
+          onClick={() => store.askDelete(row)}
+        >
+          删除
+        </Button>
       </div>
     ),
     children,

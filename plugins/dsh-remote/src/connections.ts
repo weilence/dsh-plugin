@@ -54,10 +54,16 @@ export async function readStore(homeDir: string): Promise<StoreFile> {
     const connections = Array.isArray(record.connections)
       ? record.connections
           .filter((item): item is RemoteConnection => isConnection(item))
-          // 旧库无 registryPluginInstall：读入即归一（非 'push' 一律按 'remote'）
+          // 旧库补齐后加字段：skillNames（更早库无）、registryPluginInstall
           .map((item) => ({
             ...item,
-            sync: { ...item.sync, registryPluginInstall: registryInstallOf(item.sync.registryPluginInstall) },
+            sync: {
+              ...item.sync,
+              skillNames: Array.isArray(item.sync.skillNames)
+                ? item.sync.skillNames.filter((name): name is string => typeof name === 'string')
+                : [],
+              registryPluginInstall: registryInstallOf(item.sync.registryPluginInstall),
+            },
           }))
       : []
     const manifest: Record<string, SyncManifest> = {}
@@ -163,6 +169,7 @@ export function normalizeConnection(
     label,
     sshAlias,
     sync: {
+      skillNames: strArray(request.sync.skillNames ?? [], 'sync.skillNames'),
       mcpServerNames: strArray(request.sync.mcpServerNames, 'sync.mcpServerNames'),
       pluginNames: strArray(request.sync.pluginNames, 'sync.pluginNames'),
       registryPluginInstall: registryInstallOf(install),

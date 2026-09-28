@@ -25,12 +25,20 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
-import { composeLocalRows, profileContextOf, readLocalLayers, scanSkillsNames, skillsRoots } from './localenv'
+import {
+  composeLocalRows,
+  profileContextOf,
+  readLocalLayers,
+  scanSkillRows,
+  scanSkillsNames,
+  skillsRoots,
+} from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
 import {
   type LocalRowsResponse,
+  type LocalSkillRow,
   type OpRequest,
   type SaveRequest,
   type StateResponse,
@@ -305,12 +313,21 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             if (!guard(req, res, 'GET')) return
             const profile = profileContextOf(ctx)
             if (profile === undefined) {
-              const response: LocalRowsResponse = { mcpRows: [], pluginRows: [], available: false }
+              const response: LocalRowsResponse = {
+                skillRows: [],
+                mcpRows: [],
+                pluginRows: [],
+                available: false,
+              }
               writeJson(res, 200, response as unknown as Record<string, unknown>)
               return
             }
             const { mcpRows, pluginRows } = await composeLocalRows(await readLocalLayers(profile))
-            const response: LocalRowsResponse = { mcpRows, pluginRows, available: true }
+            // skills 根是 DSH 用户级全局（非 profile 内），清单与 profile 无关
+            const skillRows: LocalSkillRow[] = []
+            for (const root of skillsRoots()) skillRows.push(...(await scanSkillRows(root)))
+            skillRows.sort((left, right) => left.name.localeCompare(right.name))
+            const response: LocalRowsResponse = { skillRows, mcpRows, pluginRows, available: true }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             writeJson(res, 500, { error: String(error instanceof Error ? error.message : error) })
@@ -417,8 +434,13 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             if (!guard(req, res, 'POST')) return
             const body = await readJsonBody(req)
             const request = body as unknown as SyncRequest
-            if (request.kind !== 'skills' && request.kind !== 'mcp' && request.kind !== 'plugins') {
-              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins')
+            if (
+              request.kind !== 'skills' &&
+              request.kind !== 'mcp' &&
+              request.kind !== 'plugins' &&
+              request.kind !== 'all'
+            ) {
+              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins / all')
             }
             await engine.load()
             engine.connectionOf(request.id)

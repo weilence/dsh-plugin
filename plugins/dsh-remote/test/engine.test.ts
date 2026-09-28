@@ -39,7 +39,7 @@ interface FakeOptions {
 
 function makeDeps(options: FakeOptions = {}) {
   const calls: Recorded[] = []
-  const tarPushes: { alias: string; localRoot: string; remoteRoot: string }[] = []
+  const tarPushes: { alias: string; localRoot: string; remoteRoot: string; names?: readonly string[] }[] = []
   const filePushes: { alias: string; localPath: string; remoteDir: string; fileName: string }[] = []
   const packedRoots: string[] = []
   let forwardKilled = 0
@@ -61,8 +61,8 @@ function makeDeps(options: FakeOptions = {}) {
     },
     freeLocalPort: async () => 19999,
     healthCheck: async () => true,
-    async pushTar(alias, localRoot, remoteRoot) {
-      tarPushes.push({ alias, localRoot, remoteRoot })
+    async pushTar(alias, localRoot, remoteRoot, names) {
+      tarPushes.push({ alias, localRoot, remoteRoot, names })
     },
     async pushFile(alias, localPath, remoteDir, fileName) {
       filePushes.push({ alias, localPath, remoteDir, fileName })
@@ -571,8 +571,8 @@ describe('RemoteEngine', () => {
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync skills：跟踪式删除只清 manifest 记录过的名字', async () => {
-    makeEngine({ skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['kept'] }] })
+  it('sync skills：按勾选推送（tar 只打包勾选名），取消勾选的按 manifest 跟踪删除', async () => {
+    makeEngine({ skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['kept', 'other'] }] })
     const { writeStore } = await import('../src/connections')
     await writeStore(home, {
       version: 1,
@@ -581,7 +581,12 @@ describe('RemoteEngine', () => {
           id: 'dev-box',
           label: '开发机',
           sshAlias: 'dev-box',
-          sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
+          sync: {
+            skillNames: ['kept'],
+            mcpServerNames: [],
+            pluginNames: [],
+            registryPluginInstall: 'remote',
+          },
           createdAt: '2027-01-01T00:00:00.000Z',
           updatedAt: '2027-01-01T00:00:00.000Z',
         },
@@ -591,10 +596,52 @@ describe('RemoteEngine', () => {
     await engine.load()
     engine.startSync('dev-box', 'skills')
     await waitFor(() => engine.stateOf('dev-box').op === null)
+    // 只打包勾选名：other 不推
+    expect(fake.tarPushes).toEqual([
+      { alias: 'dev-box', localRoot: 'C:/skills', remoteRoot: '~/.dsh/skills', names: ['kept'] },
+    ])
     const remove = fake.calls.find((call) => call.command.startsWith('rm -rf'))
     expect(remove?.command).toContain("~/.dsh/skills/'gone'")
     expect(remove?.command).not.toContain('kept')
+    expect(remove?.command).not.toContain('other')
     expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, deleted: 1 })
+  })
+
+  it('sync all：一次串行完成三类同步（skills → MCP → 插件）', async () => {
+    makeEngine({
+      skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['alpha'] }],
+      profilePatch: [
+        '- insert:',
+        '    - id: mcp-demo',
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        '      config: { transport: stdio, serverName: demo, command: npx }',
+      ].join('\n'),
+      respond: (command) => {
+        if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
+          return { code: 0, stdout: '', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(
+      saveRequest({
+        sync: {
+          skillNames: ['alpha'],
+          mcpServerNames: ['demo'],
+          pluginNames: [],
+          registryPluginInstall: 'remote',
+        },
+      }),
+    )
+    engine.startSync('dev-box', 'all')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('idle')
+    expect(state.op).toBeNull()
+    // 三类各留下执行痕迹
+    expect(fake.tarPushes.length).toBe(1)
+    expect(state.lastSync.skills).toMatchObject({ pushed: 1 })
+    expect(state.lastSync.mcp).toMatchObject({ installed: ['mcp-demo'] })
+    expect(state.lastSync.plugins).not.toBeNull()
   })
 
   it('互斥：操作在途时第二个操作被拒（409 语义）', async () => {

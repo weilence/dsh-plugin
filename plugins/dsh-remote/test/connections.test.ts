@@ -22,7 +22,12 @@ describe('normalizeConnection', () => {
   it('最小请求归一（id 从别名派生）', () => {
     const connection = normalizeConnection(request(), new Set(), NOW)
     expect(connection.id).toBe('dev-box')
-    expect(connection.sync).toEqual({ mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' })
+    expect(connection.sync).toEqual({
+      skillNames: [],
+      mcpServerNames: [],
+      pluginNames: [],
+      registryPluginInstall: 'remote',
+    })
     expect(connection.createdAt).toBe(NOW)
   })
 
@@ -54,7 +59,7 @@ describe('normalizeConnection', () => {
       id: 'fixed-id',
       label: '旧名',
       sshAlias: 'dev-box',
-      sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
+      sync: { skillNames: [], mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
@@ -135,6 +140,7 @@ describe('store 持久化', () => {
     )
     const store = await readStore(home)
     expect(store.connections[0]?.sync).toEqual({
+      skillNames: [],
       mcpServerNames: [],
       pluginNames: [],
       registryPluginInstall: 'remote',
