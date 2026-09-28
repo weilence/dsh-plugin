@@ -26,7 +26,7 @@
 
 ## 版本与发布陷阱
 
-- `peerDependencies` 必须写**字面 semver range**（如 `>=0.1.7-rc.2 <0.2.0`），不能写 `catalog:`——宿主 app-boot 的兼容性预检对字符串直接做 `semver.satisfies`，无效范围会拒载插件。
+- `peerDependencies` 必须写**字面 semver range**（如 `>=0.2.0-rc.1 <0.3.0`），不能写 `catalog:`——宿主 app-boot 的兼容性预检对字符串直接做 `semver.satisfies`，无效范围会拒载插件。
 - 平台包必须同版本协同；升级 DSH 平台只改 `pnpm-workspace.yaml` 的 catalog 一处。
 - 提交前跑全量验证（与 CI 同款四连）：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
 - 发布：改插件 version → `git tag <name>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。
