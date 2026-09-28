@@ -33,7 +33,7 @@ export interface ModelsDevImportProps {
   onError(message: string): void
 }
 
-/** ref 面：外层 Modal footer 上的「创建」按钮触发这里。 */
+/** ref 面：外层新建卡片的「创建」按钮触发这里。 */
 export interface ModelsDevImportHandle {
   apply(): void
 }
@@ -134,7 +134,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
         target,
         profile,
         models === null || models.length === 0
-          ? `已创建 Provider ${target}（模型清单为空，可在编辑页继续添加）`
+          ? `已创建 Provider ${target}（模型清单为空，可展开卡片继续添加）`
           : `已创建 Provider ${target}（${models.length} 个模型）`,
         apiKey.trim().length > 0 ? apiKey.trim() : undefined,
       )
@@ -207,7 +207,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                 onChange={setDisplayName}
               />
               <TextField
-                label="API 协议（api；可留空，创建后在编辑页补全）"
+                label="API 协议（api；可留空，创建后展开卡片补全）"
                 value={api}
                 placeholder={protocolLabel || 'openai-completions'}
                 datalist={KNOWN_PROTOCOLS.map((protocol) => ({ value: protocol }))}
@@ -242,7 +242,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
             ) : null}
             <div className={styles.list}>
               {models === null ? (
-                <div className={styles.empty}>模型清单为空；点「获取模型」拉取，或创建后在编辑页添加。</div>
+                <div className={styles.empty}>模型清单为空；点「获取模型」拉取，或创建后展开卡片添加。</div>
               ) : models.length === 0 ? (
                 <div className={styles.empty}>Endpoint 没有返回任何模型。</div>
               ) : (

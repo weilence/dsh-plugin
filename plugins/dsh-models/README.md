@@ -8,14 +8,13 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
 
 **设置菜单「模型目录」（`settings.section` id `dsh-models`）**
 
-- **Provider 列表（只读）**：只展示**已经配置过**的 route（组合配置或用户层写过 `providers.<route>`）：
-  行头显示显示名、route id 与协议 / Endpoint；展开后模型清单直接按行显示——每行是
-  「显示名 + 模型 ID（同一行）/ 生效能力（容量与模态）/ 思考档位」（与会话模型选择器同一份事实）。
-  列表页唯一的动作是「编辑」，点击弹出该 Provider 的大编辑弹窗。
-- **编辑弹窗**：编辑 Provider 字段（`displayName` / `api` / `baseURL` / API Key / 可选 `reasoning` 默认推理等级）与模型清单（新增 / 编辑 / 删除 / 拖拽排序，
+- **Provider 列表（行内编辑）**：只展示**已经配置过**的 route（组合配置或用户层写过 `providers.<route>`）：
+  行头显示显示名、route id 与协议 / Endpoint；点击卡片展开连接字段和模型清单，切换卡片或收起时会确认放弃未保存的修改。
+  内置 Provider 的模型清单以「显示名 + 模型 ID / 生效能力 / 思考档位」展示，不修改目录事实。
+- **卡片编辑区**：编辑 Provider 字段（`displayName` / `api` / `baseURL` / API Key / 下拉选择可选的 `reasoning` 默认推理等级）与模型清单（新增 / 编辑 / 删除 / 拖拽排序，
   模型字段含 `name` / `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`，
   全部有「继承」态）；保存即一次性整值写入用户层的**整个 `providers.<route>` 子树**。
-- **新建 Provider（统一入口，两种方式）**：
+- **新建 Provider（列表顶部行内卡片，两种方式）**：点「新建 Provider」在列表首行展开表单，失败时保留填写内容；
   「使用内置 Provider」从尚未配置的内置目录里选一个，只写 `displayName`（可选 API Key），协议、
   Endpoint 与模型目录全部继承安装目录；
   「自定义 Provider」填 Provider ID / 显示名 / API Key，Endpoint 可从 models.dev 的 Provider 里选择

@@ -17,14 +17,13 @@ import {
 } from '../pi-ai/profile'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { validateProviderReasoning } from '../pi-ai/validate'
-import { effortsLabel, type PanelRoute } from '../pi-ai/view'
+import { effortsLabel, reasoningLabel, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
 import { ModelForm } from './ModelForm'
 import {
   CardList,
-  ConfirmDialog,
-  Dialog,
   ExpandableCard,
+  ModelTable,
   SelectField,
   TextField,
   IssueList,
@@ -49,7 +48,8 @@ export interface RouteEditorProps {
   error: string | null
   modelsDev: ModelsDevCatalog | null
   onLoadModelsDev(): Promise<ModelsDevCatalog | null>
-  /** 返回列表（放弃未保存修改，脏时内部会先确认）。 */
+  onDirtyChange(dirty: boolean): void
+  onCancel(): void
   onExit(): void
   onFetchModels(request: {
     provider?: string
@@ -59,8 +59,6 @@ export interface RouteEditorProps {
   }): Promise<readonly { id: string; name?: string; contextWindow?: number; maxTokens?: number }[]>
   /** 保存整份候选 profile；返回是否成功（成功后由调用方决定退出）。 */
   onSave(candidate: PiAiProviderEntry, apiKey?: string): Promise<boolean>
-  /** 删除该 route 的用户层 profile（立即执行）。 */
-  onDelete(): void
 }
 
 interface ProviderDraft {
@@ -99,8 +97,6 @@ function draftRowLabel(source: PanelRoute['source'], row: ModelRow): string | un
 
 type ModelEdit = { creating: boolean; row: ModelRow }
 
-type Confirm = { kind: 'leave' } | { kind: 'delete' }
-
 function isBuiltinOnly(profile: PiAiProviderEntry | undefined): boolean {
   if (profile === undefined) return true
   return Object.keys(profile).every((key) => ['apiKeyEnv', 'displayName', 'reasoning'].includes(key))
@@ -114,7 +110,6 @@ export function RouteEditor(props: RouteEditorProps) {
   const [providerDraft, setProviderDraft] = useState<ProviderDraft>(() => initialProviderDraft(route))
   const [key, setKey] = useState('')
   const [modelEdit, setModelEdit] = useState<ModelEdit | undefined>(undefined)
-  const [confirm, setConfirm] = useState<Confirm | undefined>(undefined)
   const [touched, setTouched] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [fetching, setFetching] = useState(false)
@@ -163,6 +158,7 @@ export function RouteEditor(props: RouteEditorProps) {
 
   const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
   const dirty = !jsonEqual(candidate, route.userProfile ?? {}) || key.trim().length > 0
+  useEffect(() => props.onDirtyChange(dirty), [dirty, props.onDirtyChange])
 
   const issues = useMemo(() => {
     const list: string[] = []
@@ -205,8 +201,7 @@ export function RouteEditor(props: RouteEditorProps) {
   const save = async () => {
     setTouched(true)
     setLocalError(null)
-    // 模型表单无需先关闭：修改都实时折叠进草稿，未通过校验的中间态不会
-    // 进入草稿；保存成功后整个弹窗关闭。
+    // 模型表单实时折叠进草稿，保存成功后由列表收起当前卡片。
     if (issues.length > 0) return
     const ok = await props.onSave(candidate, key.trim().length > 0 ? key.trim() : undefined)
     if (ok) props.onExit()
@@ -347,18 +342,6 @@ export function RouteEditor(props: RouteEditorProps) {
     )
   }
 
-  const requestLeave = () => {
-    if (dirty) setConfirm({ kind: 'leave' })
-    else props.onExit()
-  }
-
-  // busy 或确认对话框打开时忽略；确认框是官方 Modal 的上一层，Escape 由
-  // 层栈保证先关它。
-  const handleClose = () => {
-    if (props.busy || confirm !== undefined) return
-    requestLeave()
-  }
-
   const editingId = modelEdit !== undefined && !modelEdit.creating ? modelEdit.row.id : undefined
   // 「新增中」的条目已实时写进草稿：从常规卡片里摘掉、固定以带「新增」徽标的
   // 卡片显示在清单末尾，避免同一模型出现两张卡。
@@ -467,29 +450,7 @@ export function RouteEditor(props: RouteEditorProps) {
   }, [modelEdit])
 
   return (
-    <Dialog
-      title={`编辑 Provider · ${route.provider}`}
-      size="lg"
-      onClose={handleClose}
-      actions={
-        <>
-          <Button
-            variant="primary"
-            className={styles.dangerButton}
-            disabled={props.busy}
-            onClick={() => setConfirm({ kind: 'delete' })}
-          >
-            删除 Provider
-          </Button>
-          <Button variant="outline" disabled={props.busy} onClick={requestLeave}>
-            取消
-          </Button>
-          <Button variant="primary" disabled={props.busy || !props.writable} onClick={() => void save()}>
-            {props.busy ? '保存中…' : '保存'}
-          </Button>
-        </>
-      }
-    >
+    <div className={styles.inlineEditor}>
       {props.error ? <div className={styles.error}>{props.error}</div> : null}
       {localError ? <div className={styles.error}>{localError}</div> : null}
       {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
@@ -532,17 +493,6 @@ export function RouteEditor(props: RouteEditorProps) {
               placeholder={route.displayName || route.provider}
               onChange={(value) => setProviderDraft({ ...providerDraft, displayName: value })}
             />
-            <TextField
-              label="默认推理等级（reasoning，可选）"
-              value={providerDraft.reasoning}
-              disabled={props.busy}
-              placeholder={route.effectiveProfile?.reasoning ?? '留空继承默认'}
-              datalist={props.choices.thinkingLevels.map((level) => ({ value: level }))}
-              error={
-                validateProviderReasoning(providerDraft.reasoning, props.choices.thinkingLevels)?.message
-              }
-              onChange={(value) => setProviderDraft({ ...providerDraft, reasoning: value })}
-            />
             {useBuiltin ? null : (
               <TextField
                 label="Endpoint（baseURL）"
@@ -564,10 +514,50 @@ export function RouteEditor(props: RouteEditorProps) {
                 onChange={(value) => setProviderDraft({ ...providerDraft, api: value })}
               />
             )}
+            <SelectField
+              label="默认推理等级（reasoning，可选）"
+              value={providerDraft.reasoning}
+              disabled={props.busy}
+              options={[
+                { value: '', label: '继承默认' },
+                ...props.choices.thinkingLevels.map((level) => ({ value: level, label: level })),
+                ...(providerDraft.reasoning.length > 0 &&
+                !props.choices.thinkingLevels.some((level) => level === providerDraft.reasoning)
+                  ? [
+                      {
+                        value: providerDraft.reasoning,
+                        label: `未知等级：${providerDraft.reasoning}`,
+                        disabled: true,
+                      },
+                    ]
+                  : []),
+              ]}
+              onChange={(value) => setProviderDraft({ ...providerDraft, reasoning: value })}
+            />
           </div>
         </section>
 
-        {useBuiltin ? null : (
+        {useBuiltin ? (
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>模型（{route.rows.length}）</h3>
+            {route.rows.length > 0 ? (
+              <ModelTable
+                rows={route.rows.map((row) => ({
+                  name: row.name,
+                  id: row.id,
+                  ctx: row.effectiveContextWindow,
+                  out: row.effectiveMaxTokens,
+                  input: row.effectiveInput,
+                  reasoning: reasoningLabel(row),
+                }))}
+              />
+            ) : (
+              <div className={styles.empty}>
+                {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
+              </div>
+            )}
+          </section>
+        ) : (
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
             <CardList
@@ -627,25 +617,14 @@ export function RouteEditor(props: RouteEditorProps) {
         )}
       </div>
 
-      {confirm !== undefined ? (
-        <ConfirmDialog
-          title={confirm.kind === 'delete' ? `删除 Provider ${route.provider}` : '放弃未保存的修改？'}
-          body={
-            confirm.kind === 'delete'
-              ? '只删除 llm-pi-ai 用户层里的这条 profile（凭据与组合层配置保留）。未保存的修改将一并丢弃。'
-              : '有未保存的修改，离开将丢弃。'
-          }
-          confirmLabel={confirm.kind === 'delete' ? '删除' : '确定'}
-          busy={props.busy}
-          onCancel={() => setConfirm(undefined)}
-          onConfirm={() => {
-            const target = confirm
-            setConfirm(undefined)
-            if (target.kind === 'leave') props.onExit()
-            else props.onDelete()
-          }}
-        />
-      ) : null}
-    </Dialog>
+      <div className={styles.editorActions}>
+        <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
+          取消
+        </Button>
+        <Button variant="primary" disabled={props.busy || !props.writable} onClick={() => void save()}>
+          {props.busy ? '保存中…' : '保存'}
+        </Button>
+      </div>
+    </div>
   )
 }

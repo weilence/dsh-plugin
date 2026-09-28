@@ -1,18 +1,16 @@
-.inlineEditor {
+.createForm {
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
 }
 
-.editorMain {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
+.modeBar {
+  padding-bottom: 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
 
-.editorActions {
+.formActions {
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;

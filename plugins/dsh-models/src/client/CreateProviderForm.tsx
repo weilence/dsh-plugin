@@ -4,15 +4,14 @@ import type { ModelsDevCatalog } from '../catalog/types'
 import type { PanelRoute } from '../pi-ai/view'
 import { validateApiKey } from './operations'
 import { ModelsDevImport, type ModelsDevImportHandle, type ModelsDevImportProps } from './ModelsDevImport'
-import { Dialog, IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
+import { IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
-import local from './CreateProviderDialog.module.css'
+import local from './CreateProviderForm.module.css'
 
 const styles = { ...shared, ...local }
 
-export function CreateProviderDialog(props: {
+export function CreateProviderForm(props: {
   busy: boolean
-  /** store 级最近错误（写入失败等）：弹窗内展示，避免被遮罩挡住。 */
   error: string | null
   /** 已被任何层配置过的 route（含手写），不能重复创建。 */
   knownProviders: readonly string[]
@@ -25,7 +24,7 @@ export function CreateProviderDialog(props: {
   routes: readonly PanelRoute[]
   onCancel(): void
   onLoadCatalog(): void
-  onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): void
+  onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): Promise<boolean>
   onSaveProfile: ModelsDevImportProps['onSaveProfile']
   onFetchModels: ModelsDevImportProps['onFetchModels']
   onError(message: string): void
@@ -47,44 +46,26 @@ export function CreateProviderDialog(props: {
   const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
   if (keyError) issues.push(keyError)
 
-  const submit = () => {
+  const submit = async () => {
     setTouched(true)
     if (issues.length > 0) return
     if (mode === 'builtin') {
       // 显示名为空时不写 displayName：展示回退内置目录的名称 / Provider ID。
       const name = displayName.trim()
-      props.onCreate(
-        builtinId,
-        name.length > 0 ? { displayName: name } : {},
-        key.trim().length > 0 ? key.trim() : undefined,
-      )
+      if (
+        await props.onCreate(
+          builtinId,
+          name.length > 0 ? { displayName: name } : {},
+          key.trim().length > 0 ? key.trim() : undefined,
+        )
+      ) {
+        props.onCancel()
+      }
     }
   }
 
   return (
-    <Dialog
-      title="新建 Provider"
-      size={mode === 'modelsdev' ? 'lg' : 'xs'}
-      onClose={() => {
-        if (!props.busy) props.onCancel()
-      }}
-      actions={
-        mode === 'modelsdev' ? (
-          <Button variant="primary" disabled={props.busy} onClick={() => importRef.current?.apply()}>
-            {props.busy ? '创建中…' : '创建'}
-          </Button>
-        ) : (
-          <>
-            <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-              取消
-            </Button>
-            <Button variant="primary" disabled={props.busy} onClick={submit}>
-              {props.busy ? '创建中…' : '创建'}
-            </Button>
-          </>
-        )
-      }
-    >
+    <div className={styles.createForm}>
       {/* 创建方式始终可见，切到自定义 Provider 后仍可换方式。 */}
       <div className={styles.modeBar}>
         <div className={styles.checkRow}>
@@ -107,7 +88,7 @@ export function CreateProviderDialog(props: {
         </div>
       </div>
       {props.error ? (
-        <div className={`${styles.error} ${styles.dialogError}`} role="alert">
+        <div className={styles.error} role="alert">
           {props.error}
         </div>
       ) : null}
@@ -141,6 +122,18 @@ export function CreateProviderDialog(props: {
           </div>
         </>
       )}
-    </Dialog>
+      <div className={styles.formActions}>
+        <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
+          取消
+        </Button>
+        <Button
+          variant="primary"
+          disabled={props.busy}
+          onClick={mode === 'modelsdev' ? () => importRef.current?.apply() : () => void submit()}
+        >
+          {props.busy ? '创建中…' : '创建'}
+        </Button>
+      </div>
+    </div>
   )
 }
