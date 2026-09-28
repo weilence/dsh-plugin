@@ -444,35 +444,43 @@ describe('RemoteEngine', () => {
       profilePatch: [
         '- insert:',
         '    - id: dsh-mcp',
-        "      name: 'dsh-mcp'",
+        "      name: '@weilence/dsh-mcp'",
         '- insert:',
         '    - id: dsh-skills',
-        "      name: 'dsh-skills'",
+        "      name: '@weilence/dsh-skills'",
       ].join('\n'),
     })
-    await engine.save(saveRequest({ sync: { mcpServerNames: [], pluginNames: ['dsh-mcp', 'dsh-skills'] } }))
+    await engine.save(
+      saveRequest({
+        sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp', '@weilence/dsh-skills'] },
+      }),
+    )
     engine.startSync('dev-box', 'plugins')
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(
       fake.calls.some((call) =>
-        call.command.includes("dsh plugin --profile 'web' add 'dsh-mcp' 'dsh-skills'"),
+        call.command.includes("dsh plugin --profile 'web' add '@weilence/dsh-mcp' '@weilence/dsh-skills'"),
       ),
     ).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      installed: ['dsh-mcp', 'dsh-skills'],
+      installed: ['@weilence/dsh-mcp', '@weilence/dsh-skills'],
       removed: [],
     })
 
-    await engine.save(saveRequest({ id: 'dev-box', sync: { mcpServerNames: [], pluginNames: ['dsh-mcp'] } }))
+    await engine.save(
+      saveRequest({ id: 'dev-box', sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp'] } }),
+    )
     fake.calls.length = 0
     engine.startSync('dev-box', 'plugins')
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(
-      fake.calls.some((call) => call.command.includes("dsh plugin --profile 'web' remove 'dsh-skills'")),
+      fake.calls.some((call) =>
+        call.command.includes("dsh plugin --profile 'web' remove '@weilence/dsh-skills'"),
+      ),
     ).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: [],
-      removed: ['dsh-skills'],
+      removed: ['@weilence/dsh-skills'],
     })
   })
 

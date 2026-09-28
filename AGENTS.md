@@ -4,7 +4,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：六个可发布 npm 插件（dsh-mcp / dsh-models / dsh-notify / dsh-skills / dsh-zhipu-tools / dsh-remote——包名 `@weilence/dsh-remote`，裸名已被 npm 第三方包占用），独立版本、独立发布。
+- `plugins/<name>/`：六个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`、`dsh-remote`→`@weilence/dsh-remote`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；裸名 `dsh-remote` 曾被 npm 第三方包占用）。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 栅栏 / errMsg / client 桥封装）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译基座。
 
@@ -22,6 +22,7 @@
 
 - `packages/*` 的 exports 直指 `./src/*.ts`：构建期经 workspace symlink 解析为仓库相对路径**直接内联**，不经过 `bundle` 白名单门禁，也永远不是运行时依赖——新共享包照抄 `client-ui` / `shared` 的 manifest 形态即可。
 - `host.bundle` / `client.bundle` 只门禁 node_modules 依赖（如 dsh-mcp 内联 `yaml`、dsh-zhipu-tools client 内联 `clsx`）；`@deepseek-ai/*` 平台包一律外置，运行期由宿主解析。
+- `tsdown.config.ts` 的 `id` 必须恒等于 package.json `name`：它是 client bundle 的 `ModuleLoader.load({ id })` 注册键，宿主按运行时包名组 entry 图并取 `/plugins/<id>/` bundle，失配即对不上号。
 - 跨插件工具进 `@dsh-plugins/shared`（三面导出：`.` 同构 errMsg、`./http` host 栅栏、`./api` client 桥封装），在 `packages/shared/test/` 配单测；各插件内不再复制这些函数。
 
 ## 版本与发布陷阱
@@ -29,7 +30,7 @@
 - `peerDependencies` 必须写**字面 semver range**（如 `>=0.2.0-rc.1 <0.3.0`），不能写 `catalog:`——宿主 app-boot 的兼容性预检对字符串直接做 `semver.satisfies`，无效范围会拒载插件。
 - 平台包必须同版本协同；升级 DSH 平台只改 `pnpm-workspace.yaml` 的 catalog 一处。
 - 提交前跑全量验证（与 CI 同款四连）：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
-- 发布：改插件 version → `git tag <name>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。
+- 发布：改插件 version → `git tag @weilence/<目录>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。新 scope 各包首发需手动 `npm publish` 一次。
 
 ## 代码与提交风格
 

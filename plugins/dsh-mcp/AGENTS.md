@@ -1,4 +1,4 @@
-# dsh-mcp
+# @weilence/dsh-mcp
 
 设置页「MCP 管理」插件：以官方 mcp-client 组合行为唯一事实源，读写两层用户 patch——profile 层 `<profile>/cordis.patch.yml` 与 home 层 `$DSH_HOME/cordis.patch.yml`；bundle / `--patch` 覆盖引入的行只读展示。
 
@@ -26,4 +26,4 @@
 
 ## 测试
 
-`pnpm --filter dsh-mcp test`：patchFile / mcpConfig / mcpImport 纯函数单测；host.test.ts 用假 ctx + 两层临时目录文件做四路由集成往返。
+`pnpm --filter @weilence/dsh-mcp test`：patchFile / mcpConfig / mcpImport 纯函数单测；host.test.ts 用假 ctx + 两层临时目录文件做四路由集成往返。

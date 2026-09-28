@@ -1,4 +1,4 @@
-# dsh-zhipu-tools
+# @weilence/dsh-zhipu-tools
 
 DSH web 插件 —— 智谱 Coding Plan 工具集（中国区）。
 
@@ -10,7 +10,7 @@ DSH web 插件 —— 智谱 Coding Plan 工具集（中国区）。
 ## 安装
 
 宿主 `package.json` 的 `dependencies` 与 `dsh.profile.bundles` 均加入
-`dsh-zhipu-tools`。启动时 profile boot 会自动合并包内的
+`@weilence/dsh-zhipu-tools`。启动时 profile boot 会自动合并包内的
 `cordis.patch.yml`，把插件插入 host composition。
 
 ## 配置
@@ -21,9 +21,9 @@ DSH web 插件 —— 智谱 Coding Plan 工具集（中国区）。
 ## 开发
 
 ```bash
-pnpm --filter dsh-zhipu-tools build
-pnpm --filter dsh-zhipu-tools typecheck
-pnpm --filter dsh-zhipu-tools test
+pnpm --filter @weilence/dsh-zhipu-tools build
+pnpm --filter @weilence/dsh-zhipu-tools typecheck
+pnpm --filter @weilence/dsh-zhipu-tools test
 ```
 
 机制与改动约定见 [AGENTS.md](AGENTS.md)。

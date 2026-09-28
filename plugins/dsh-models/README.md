@@ -1,4 +1,4 @@
-# dsh-models
+# @weilence/dsh-models
 
 DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** 菜单，浏览 [models.dev](https://models.dev)
 并把 Provider / 模型写入宿主的 `llm-pi-ai`，在面板上为每个模型设置**能力**（输入模态、上下文、输出上限）
@@ -6,7 +6,7 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
 
 ## 功能
 
-**设置菜单「模型目录」（`settings.section` id `dsh-models`）**
+**设置菜单「模型目录」（`settings.section` id `@weilence/dsh-models`）**
 
 - **Provider 列表（行内编辑）**：只展示**已经配置过**的 route（组合配置或用户层写过 `providers.<route>`）：
   行头显示显示名、route id 与协议 / Endpoint；点击卡片展开连接字段和模型清单，切换卡片或收起时会确认放弃未保存的修改。
@@ -30,7 +30,7 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
 
 ## 安装
 
-宿主 `package.json` 的 `dependencies` 与 `dsh.profile.bundles` 均加入 `dsh-models`。Profile boot 会合并
+宿主 `package.json` 的 `dependencies` 与 `dsh.profile.bundles` 均加入 `@weilence/dsh-models`。Profile boot 会合并
 包内 `cordis.patch.yml` 挂载 Host half；Web Client 根据包清单加载 Client half。
 
 宿主还需要挂载标准的：
@@ -44,9 +44,9 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
 ## 开发
 
 ```bash
-pnpm --filter dsh-models typecheck
-pnpm --filter dsh-models build
-pnpm --filter dsh-models test
+pnpm --filter @weilence/dsh-models typecheck
+pnpm --filter @weilence/dsh-models build
+pnpm --filter @weilence/dsh-models test
 ```
 
 数据同步架构、写入策略与字段映射等机制细节见 [AGENTS.md](AGENTS.md)。

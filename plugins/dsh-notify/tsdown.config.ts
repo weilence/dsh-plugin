@@ -4,7 +4,7 @@
 import { defineDshPluginConfig } from '@dsh-plugins/tsdown-config'
 
 export default defineDshPluginConfig({
-  id: 'dsh-notify',
+  id: '@weilence/dsh-notify',
   client: {
     // UI 原语库（dsh-client-ui-primitives）等 seed 表基座已由工厂隐式外置。
     // 打包校验白名单：本插件 client 无第三方注册表依赖，任何 node_modules

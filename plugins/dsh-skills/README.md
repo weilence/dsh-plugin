@@ -1,4 +1,4 @@
-# dsh-skills
+# @weilence/dsh-skills
 
 DSH web 插件 —— Skills 管理。设置页新增「Skills 管理」菜单页：直接扫描四个
 标准技能根呈现完整技能目录（含被遮蔽与校验失败的条目），并集官方注册表里
@@ -30,7 +30,7 @@ HTTP 桥仅接受同源请求（回环 Host 校验 + `sec-fetch-site` 同源校�
 ## 安装
 
 宿主 `package.json` 的 `dependencies` 与 `dsh.profile.bundles` 均加入
-`dsh-skills`。启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。
+`@weilence/dsh-skills`。启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。
 
 ## 使用
 
@@ -54,9 +54,9 @@ frontmatter 语义与官方 skill-filesystem parser 对齐：`name` / `descripti
 ## 开发
 
 ```bash
-pnpm --filter dsh-skills build
-pnpm --filter dsh-skills typecheck
-pnpm --filter dsh-skills test
+pnpm --filter @weilence/dsh-skills build
+pnpm --filter @weilence/dsh-skills typecheck
+pnpm --filter @weilence/dsh-skills test
 ```
 
 本地接入运行中的宿主：宿主 `package.json` 以 `link:D:/…/plugins/dsh-skills` 方式加入 `dependencies` 与 `dsh.profile.bundles`，构建后重启宿主。机制与改动约定见 [AGENTS.md](AGENTS.md)。

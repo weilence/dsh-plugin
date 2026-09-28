@@ -75,7 +75,7 @@ async function makeHarness(): Promise<Harness> {
       '# 本机 profile 层',
       '- insert:',
       '    - id: dsh-mcp',
-      "      name: 'dsh-mcp'",
+      "      name: '@weilence/dsh-mcp'",
       '- insert:',
       '    - id: mcp-demo',
       "      name: '@deepseek-ai/dsh-mcp-client'",
@@ -179,14 +179,14 @@ describe('dsh-remote 桥路由', () => {
       pluginRows: { id: string; name: string }[]
     }
     expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
-    expect(rows.pluginRows.map((row) => row.name)).toEqual(['dsh-mcp'])
+    expect(rows.pluginRows.map((row) => row.name)).toEqual(['@weilence/dsh-mcp'])
   })
 
   it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {
     const created = await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
       sshAlias: 'dev-box',
-      sync: { mcpServerNames: ['demo'], pluginNames: ['dsh-mcp'] },
+      sync: { mcpServerNames: ['demo'], pluginNames: ['@weilence/dsh-mcp'] },
     })
     expect(created.status).toBe(200)
     expect(created.body).toEqual({ id: 'dev-box' })

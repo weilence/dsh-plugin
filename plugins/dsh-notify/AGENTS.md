@@ -1,4 +1,4 @@
-# dsh-notify
+# @weilence/dsh-notify
 
 回合完成 / 提问 / 审批等待时弹系统桌面通知的插件；host half 提供 desktop 窗口恢复桥。
 
@@ -22,4 +22,4 @@
 
 ## 测试
 
-`pnpm --filter dsh-notify test`：notify-client.test.ts（事件 diff 与文案组装）。
+`pnpm --filter @weilence/dsh-notify test`：notify-client.test.ts（事件 diff 与文案组装）。

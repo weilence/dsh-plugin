@@ -1,8 +1,10 @@
-# npm 暂存发布（staged publishing）：推送 <插件名>/v*.*.* 标签 → CI 暂存新版本 →
+# npm 暂存发布（staged publishing）：推送 <包名>/v*.*.* 标签 → CI 暂存新版本 →
 # 维护者审查后 npm stage approve --otp 才正式上线（npmjs.com 网页亦可审批）。
 #
-# 标签格式（monorepo 一仓多包）：plugins/<name> 的发布标签为 <name>/vX.Y.Z，
-# 例如 dsh-zhipu-tools/v0.1.1。与各插件 package.json version 必须一致。
+# 标签格式（monorepo 一仓多包，包名均为 @weilence/* scoped）：
+# plugins/<目录> 的发布标签为 @weilence/<目录>/vX.Y.Z，
+# 例如 @weilence/dsh-zhipu-tools/v0.1.1。与各插件 package.json version 必须一致。
+# workflow 从标签剥出包名，再剥 scope 得目录名（目录保持无 scope 的短名）。
 #
 # 前置（一次性，网页操作）：
 #   1. npmjs.com → Access Tokens → Granular Token：
@@ -11,19 +13,20 @@
 #      stage-only token 泄露也无法直接上线版本，须经维护者 2FA 审批。
 #   2. GitHub 仓库 → Settings → Secrets and variables → Actions →
 #      新建 NPM_TOKEN（仓库级 Secret，仅本仓库可读）。
-#   3. 注意：暂存发布要求包已存在于 registry——各包 v0.1.0 首发必须直接发布
-#      一次（建议本机 npm login 后手动 npm publish，全程不经宽权限 token），
-#      之后的版本才走本 workflow 的暂存流程。
+#   3. 注意：暂存发布要求包已存在于 registry——各包在新 scope 下 v0.1.0 首发
+#      必须直接发布一次（建议本机 npm login 后手动 npm publish，全程不经宽
+#      权限 token），之后的版本才走本 workflow 的暂存流程。旧裸名包
+#      （dsh-mcp 等）保留在 registry，不再更新。
 #
-# 发布节奏：改 plugins/<name>/package.json version → 提交 →
-# git tag <name>/vX.Y.Z → git push origin develop --tags → CI 暂存 →
+# 发布节奏：改 plugins/<目录>/package.json version → 提交 →
+# git tag @weilence/<目录>/vX.Y.Z → git push origin develop --tags → CI 暂存 →
 # 本地 npm stage list 查看 → npm stage approve <stage-id> --otp 上线。
 
 name: publish
 
 on:
   push:
-    tags: ['dsh-*/v*.*.*']
+    tags: ['@weilence/dsh-*/v*.*.*']
 
 permissions:
   contents: read
@@ -37,14 +40,16 @@ jobs:
       - uses: actions/checkout@v7
 
       # 标签与版本一致性放在装依赖之前：不匹配立即失败，省掉安装时间。
-      - name: Resolve plugin directory from tag
+      - name: Resolve plugin package and directory from tag
         run: |
           NAME="${GITHUB_REF_NAME%%/v*}"
-          test -f "plugins/$NAME/package.json"
+          DIR="${NAME##*/}"
+          test -f "plugins/$DIR/package.json"
           echo "PLUGIN=$NAME" >> "$GITHUB_ENV"
+          echo "DIR=$DIR" >> "$GITHUB_ENV"
 
       - name: Ensure tag matches package.json version
-        run: test "${GITHUB_REF_NAME#*/}" = "v$(node -p "require('./plugins/${PLUGIN}/package.json').version")"
+        run: test "${GITHUB_REF_NAME#*/}" = "v$(node -p "require('./plugins/${DIR}/package.json').version")"
 
       # packageManager 字段已固定 pnpm 版本，corepack 按它激活；
       # 须在 setup-node 之前，cache: pnpm 才能探测到包管理器。
@@ -66,7 +71,7 @@ jobs:
 
       # prepack 自动构建 lib/；暂存后需维护者 approve 才对公众可见。
       - name: Stage publish
-        working-directory: plugins/${{ env.PLUGIN }}
+        working-directory: plugins/${{ env.DIR }}
         run: npm stage publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

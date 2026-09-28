@@ -1,5 +1,5 @@
 {
-  "name": "dsh-zhipu-tools",
+  "name": "@weilence/dsh-zhipu-tools",
   "version": "0.1.0",
   "description": "DSH web 插件（智谱 Coding Plan 工具集，中国区）：① 编程式挂载宿主 in-box dsh-mcp-client，注册智谱官方 MCP 工具 web_search_prime / webReader（credentials 服务解析 key 注入 headers，profile 全局可见，连接监督由 in-box 承担）；② 输入框下方状态栏展示 5小时/7天 用量配额与重置倒计时。",
   "type": "module",

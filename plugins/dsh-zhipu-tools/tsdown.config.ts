@@ -4,7 +4,7 @@
 import { defineDshPluginConfig } from '@dsh-plugins/tsdown-config'
 
 export default defineDshPluginConfig({
-  id: 'dsh-zhipu-tools',
+  id: '@weilence/dsh-zhipu-tools',
   client: {
     // UI 原语库（dsh-client-ui-primitives）等 seed 表基座已由工厂隐式外置。
     // 允许内联的注册表依赖只有 clsx；将来误引入其他运行时依赖会在构建期

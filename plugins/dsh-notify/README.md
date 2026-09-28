@@ -1,4 +1,4 @@
-# dsh-notify
+# @weilence/dsh-notify
 
 DSH web 插件 —— 回合完成通知。模型回合处理完成时弹操作系统级桌面通知，
 离开页面也能第一时间知道「跑完了」。
@@ -19,7 +19,7 @@ DSH web 插件 —— 回合完成通知。模型回合处理完成时弹操作�
 ## 安装
 
 宿主 `package.json` 的 `dependencies` 与 `dsh.profile.bundles` 均加入
-`dsh-notify`。启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。
+`@weilence/dsh-notify`。启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。
 
 ## 使用
 
@@ -35,9 +35,9 @@ DSH web 插件 —— 回合完成通知。模型回合处理完成时弹操作�
 ## 开发
 
 ```bash
-pnpm --filter dsh-notify build
-pnpm --filter dsh-notify typecheck
-pnpm --filter dsh-notify test
+pnpm --filter @weilence/dsh-notify build
+pnpm --filter @weilence/dsh-notify typecheck
+pnpm --filter @weilence/dsh-notify test
 ```
 
 机制与改动约定见 [AGENTS.md](AGENTS.md)。

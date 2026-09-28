@@ -1,5 +1,5 @@
 {
-  "name": "dsh-skills",
+  "name": "@weilence/dsh-skills",
   "version": "0.1.0",
   "description": "DSH web 插件（Skills 管理）：设置页新增「Skills 管理」菜单——浏览宿主 skill 注册表合并后的技能目录（来源/调用策略/文件路径），对四个标准技能根（项目 .dsh/skills、项目 .agents/skills、用户 ~/.dsh/skills、用户 ~/.agents/skills）做新建 / 编辑 / 删除；host half 经 ctx.skills 读取目录、经 node:fs 落盘，frontmatter 结构化编辑并原样保留未知字段，bundled / custom 等只读来源仅查看。",
   "type": "module",

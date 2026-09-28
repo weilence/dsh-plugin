@@ -1,4 +1,4 @@
-# dsh-skills bundle patch
+# @weilence/dsh-skills bundle patch
 #
 # 安装后（dependencies 与 dsh.profile.bundles 均含 dsh-skills），
 # 启动时 profile boot 会合并本 patch，把插件行插入 host composition。
@@ -8,4 +8,4 @@
 # 标准技能根为主，注册表仅作只读来源的补充并集，缺席也能完整工作。
 - insert:
     - id: dsh-skills
-      name: 'dsh-skills'
+      name: '@weilence/dsh-skills'

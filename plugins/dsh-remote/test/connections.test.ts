@@ -76,14 +76,16 @@ describe('store 持久化', () => {
     await writeStore(home, {
       version: 1,
       connections: [connection],
-      manifest: { 'dev-box': { skills: { 'user-dsh': ['a'] }, mcp: ['mcp-a'], plugins: ['dsh-mcp'] } },
+      manifest: {
+        'dev-box': { skills: { 'user-dsh': ['a'] }, mcp: ['mcp-a'], plugins: ['@weilence/dsh-mcp'] },
+      },
     })
     const store = await readStore(home)
     expect(store.connections).toEqual([connection])
     expect(store.manifest['dev-box']).toEqual({
       skills: { 'user-dsh': ['a'] },
       mcp: ['mcp-a'],
-      plugins: ['dsh-mcp'],
+      plugins: ['@weilence/dsh-mcp'],
     })
   })
 

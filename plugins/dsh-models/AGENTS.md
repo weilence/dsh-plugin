@@ -1,4 +1,4 @@
-# dsh-models
+# @weilence/dsh-models
 
 设置页「模型目录」插件：浏览 models.dev、把 Provider / 模型写入宿主 `llm-pi-ai` 用户层；host 侧带 ETag 感知的目录镜像与只读生效能力桥。
 
@@ -28,4 +28,4 @@
 
 ## 测试
 
-`pnpm --filter dsh-models test`：mirror（退避 / ETag / 持久化）、catalog 与 pi-ai 纯函数、effective / host 桥桩测试、store / operations / panel / view。
+`pnpm --filter @weilence/dsh-models test`：mirror（退避 / ETag / 持久化）、catalog 与 pi-ai 纯函数、effective / host 桥桩测试、store / operations / panel / view。

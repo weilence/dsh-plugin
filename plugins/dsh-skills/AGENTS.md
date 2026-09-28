@@ -1,4 +1,4 @@
-# dsh-skills
+# @weilence/dsh-skills
 
 设置页「Skills 管理」插件：直接扫描四个标准技能根（与官方 skill-filesystem provider 同一套发现与校验规则）并集全局注册表只读来源；对可写根新建 / 编辑 / 删除，Git 仓库技能安装与更新跟踪。
 
@@ -27,4 +27,4 @@
 
 ## 测试
 
-`pnpm --filter dsh-skills test`：scan / frontmatter / gitInstall / gitUpdate / roots 纯函数与临时目录单测；host.test.ts 桥集成往返。
+`pnpm --filter @weilence/dsh-skills test`：scan / frontmatter / gitInstall / gitUpdate / roots 纯函数与临时目录单测；host.test.ts 桥集成往返。

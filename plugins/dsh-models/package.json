@@ -1,5 +1,5 @@
 {
-  "name": "dsh-models",
+  "name": "@weilence/dsh-models",
   "version": "0.1.0",
   "description": "DeepSeek Harness web plugin for importing models.dev providers and models into llm-pi-ai, backed by a host-side ETag-aware catalog mirror.",
   "type": "module",
@@ -51,7 +51,7 @@
     "dsh-plugin",
     "models.dev",
     "llm",
-    "dsh-models"
+    "@weilence/dsh-models"
   ],
   "engines": {
     "node": ">=20",

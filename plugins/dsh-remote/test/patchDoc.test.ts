@@ -53,7 +53,7 @@ describe('upsertInsertRow', () => {
 
   it('同 id 不同名：不动别人的行，另起新行', () => {
     const doc = parsePatchDoc(REMOTE_PATCH)
-    upsertInsertRow(doc, { id: 'other-plugin', name: 'dsh-mcp', config: { x: 1 } })
+    upsertInsertRow(doc, { id: 'other-plugin', name: '@weilence/dsh-mcp', config: { x: 1 } })
     const inserts = scanInserts(doc)
     expect(inserts.map((row) => row.id).sort()).toEqual(['mcp-demo', 'other-plugin'])
   })

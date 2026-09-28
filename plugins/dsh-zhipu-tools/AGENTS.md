@@ -1,4 +1,4 @@
-# dsh-zhipu-tools
+# @weilence/dsh-zhipu-tools
 
 智谱 Coding Plan 工具集（中国区）：编程式挂载 in-box mcp-client 的两个官方 MCP 服务器（zhipu_search / zhipu_reader）+ 输入框状态栏用量胶囊。
 
@@ -19,4 +19,4 @@
 
 ## 测试
 
-`pnpm --filter dsh-zhipu-tools test`：trust.test.ts（`isTrusted` + shared `isLoopbackHostname` 的行为契约——含八位组 ≤255 校验）、usage.test.ts（线格式解析与缓存）。
+`pnpm --filter @weilence/dsh-zhipu-tools test`：trust.test.ts（`isTrusted` + shared `isLoopbackHostname` 的行为契约——含八位组 ≤255 校验）、usage.test.ts（线格式解析与缓存）。

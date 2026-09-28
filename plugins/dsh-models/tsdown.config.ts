@@ -4,7 +4,7 @@
 import { defineDshPluginConfig } from '@dsh-plugins/tsdown-config'
 
 export default defineDshPluginConfig({
-  id: 'dsh-models',
+  id: '@weilence/dsh-models',
   client: {
     entry: 'src/client/index.ts',
     // UI 原语库（dsh-client-ui-primitives）等 seed 表基座已由工厂隐式外置。

@@ -1,4 +1,4 @@
-# dsh-mcp
+# @weilence/dsh-mcp
 
 DSH 设置页「MCP 管理」插件：以官方 [mcp-client](https://github.com/deepseek-ai/deepseek-harness/tree/develop/packages/mcp/mcp-client) 组合行为唯一事实源，浏览 / 增删改当前 profile 的 MCP 服务器，并实时展示每个服务器的连接状态与已注册工具。
 
@@ -36,14 +36,14 @@ DSH 设置页「MCP 管理」插件：以官方 [mcp-client](https://github.com/
 pnpm add link:D:/Code/dsh-plugins/plugins/dsh-mcp
 ```
 
-然后把 `dsh-mcp` 加入 `package.json` 的 `dsh.profile.bundles`（link: 安装时 boot 会合并本包自带的 `cordis.patch.yml` 插入行）。刷新设置页即可看到「MCP 管理」菜单。
+然后把 `@weilence/dsh-mcp` 加入 `package.json` 的 `dsh.profile.bundles`（link: 安装时 boot 会合并本包自带的 `cordis.patch.yml` 插入行）。刷新设置页即可看到「MCP 管理」菜单。
 
 ## 开发
 
 ```bash
-pnpm --filter dsh-mcp build      # tsdown 双产物（host ESM 内联 yaml / client CJS）
-pnpm --filter dsh-mcp typecheck
-pnpm --filter dsh-mcp test
+pnpm --filter @weilence/dsh-mcp build      # tsdown 双产物（host ESM 内联 yaml / client CJS）
+pnpm --filter @weilence/dsh-mcp typecheck
+pnpm --filter @weilence/dsh-mcp test
 ```
 
 机制与改动约定见 [AGENTS.md](AGENTS.md)。
