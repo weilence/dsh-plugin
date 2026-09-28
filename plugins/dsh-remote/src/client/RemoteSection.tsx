@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-import { Button, Toast, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Menu, Toast, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
@@ -306,50 +306,43 @@ function CopyUrlButton(props: { url: string; disabled: boolean }) {
   )
 }
 
-/** 同步下拉按钮：hover 移入展开三项菜单，点选后打开对应类别的勾选弹窗。 */
+/** 同步下拉按钮：官方 Menu（portal 免被设置弹窗滚动容器裁剪），hover 移入
+ *  展开三项菜单（closeOnPointerLeave 带指针容错），点选后打开对应类别的勾选弹窗。 */
 function SyncMenuButton(props: { disabled: boolean; onPick(kind: 'skills' | 'mcp' | 'plugins'): void }) {
   const [open, setOpen] = useState(false)
-  const items: { kind: 'skills' | 'mcp' | 'plugins'; label: string }[] = [
-    { kind: 'skills', label: '同步 skills…' },
-    { kind: 'mcp', label: '下发 MCP…' },
-    { kind: 'plugins', label: '同步插件…' },
-  ]
   return (
-    <div
-      className={local.menuWrap}
-      onMouseEnter={() => {
-        if (!props.disabled) setOpen(true)
+    <Menu
+      open={open}
+      portal
+      align="end"
+      closeOnPointerLeave
+      onClose={() => setOpen(false)}
+      onSelect={(id) => {
+        setOpen(false)
+        if (id === 'skills' || id === 'mcp' || id === 'plugins') props.onPick(id)
       }}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <Button
-        size="sm"
-        variant="ghost"
-        disabled={props.disabled}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((previous) => !previous && !props.disabled)}
-      >
-        同步 ▾
-      </Button>
-      {open ? (
-        <div className={local.menu} role="menu">
-          {items.map((item) => (
-            <button
-              key={item.kind}
-              type="button"
-              role="menuitem"
-              className={local.menuItem}
-              onClick={() => {
-                setOpen(false)
-                props.onPick(item.kind)
-              }}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
+      anchor={
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={props.disabled}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onMouseEnter={() => {
+            if (!props.disabled) setOpen(true)
+          }}
+          onClick={() => {
+            if (!props.disabled) setOpen((previous) => !previous)
+          }}
+        >
+          同步 ▾
+        </Button>
+      }
+      items={[
+        { id: 'skills', label: '同步 skills…' },
+        { id: 'mcp', label: '下发 MCP…' },
+        { id: 'plugins', label: '同步插件…' },
+      ]}
+    />
   )
 }
