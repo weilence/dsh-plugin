@@ -7,8 +7,8 @@
 
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, PickList, TextField } from '@dsh-plugins/client-ui'
-import type { ConnRow, LocalRowsResponse, SaveRequest } from '../shared'
+import { IssueList, PickList, SelectField, TextField } from '@dsh-plugins/client-ui'
+import type { ConnRow, LocalRowsResponse, RegistryPluginInstall, SaveRequest } from '../shared'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -20,6 +20,7 @@ interface DraftState {
   sshAlias: string
   mcpServerNames: Set<string>
   pluginNames: Set<string>
+  registryPluginInstall: RegistryPluginInstall
 }
 
 function initialDraft(row: ConnRow | undefined): DraftState {
@@ -28,6 +29,7 @@ function initialDraft(row: ConnRow | undefined): DraftState {
     sshAlias: row?.sshAlias ?? '',
     mcpServerNames: new Set(row?.sync.mcpServerNames ?? []),
     pluginNames: new Set(row?.sync.pluginNames ?? []),
+    registryPluginInstall: row?.sync.registryPluginInstall ?? 'remote',
   }
 }
 
@@ -63,6 +65,7 @@ export function RemoteForm(props: {
       sync: {
         mcpServerNames: [...draft.mcpServerNames],
         pluginNames: [...draft.pluginNames],
+        registryPluginInstall: draft.registryPluginInstall,
       },
     }
     if (await props.store.save(request)) props.onDone()
@@ -118,9 +121,18 @@ export function RemoteForm(props: {
       <section className={styles.section}>
         <h4 className={styles.sectionTitle}>同步本地插件到远端</h4>
         <p className={styles.hint}>
-          勾选的本地插件经远端 <code className={styles.code}>dsh plugin add</code>{' '}
-          安装（取消勾选则移除）；远端默认只装 dsh-remote，其余按此清单管理，远端手装插件不受影响。
+          本地路径安装的插件（link / file）永远本地打包传输——未发布的开发版本也能同步； 非本地（npm
+          依赖）插件按下面的选项安装。取消勾选则从远端移除（manifest 跟踪，远端手装插件不受影响）。
         </p>
+        <SelectField
+          label="非本地插件安装方式"
+          value={draft.registryPluginInstall}
+          options={[
+            { value: 'remote', label: '远端下载（远端 npm 拉取，需已发布）' },
+            { value: 'push', label: '本地传输（打包本机实体推送，无需发布）' },
+          ]}
+          onChange={(value) => patch({ registryPluginInstall: value as RegistryPluginInstall })}
+        />
         {props.localRows === null || !props.localRows.available ? (
           <p className={styles.hint}>本机插件清单不可用（当前宿主未提供 profileContext）。</p>
         ) : props.localRows.pluginRows.length === 0 ? (
@@ -130,7 +142,9 @@ export function RemoteForm(props: {
             items={props.localRows.pluginRows.map((row) => ({
               key: row.name,
               title: row.name,
-              titleMeta: row.source === 'profile' ? 'profile 层' : 'home 层',
+              titleMeta: `${row.source === 'profile' ? 'profile 层' : 'home 层'} · ${
+                row.install === 'local' ? '本地' : 'npm'
+              }${row.version === null ? '' : ` · v${row.version}`}`,
             }))}
             picked={draft.pluginNames}
             onToggle={(key) => {

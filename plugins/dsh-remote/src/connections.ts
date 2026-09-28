@@ -9,7 +9,13 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { ID_PATTERN, SSH_ALIAS_PATTERN, type RemoteConnection, type SaveRequest } from './shared'
+import {
+  ID_PATTERN,
+  SSH_ALIAS_PATTERN,
+  type RegistryPluginInstall,
+  type RemoteConnection,
+  type SaveRequest,
+} from './shared'
 
 /** 存储文件名（相对 DSH_HOME）。 */
 export const STORE_NAME = 'dsh-remote.json'
@@ -46,7 +52,13 @@ export async function readStore(homeDir: string): Promise<StoreFile> {
     if (typeof parsed !== 'object' || parsed === null) return { version: 1, connections: [], manifest: {} }
     const record = parsed as { connections?: unknown; manifest?: unknown }
     const connections = Array.isArray(record.connections)
-      ? record.connections.filter((item): item is RemoteConnection => isConnection(item))
+      ? record.connections
+          .filter((item): item is RemoteConnection => isConnection(item))
+          // 旧库无 registryPluginInstall：读入即归一（非 'push' 一律按 'remote'）
+          .map((item) => ({
+            ...item,
+            sync: { ...item.sync, registryPluginInstall: registryInstallOf(item.sync.registryPluginInstall) },
+          }))
       : []
     const manifest: Record<string, SyncManifest> = {}
     if (typeof record.manifest === 'object' && record.manifest !== null) {
@@ -114,6 +126,11 @@ function strArray(value: unknown, field: string): string[] {
   return [...value]
 }
 
+/** 未知 / 缺失值归一为默认 'remote'（读库与保存共用）。 */
+function registryInstallOf(value: unknown): RegistryPluginInstall {
+  return value === 'push' ? 'push' : 'remote'
+}
+
 /** 校验并归一一个保存请求；id 缺省时从 sshAlias 派生（冲突时加随机后缀）。 */
 export function normalizeConnection(
   request: SaveRequest,
@@ -126,6 +143,10 @@ export function normalizeConnection(
   const sshAlias = request.sshAlias.trim()
   if (!SSH_ALIAS_PATTERN.test(sshAlias)) {
     throw new ValidationError('sshAlias 必须是 ~/.ssh/config 里的主机别名（字母数字开头，可含 . _ -）')
+  }
+  const install = request.sync.registryPluginInstall
+  if (install !== undefined && install !== 'push' && install !== 'remote') {
+    throw new ValidationError('sync.registryPluginInstall 必须是 push / remote')
   }
   let id = previous?.id
   if (id === undefined) {
@@ -144,6 +165,7 @@ export function normalizeConnection(
     sync: {
       mcpServerNames: strArray(request.sync.mcpServerNames, 'sync.mcpServerNames'),
       pluginNames: strArray(request.sync.pluginNames, 'sync.pluginNames'),
+      registryPluginInstall: registryInstallOf(install),
     },
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,

@@ -22,8 +22,26 @@ describe('normalizeConnection', () => {
   it('最小请求归一（id 从别名派生）', () => {
     const connection = normalizeConnection(request(), new Set(), NOW)
     expect(connection.id).toBe('dev-box')
-    expect(connection.sync).toEqual({ mcpServerNames: [], pluginNames: [] })
+    expect(connection.sync).toEqual({ mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' })
     expect(connection.createdAt).toBe(NOW)
+  })
+
+  it('registryPluginInstall：push 保留、缺省归一 remote、非法值拒绝', () => {
+    const pushed = normalizeConnection(
+      request({ sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'push' } }),
+      new Set(),
+      NOW,
+    )
+    expect(pushed.sync.registryPluginInstall).toBe('push')
+    expect(() =>
+      normalizeConnection(
+        request({
+          sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'both' as never },
+        }),
+        new Set(),
+        NOW,
+      ),
+    ).toThrow(ValidationError)
   })
 
   it('id 冲突时加随机后缀；大写与特殊字符被压成 kebab', () => {
@@ -36,7 +54,7 @@ describe('normalizeConnection', () => {
       id: 'fixed-id',
       label: '旧名',
       sshAlias: 'dev-box',
-      sync: { mcpServerNames: [], pluginNames: [] },
+      sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
@@ -95,6 +113,32 @@ describe('store 持久化', () => {
     expect((await readStore(home)).connections).toEqual([])
     await writeFile(join(home, 'dsh-remote.json'), JSON.stringify({ connections: 'nope' }), 'utf8')
     expect((await readStore(home)).connections).toEqual([])
+  })
+
+  it('旧库无 registryPluginInstall：读入归一为 remote', async () => {
+    await writeFile(
+      join(home, 'dsh-remote.json'),
+      JSON.stringify({
+        connections: [
+          {
+            id: 'dev-box',
+            label: '开发机',
+            sshAlias: 'dev-box',
+            sync: { mcpServerNames: [], pluginNames: [] },
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        ],
+        manifest: {},
+      }),
+      'utf8',
+    )
+    const store = await readStore(home)
+    expect(store.connections[0]?.sync).toEqual({
+      mcpServerNames: [],
+      pluginNames: [],
+      registryPluginInstall: 'remote',
+    })
   })
 
   it('落盘是 JSON + 结尾换行', async () => {

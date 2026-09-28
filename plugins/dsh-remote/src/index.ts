@@ -14,12 +14,12 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { copyFile, cp, mkdir, mkdtemp, readFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, realpath } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
@@ -30,7 +30,6 @@ import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engin
 import { ValidationError } from './connections'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
 import {
-  REMOTE_PLUGIN_NAME,
   type LocalRowsResponse,
   type OpRequest,
   type SaveRequest,
@@ -97,27 +96,38 @@ function localPluginVersion(): string | null {
 }
 
 /**
- * 本地组装插件 tgz（npm tarball 布局：package/ 前缀）。不用 `pnpm pack`——
+ * 本地组装任意插件包根的 tgz（npm tarball 布局：package/ 前缀）。整目录拷贝
+ * 排除 node_modules / .git——任意插件结构（lib/、bin/、静态资源）不漏文件；
+ * registry 实体的 symlink 先 realpath 落到 .pnpm 真实目录。不用 `pnpm pack`——
  * 宿主形态（desktop / web CLI）不保证带着包管理器；系统 tar（Windows 10+
- * 自带 bsdtar）+ files 清单拷贝即可产出 pnpm 可安装的包。staging 留在系统
- * tmp 目录，量级几十 KB，交给 OS 清理。
+ * 自带 bsdtar）即可产出 pnpm 可安装的包。staging 留在系统 tmp，交给 OS 清理。
  */
-async function packPlugin(): Promise<{ path: string; fileName: string }> {
-  const root = pluginPackageRoot()
-  const version = localPluginVersion()
-  if (version === null) throw new SshFailure('unknown', '本插件 package.json 缺 version，无法打包')
-  for (const artifact of ['lib/index.js', 'lib/client.js']) {
-    if (!existsSync(join(root, artifact)))
-      throw new SshFailure('unknown', `本插件缺少构建产物 ${artifact}：先在插件目录执行 pnpm build`)
+async function packPackage(root: string): Promise<{ path: string; fileName: string }> {
+  const real = await realpath(root)
+  let manifest: { name?: unknown; version?: unknown }
+  try {
+    manifest = JSON.parse(await readFile(join(real, 'package.json'), 'utf8'))
+  } catch {
+    throw new SshFailure('unknown', `包目录缺 package.json：${real}`)
+  }
+  const name = typeof manifest.name === 'string' ? manifest.name : ''
+  const version = typeof manifest.version === 'string' ? manifest.version : ''
+  if (name.length === 0 || version.length === 0) {
+    throw new SshFailure('unknown', `包 ${real} 的 package.json 缺 name / version，无法打包`)
   }
   const staging = await mkdtemp(join(tmpdir(), 'dsh-remote-pack-'))
   const bundle = join(staging, 'package')
-  await mkdir(bundle, { recursive: true })
-  await copyFile(join(root, 'package.json'), join(bundle, 'package.json'))
-  await copyFile(join(root, 'cordis.patch.yml'), join(bundle, 'cordis.patch.yml'))
-  await cp(join(root, 'lib'), join(bundle, 'lib'), { recursive: true })
-  // npm 对 scoped 包的 tarball 命名规则：@weilence/dsh-remote → weilence-dsh-remote
-  const fileName = `${REMOTE_PLUGIN_NAME.replace(/^@/, '').replace('/', '-')}-${version}.tgz`
+  // 排除只看根内相对段：根自身可能就位于 node_modules（.pnpm 实体）之内
+  const excluded = new Set(['node_modules', '.git'])
+  await cp(real, bundle, {
+    recursive: true,
+    filter: (src) => {
+      const segments = relative(real, src).split(/[\\/]+/)
+      return !segments.some((segment) => excluded.has(segment))
+    },
+  })
+  // npm tarball 命名规则：@scope/name → scope-name（非 scoped 名不变）
+  const fileName = `${name.replace(/^@/, '').replace(/\//g, '-')}-${version}.tgz`
   const tarball = join(staging, fileName)
   await new Promise<void>((resolve, reject) => {
     const child = spawn('tar', ['-czf', tarball, '-C', staging, 'package'], { windowsHide: true })
@@ -137,6 +147,16 @@ async function packPlugin(): Promise<{ path: string; fileName: string }> {
     })
   })
   return { path: tarball, fileName }
+}
+
+/** 部署自装：本插件打包（带构建产物防呆——开发 checkout 未 build 时明确报错）。 */
+async function packPlugin(): Promise<{ path: string; fileName: string }> {
+  const root = pluginPackageRoot()
+  for (const artifact of ['lib/index.js', 'lib/client.js']) {
+    if (!existsSync(join(root, artifact)))
+      throw new SshFailure('unknown', `本插件缺少构建产物 ${artifact}：先在插件目录执行 pnpm build`)
+  }
+  return packPackage(root)
 }
 
 /** 单文件二进制推送：tgz 经 ssh stdin 直写远端 payload 目录。 */
@@ -193,6 +213,7 @@ function makeEngine(ctx: Context): RemoteEngine {
     localDshVersion: localDshVersion(),
     localPluginVersion: localPluginVersion(),
     packPlugin,
+    packPackage,
     homeDir: dshHomePath(),
     now: () => new Date().toISOString(),
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -288,7 +309,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
               writeJson(res, 200, response as unknown as Record<string, unknown>)
               return
             }
-            const { mcpRows, pluginRows } = composeLocalRows(await readLocalLayers(profile))
+            const { mcpRows, pluginRows } = await composeLocalRows(await readLocalLayers(profile))
             const response: LocalRowsResponse = { mcpRows, pluginRows, available: true }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {

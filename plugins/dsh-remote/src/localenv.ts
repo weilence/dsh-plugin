@@ -6,7 +6,7 @@
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { MCP_PLUGIN_NAME, REMOTE_PLUGIN_NAME, type LocalMcpRow, type LocalPluginRow } from './shared'
 import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type PatchInsert } from './patchDoc'
@@ -57,6 +57,8 @@ export interface LocalPatchLayer {
   source: 'profile' | 'home'
   file: string
   doc: Document
+  /** 同目录 package.json 的 dependencies（spec 形态判定本地/registry 的依据）。 */
+  deps: Record<string, string>
 }
 
 async function readLayer(source: 'profile' | 'home', file: string): Promise<LocalPatchLayer> {
@@ -67,10 +69,28 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') text = null
     else throw error
   }
+  let deps: Record<string, string> = {}
+  try {
+    const pkg = JSON.parse(await readFile(join(dirname(file), 'package.json'), 'utf8')) as {
+      dependencies?: unknown
+    }
+    if (
+      typeof pkg.dependencies === 'object' &&
+      pkg.dependencies !== null &&
+      !Array.isArray(pkg.dependencies)
+    ) {
+      deps = Object.fromEntries(
+        Object.entries(pkg.dependencies).filter(([, spec]) => typeof spec === 'string'),
+      )
+    }
+  } catch {
+    // 层无 package.json（如 home 层未初始化）：按无 spec 处理
+  }
   return {
     source,
     file,
     doc: text === null || text.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(text),
+    deps,
   }
 }
 
@@ -165,11 +185,47 @@ function mcpSummary(config: Record<string, unknown>): string {
   return typeof config.transport === 'string' ? config.transport : '未声明传输'
 }
 
+/** 本地路径安装的 spec 前缀（pnpm 的 link: / file: 协议）。 */
+const LOCAL_SPEC_PATTERN = /^(link|file):/i
+
+async function readPackageVersion(root: string): Promise<string | null> {
+  try {
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as { version?: unknown }
+    return typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 一条插件行的安装形态与包定位：层 dependencies 的 link:/file: spec 指向本地
+ * 目录；registry 依赖的包实体在层内 node_modules（.pnpm 虚拟 store 的 symlink
+ * 目标，打包前须 realpath）。定位失败保留名字，安装时按形态分流或报错。
+ */
+async function pluginRowMeta(
+  layer: LocalPatchLayer,
+  name: string,
+): Promise<Pick<LocalPluginRow, 'install' | 'root' | 'version'>> {
+  const spec = layer.deps[name]
+  if (spec !== undefined && LOCAL_SPEC_PATTERN.test(spec)) {
+    const target = spec.slice(spec.indexOf(':') + 1).trim()
+    // file: 允许相对层目录；link: pnpm 一律写绝对路径
+    const root =
+      spec.slice(0, spec.indexOf(':')).toLowerCase() === 'file'
+        ? resolve(dirname(layer.file), target)
+        : target
+    return { install: 'local', root, version: await readPackageVersion(root) }
+  }
+  const root = join(dirname(layer.file), 'node_modules', name)
+  const version = await readPackageVersion(root)
+  return { install: 'registry', root: version === null ? null : root, version }
+}
+
 /** 组装 wire 上的本机清单（MCP 行 + 插件行）。 */
-export function composeLocalRows(layers: readonly LocalPatchLayer[]): {
+export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Promise<{
   mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
-} {
+}> {
   const mcpRows: LocalMcpRow[] = foldMcpRows(layers).map(({ row, config }) => ({
     id: row.id,
     serverName:
@@ -189,7 +245,12 @@ export function composeLocalRows(layers: readonly LocalPatchLayer[]): {
       const dedupe = insert.name
       if (seen.has(dedupe)) continue
       seen.add(dedupe)
-      pluginRows.push({ id: insert.id, name: insert.name, source: layer.source })
+      pluginRows.push({
+        id: insert.id,
+        name: insert.name,
+        source: layer.source,
+        ...(await pluginRowMeta(layer, insert.name)),
+      })
     }
   }
   pluginRows.sort((left, right) => left.name.localeCompare(right.name))

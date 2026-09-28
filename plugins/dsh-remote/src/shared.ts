@@ -32,6 +32,11 @@ export const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 /** host 桥自定义头（client POST 携带，折进 CORS 预检）。 */
 export const BRIDGE_HEADER = 'x-dsh-remote'
 
+/** 非本地（registry 形态）插件的远端安装方式：本地打包传输 / 远端自行 npm 下载。
+ *  本地路径安装（link:/file:）的插件不受此选项影响——永远本地传输（开发中的
+ *  未发布代码也只有这条路径能到达远端）。 */
+export type RegistryPluginInstall = 'push' | 'remote'
+
 // ---- 连接 profile（$DSH_HOME/dsh-remote.json 持久化） ----
 
 /** 一个远程开发连接的持久化声明。 */
@@ -45,6 +50,8 @@ export interface RemoteConnection {
     mcpServerNames: string[]
     /** 同步到远端的本地插件名清单（manifest 跟踪式安装 / 移除）。 */
     pluginNames: string[]
+    /** 非本地插件的安装方式（本地插件恒本地传输，不受此选项影响）。 */
+    registryPluginInstall: RegistryPluginInstall
   }
   createdAt: string
   updatedAt: string
@@ -120,10 +127,16 @@ export interface LocalMcpRow {
 export interface LocalPluginRow {
   /** patch 行 id。 */
   id: string
-  /** 插件包名（dsh plugin add 的参数）。 */
+  /** 插件包名（同步安装的目标名）。 */
   name: string
   /** 声明所在层。 */
   source: 'profile' | 'home'
+  /** 安装形态：本地路径（link:/file: spec）或 registry 依赖。 */
+  install: 'local' | 'registry'
+  /** 本机包根目录（local 为 spec 目标；registry 为层内 node_modules 实体）；定位失败为 null。 */
+  root: string | null
+  /** 本机包版本（root 下 package.json 的 version）；读取失败为 null。 */
+  version: string | null
 }
 
 /** GET /local-rows 的响应。 */
@@ -141,7 +154,12 @@ export interface SaveRequest {
   id?: string
   label: string
   sshAlias: string
-  sync: { mcpServerNames: string[]; pluginNames: string[] }
+  sync: {
+    mcpServerNames: string[]
+    pluginNames: string[]
+    /** 非本地插件安装方式；缺省 'remote'（远端自行下载）。 */
+    registryPluginInstall?: RegistryPluginInstall
+  }
 }
 
 export interface SaveResponse {

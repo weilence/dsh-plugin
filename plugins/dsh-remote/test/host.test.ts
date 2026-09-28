@@ -77,11 +77,41 @@ async function makeHarness(): Promise<Harness> {
       '    - id: dsh-mcp',
       "      name: '@weilence/dsh-mcp'",
       '- insert:',
+      '    - id: registry-plugin',
+      "      name: 'some-registry-plugin'",
+      '- insert:',
       '    - id: mcp-demo',
       "      name: '@deepseek-ai/dsh-mcp-client'",
       '      config: { transport: stdio, serverName: demo, command: npx }',
       '',
     ].join('\n'),
+    'utf8',
+  )
+  // 层 package.json：link spec（本地）与 semver spec（registry）各一；registry 实体
+  // 造在层内 node_modules 下（pnpm 的 symlink 场景在真仓验证，这里用真目录）
+  const linkedRoot = join(root, 'linked-plugin')
+  await mkdir(join(linkedRoot), { recursive: true })
+  await writeFile(
+    join(linkedRoot, 'package.json'),
+    JSON.stringify({ name: '@weilence/dsh-mcp', version: '2.0.0' }),
+    'utf8',
+  )
+  const registryRoot = join(profileDir, 'node_modules', 'some-registry-plugin')
+  await mkdir(registryRoot, { recursive: true })
+  await writeFile(
+    join(registryRoot, 'package.json'),
+    JSON.stringify({ name: 'some-registry-plugin', version: '1.4.2' }),
+    'utf8',
+  )
+  await writeFile(
+    join(profileDir, 'package.json'),
+    JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        '@weilence/dsh-mcp': `link:${linkedRoot.replaceAll('\\', '/')}`,
+        'some-registry-plugin': '^1.4.0',
+      },
+    }),
     'utf8',
   )
   const registrations = new Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>()
@@ -117,6 +147,7 @@ async function makeHarness(): Promise<Harness> {
     localDshVersion: '0.1.7-rc.2',
     localPluginVersion: '0.1.0',
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
+    packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
     homeDir: root,
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},
@@ -170,16 +201,19 @@ describe('dsh-remote 桥路由', () => {
     expect(response.body.connections).toEqual([])
   })
 
-  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注', async () => {
+  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位', async () => {
     const response = await harness.request('GET', '/dsh-remote/local-rows')
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ available: true })
     const rows = response.body as unknown as {
       mcpRows: { id: string }[]
-      pluginRows: { id: string; name: string }[]
+      pluginRows: { id: string; name: string; install: string; version: string | null }[]
     }
     expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
-    expect(rows.pluginRows.map((row) => row.name)).toEqual(['@weilence/dsh-mcp'])
+    expect(rows.pluginRows.map((row) => row.name)).toEqual(['@weilence/dsh-mcp', 'some-registry-plugin'])
+    // link spec → 本地（root 为 spec 目标）；semver spec → registry（root 为层内 node_modules）
+    expect(rows.pluginRows[0]).toMatchObject({ install: 'local', version: '2.0.0' })
+    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: '1.4.2' })
   })
 
   it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {

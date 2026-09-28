@@ -3,7 +3,7 @@
  * connect/disconnect/mcp 下发合并/插件同步增删/skills 跟踪删除/互斥。
  */
 
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -27,6 +27,8 @@ interface FakeOptions {
   respond?: (command: string) => SshResult | Promise<SshResult> | undefined
   profilePatch?: string
   homePatch?: string
+  /** 层 package.json 的 dependencies（install 形态判定依据）。 */
+  profileDeps?: Record<string, string>
   skills?: { key: string; path: string; names: string[] }[]
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
@@ -39,6 +41,7 @@ function makeDeps(options: FakeOptions = {}) {
   const calls: Recorded[] = []
   const tarPushes: { alias: string; localRoot: string; remoteRoot: string }[] = []
   const filePushes: { alias: string; localPath: string; remoteDir: string; fileName: string }[] = []
+  const packedRoots: string[] = []
   let forwardKilled = 0
   let packCount = 0
   const deps: EngineDeps = {
@@ -70,11 +73,13 @@ function makeDeps(options: FakeOptions = {}) {
           source: 'profile',
           file: '/profile/cordis.patch.yml',
           doc: options.profilePatch === undefined ? emptyPatchDoc() : parsePatchDoc(options.profilePatch),
+          deps: options.profileDeps ?? {},
         },
         {
           source: 'home',
           file: '/home/cordis.patch.yml',
           doc: options.homePatch === undefined ? emptyPatchDoc() : parsePatchDoc(options.homePatch),
+          deps: {},
         },
       ]
       return layers
@@ -87,11 +92,23 @@ function makeDeps(options: FakeOptions = {}) {
       packCount += 1
       return { path: 'C:/tmp/weilence-dsh-remote-0.1.0.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }
     },
+    async packPackage(root) {
+      packedRoots.push(root)
+      return { path: `C:/tmp/packed.tgz`, fileName: 'packed-1.0.0.tgz' }
+    },
     homeDir: '',
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},
   }
-  return { deps, calls, tarPushes, filePushes, forwardCount: () => forwardKilled, packCount: () => packCount }
+  return {
+    deps,
+    calls,
+    tarPushes,
+    filePushes,
+    packedRoots: () => packedRoots,
+    forwardCount: () => forwardKilled,
+    packCount: () => packCount,
+  }
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -439,16 +456,22 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], removed: ['mcp-demo'] })
   })
 
-  it('sync plugins：新勾选走 add，取消勾选走 remove（远端默认基线 dsh-remote 不可移除）', async () => {
+  const PLUGIN_PATCH = [
+    '- insert:',
+    '    - id: dsh-mcp',
+    "      name: '@weilence/dsh-mcp'",
+    '- insert:',
+    '    - id: dsh-skills',
+    "      name: '@weilence/dsh-skills'",
+  ].join('\n')
+
+  it('sync plugins：本地（link）插件恒打包推送，registry 插件默认远端下载；取消勾选走 remove', async () => {
     makeEngine({
-      profilePatch: [
-        '- insert:',
-        '    - id: dsh-mcp',
-        "      name: '@weilence/dsh-mcp'",
-        '- insert:',
-        '    - id: dsh-skills',
-        "      name: '@weilence/dsh-skills'",
-      ].join('\n'),
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: {
+        '@weilence/dsh-mcp': 'link:D:/Code/dsh-plugins/plugins/dsh-mcp',
+        '@weilence/dsh-skills': '^1.0.0',
+      },
     })
     await engine.save(
       saveRequest({
@@ -457,11 +480,15 @@ describe('RemoteEngine', () => {
     )
     engine.startSync('dev-box', 'plugins')
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(
-      fake.calls.some((call) =>
-        call.command.includes("dsh plugin --profile 'web' add '@weilence/dsh-mcp' '@weilence/dsh-skills'"),
-      ),
-    ).toBe(true)
+    const commands = fake.calls.map((call) => call.command)
+    // 本地插件：pack + push + add tgz
+    expect(fake.packedRoots()).toEqual(['D:/Code/dsh-plugins/plugins/dsh-mcp'])
+    expect(fake.filePushes.map((push) => push.fileName)).toEqual(['packed-1.0.0.tgz'])
+    expect(commands).toContain(
+      'dsh plugin --profile \'web\' add "$HOME/.dsh/dsh-remote/payload/packed-1.0.0.tgz"',
+    )
+    // registry 插件：远端 npm 下载（本机读不到版本时裸名）
+    expect(commands).toContain("dsh plugin --profile 'web' add '@weilence/dsh-skills'")
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp', '@weilence/dsh-skills'],
       removed: [],
@@ -478,10 +505,70 @@ describe('RemoteEngine', () => {
         call.command.includes("dsh plugin --profile 'web' remove '@weilence/dsh-skills'"),
       ),
     ).toBe(true)
+    // dsh-skills 已出清单：不再有任何针对它的安装；dsh-mcp 版本信息不可读
+    // （fixture 的 cat 恒空）→ 保守重装一次，属预期
+    expect(
+      fake.calls.some(
+        (call) => call.command.includes('@weilence/dsh-skills') && call.command.includes(' add '),
+      ),
+    ).toBe(false)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      installed: [],
       removed: ['@weilence/dsh-skills'],
     })
+  })
+
+  it('sync plugins：registry 插件在 push 选项下也走本地传输', async () => {
+    makeEngine({
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: { '@weilence/dsh-skills': '^1.0.0' },
+    })
+    await engine.save(
+      saveRequest({
+        sync: {
+          mcpServerNames: [],
+          pluginNames: ['@weilence/dsh-skills'],
+          registryPluginInstall: 'push',
+        },
+      }),
+    )
+    engine.startSync('dev-box', 'plugins')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    // registry 的包实体定位在层内 node_modules（fixture 假路径下不存在 → 报错可证分流）
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('error')
+    expect(state.error?.message).toContain('未能定位 @weilence/dsh-skills 的包目录')
+  })
+
+  it('sync plugins：远端已装同版本 → 跳过安装（同步幂等）', async () => {
+    const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
+    await writeFile(
+      join(localPkg, 'package.json'),
+      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.5.0' }),
+      'utf8',
+    )
+    makeEngine({
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: {
+        '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}`,
+      },
+      respond: (command) => {
+        if (command.includes('node_modules/@weilence/dsh-mcp/package.json 2>/dev/null')) {
+          return { code: 0, stdout: '{"version":"0.5.0"}\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest({ sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp'] } }))
+    engine.startSync('dev-box', 'plugins')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box').phase).toBe('idle')
+    expect(fake.packedRoots()).toEqual([])
+    expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
+    expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
+      installed: [],
+      removed: [],
+    })
+    await rm(localPkg, { recursive: true, force: true })
   })
 
   it('sync skills：跟踪式删除只清 manifest 记录过的名字', async () => {
@@ -494,7 +581,7 @@ describe('RemoteEngine', () => {
           id: 'dev-box',
           label: '开发机',
           sshAlias: 'dev-box',
-          sync: { mcpServerNames: [], pluginNames: [] },
+          sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
           createdAt: '2027-01-01T00:00:00.000Z',
           updatedAt: '2027-01-01T00:00:00.000Z',
         },

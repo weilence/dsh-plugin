@@ -9,7 +9,8 @@
  *   `dsh plugin add <tgz>` 安装（包名被第三方占用，不走 registry）。
  * - 连接：nohup 起实例 → 轮询日志 token 行 → 本地端口转发 → 健康检查。
  * - 同步：skills tar 单向推送 + manifest 跟踪式删除；MCP 行 cat→改→cat
- *   合并进远端 profile patch；插件经 `dsh plugin add/remove` 增删。
+ *   合并进远端 profile patch；插件逐个版本对比——本地路径安装恒 tgz 推送，
+ *   registry 插件按连接选项推送或远端 npm 下载。
  */
 
 import type { ForwardHandle, SshExec } from './ssh'
@@ -47,8 +48,10 @@ export interface EngineDeps {
   localDshVersion: string | null
   /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
   localPluginVersion: string | null
-  /** 本地打包插件 tgz（staging 组装 npm tarball 布局）；失败抛 SshFailure。 */
+  /** 本地打包本插件 tgz（部署自装用）；失败抛 SshFailure。 */
   packPlugin(): Promise<{ path: string; fileName: string }>
+  /** 本地打包任意本机插件包根目录（插件同步传输用）；失败抛 SshFailure。 */
+  packPackage(root: string): Promise<{ path: string; fileName: string }>
   tools: { ssh: boolean; tar: boolean }
   homeDir: string
   now(): string
@@ -637,36 +640,58 @@ export class RemoteEngine {
     }
   }
 
-  /** 插件同步：勾选的本地插件在远端 `dsh plugin add`，取消勾选的按 manifest 移除。 */
+  /** 插件同步：本地路径安装的插件永远本地打包传输（未发布的开发代码也只有
+   *  这条路能到达远端）；registry 插件按连接选项分流（推送 / 远端 npm 下载）。
+   *  逐插件版本对比，远端已同版本即跳过——重复同步幂等；取消勾选按 manifest 移除。 */
   private async runPluginSync(id: string): Promise<void> {
     const runtime = this.runtimeOf(id)
     try {
       const connection = this.connectionOf(id)
-      const { pluginRows } = composeLocalRows(await this.deps.readLocalLayers())
-      const localNames = new Set(pluginRows.map((row) => row.name))
+      const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
+      const byName = new Map(pluginRows.map((row) => [row.name, row]))
       // 本插件自身是部署基线（tgz 推送安装），不参与插件同步；旧裸名在
       // 本机改名重装前的过渡期一并排除。
       const isSelf = (name: string): boolean => name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
-      const selected = connection.sync.pluginNames.filter((name) => !isSelf(name) && localNames.has(name))
-      const skipped = connection.sync.pluginNames.filter((name) => !isSelf(name) && !localNames.has(name))
+      const selected = connection.sync.pluginNames.filter((name) => !isSelf(name) && byName.has(name))
+      const skipped = connection.sync.pluginNames.filter((name) => !isSelf(name) && !byName.has(name))
       const previous = this.manifestOf(id).plugins.filter((name) => !isSelf(name))
-      const toInstall = selected.filter((name) => !previous.includes(name))
       const toRemove = previous.filter((name) => !selected.includes(name))
 
-      if (toInstall.length > 0) {
-        this.step(id, 'install', toInstall.join(' '))
-        const install = await this.deps.exec(
-          connection.sshAlias,
-          `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${toInstall.map((name) => shQuote(name)).join(' ')}`,
-          { timeoutMs: OP_TIMEOUT_MS },
-        )
+      const installed: string[] = []
+      for (const name of selected) {
+        const row = byName.get(name)
+        if (row === undefined) continue
+        // 版本对比：远端 node_modules 已装同版本 → 跳过
+        const remotePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${row.name}/package.json`
+        const current = await this.deps.exec(connection.sshAlias, `cat ${remotePkg} 2>/dev/null || true`)
+        let remoteVersion: string | null = null
+        try {
+          const parsed = JSON.parse(current.stdout) as { version?: unknown }
+          remoteVersion =
+            typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
+        } catch {
+          // cat 空（未装）：按未装处理
+        }
+        if (remoteVersion !== null && remoteVersion === row.version) continue
+
+        this.step(id, 'install', row.name)
+        const viaPush = row.install === 'local' || connection.sync.registryPluginInstall === 'push'
+        const install = viaPush
+          ? await this.addViaPush(connection.sshAlias, row)
+          : await this.deps.exec(
+              connection.sshAlias,
+              `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${shQuote(row.version === null ? row.name : `${row.name}@${row.version}`)}`,
+              { timeoutMs: OP_TIMEOUT_MS },
+            )
         if (install.code !== 0) {
           throw new SshFailure(
             'remote-cmd-failed',
-            `远端插件安装失败：${install.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
+            `远端安装 ${row.name} 失败：${install.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
           )
         }
+        installed.push(row.name)
       }
+
       if (toRemove.length > 0) {
         this.step(id, 'remove', toRemove.join(' '))
         const remove = await this.deps.exec(
@@ -684,10 +709,27 @@ export class RemoteEngine {
 
       this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
       await this.persist()
-      runtime.lastSync.plugins = { at: this.deps.now(), installed: toInstall, removed: toRemove, skipped }
+      runtime.lastSync.plugins = { at: this.deps.now(), installed, removed: toRemove, skipped }
       this.settle(id, this.restPhase(runtime))
     } catch (error) {
       this.fail(id, error)
     }
+  }
+
+  /** 打包本机包根 → 推送 payload → 远端 add tgz（本地路径插件与选项 push 的 registry 插件共用）。 */
+  private async addViaPush(
+    alias: string,
+    row: { name: string; root: string | null },
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    if (row.root === null) {
+      throw new SshFailure('unknown', `本机未能定位 ${row.name} 的包目录，无法本地传输；请检查其安装后重试`)
+    }
+    const packed = await this.deps.packPackage(row.root)
+    await this.deps.pushFile(alias, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
+    return this.deps.exec(
+      alias,
+      `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}"`,
+      { timeoutMs: OP_TIMEOUT_MS },
+    )
   }
 }
