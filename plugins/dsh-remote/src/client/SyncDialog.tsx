@@ -79,7 +79,6 @@ export function SyncDialog(props: {
       }
       onClose={props.onClose}
       size="lg"
-      meta={row.sshAlias}
       actions={
         <>
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>

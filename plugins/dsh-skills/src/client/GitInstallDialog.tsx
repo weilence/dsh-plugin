@@ -93,10 +93,10 @@ export function GitInstallDialog(props: {
   return (
     <Dialog
       title="从 Git 仓库安装技能"
+      description="整目录复制 · 同名冲突不覆盖"
       onClose={() => {
         if (!props.busy) props.onClose()
       }}
-      meta="整目录复制 · 同名冲突不覆盖"
       actions={
         <>
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>

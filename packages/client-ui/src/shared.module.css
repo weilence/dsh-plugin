@@ -159,12 +159,6 @@
   cursor: pointer;
 }
 
-/* Modal footer 的左侧元信息文字。 */
-.footerMeta {
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .actions {
   display: flex;
   gap: 8px;
