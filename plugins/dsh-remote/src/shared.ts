@@ -14,6 +14,10 @@
 /** 官方 MCP client 插件的模块名（远端 patch 下发行的 name 字段）。 */
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 
+/** 本插件包名（scoped，weilence.com 域名空间；裸名 dsh-remote 在 npm 已被第三方占用，
+ *  远端安装因此不走 registry——部署时本地打包 tgz 推送，见 engine runDeploy）。 */
+export const REMOTE_PLUGIN_NAME = '@weilence/dsh-remote'
+
 /** 远端实例的 profile：固定 web（shipped 模板含 dsh-web-app，token 行 / 端口转发的
  *  前提），不可配置（面板无此输入）。headless 模板无 web-app——其参数解析器
  *  不认 --no-open / --port，也永不输出 `dsh web:` 就绪行，起不了可转发的实例。 */

@@ -1,7 +1,7 @@
 {
-  "name": "dsh-remote",
+  "name": "@weilence/dsh-remote",
   "version": "0.1.0",
-  "description": "DSH web 插件（远程开发）：设置页新增「远程开发」菜单——经用户自备的 OpenSSH 别名管理远端机上的完整 dsh web 实例：一键部署（远端默认只装 dsh-remote）、连接（nohup 起实例 + SSH 端口转发 + token URL 直开）、断开；同步能力全部收敛在本插件面板：用户级 skills 单向同步（tar-over-ssh + 跟踪式删除）、本机 MCP 配置按条下发到远端 patch（comment 保留合并）、本地插件同步到远端（dsh plugin add / manifest 跟踪式移除）。",
+  "description": "DSH web 插件（远程开发）：设置页新增「远程开发」菜单——经用户自备的 OpenSSH 别名管理远端机上的完整 dsh web 实例：一键部署（远端默认只装 @weilence/dsh-remote，tgz 推送安装、版本对比跳过）、连接（nohup 起实例 + SSH 端口转发 + token URL 直开）、断开；同步能力全部收敛在本插件面板：用户级 skills 单向同步（tar-over-ssh + 跟踪式删除）、本机 MCP 配置按条下发到远端 patch（comment 保留合并）、本地插件同步到远端（dsh plugin add / manifest 跟踪式移除）。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

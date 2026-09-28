@@ -17,7 +17,7 @@ import type { SaveRequest } from '../src/shared'
 interface Recorded {
   alias: string
   command: string
-  stdin?: string
+  stdin?: string | Uint8Array
 }
 
 const OK: SshResult = { code: 0, stdout: '', stderr: '' }
@@ -31,12 +31,16 @@ interface FakeOptions {
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
   localDshVersion?: string | null
+  /** 本插件版本（部署版本对比目标）；缺省 0.1.0。 */
+  localPluginVersion?: string | null
 }
 
 function makeDeps(options: FakeOptions = {}) {
   const calls: Recorded[] = []
   const tarPushes: { alias: string; localRoot: string; remoteRoot: string }[] = []
+  const filePushes: { alias: string; localPath: string; remoteDir: string; fileName: string }[] = []
   let forwardKilled = 0
+  let packCount = 0
   const deps: EngineDeps = {
     async exec(alias, command, execOptions) {
       calls.push({ alias, command, stdin: execOptions?.stdin })
@@ -57,6 +61,9 @@ function makeDeps(options: FakeOptions = {}) {
     async pushTar(alias, localRoot, remoteRoot) {
       tarPushes.push({ alias, localRoot, remoteRoot })
     },
+    async pushFile(alias, localPath, remoteDir, fileName) {
+      filePushes.push({ alias, localPath, remoteDir, fileName })
+    },
     readLocalLayers: async () => {
       const layers: LocalPatchLayer[] = [
         {
@@ -75,11 +82,16 @@ function makeDeps(options: FakeOptions = {}) {
     scanSkills: async () => options.skills ?? [],
     tools: { ssh: true, tar: options.tar ?? true },
     localDshVersion: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
+    localPluginVersion: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
+    async packPlugin() {
+      packCount += 1
+      return { path: 'C:/tmp/weilence-dsh-remote-0.1.0.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }
+    },
     homeDir: '',
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},
   }
-  return { deps, calls, tarPushes, forwardCount: () => forwardKilled }
+  return { deps, calls, tarPushes, filePushes, forwardCount: () => forwardKilled, packCount: () => packCount }
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -145,13 +157,18 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').phase).toBe('idle')
   })
 
-  it('deploy：node/npm/pnpm 探针 → dsh 版本与本机一致跳过 → 只装 dsh-remote 插件（web profile）', async () => {
+  it('deploy：未装 → 打包推送 tgz 并安装（web profile），verify 读回版本', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
         if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
         if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
         if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
+        // 安装前探查（带 2>/dev/null 后缀）读不到包：未装
+        if (command.includes('node_modules/@weilence/dsh-remote/package.json 2>/dev/null')) return OK
+        // verify 读回：装上了 0.1.0
+        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
+          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
         return undefined
       },
     })
@@ -162,8 +179,61 @@ describe('RemoteEngine', () => {
     expect(state.phase).toBe('idle')
     expect(state.error).toBeNull()
     const commands = fake.calls.map((call) => call.command)
-    expect(commands).toContain("dsh plugin --profile 'web' add 'dsh-remote'")
+    expect(commands).toContain(
+      'dsh plugin --profile \'web\' add "$HOME/.dsh/dsh-remote/payload/weilence-dsh-remote-0.1.0.tgz"',
+    )
+    expect(fake.packCount()).toBe(1)
+    expect(fake.filePushes).toEqual([
+      {
+        alias: 'dev-box',
+        localPath: 'C:/tmp/weilence-dsh-remote-0.1.0.tgz',
+        remoteDir: '~/.dsh/dsh-remote/payload',
+        fileName: 'weilence-dsh-remote-0.1.0.tgz',
+      },
+    ])
     expect(commands.some((command) => command.includes('npm install -g'))).toBe(false)
+  })
+
+  it('deploy：远端已装同版本且 profile 已登记 → 跳过打包与安装', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
+        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
+        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
+        if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
+        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
+          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
+        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startDeploy('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box').phase).toBe('idle')
+    expect(fake.packCount()).toBe(0)
+    expect(fake.filePushes).toEqual([])
+    expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
+    expect(engine.stateOf('dev-box').op).toBeNull()
+  })
+
+  it('deploy：add 成功但读不回版本 → error（假阳性防线）', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
+        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
+        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
+        if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
+        return undefined // 两次 cat 都空：未装 + 装后读不回
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startDeploy('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('error')
+    expect(state.error).toMatchObject({ kind: 'remote-cmd-failed' })
+    expect(state.error?.message).toContain('读不回')
   })
 
   it('deploy：远端 dsh 版本与本机不一致 → npm 装对齐版本', async () => {
@@ -173,6 +243,9 @@ describe('RemoteEngine', () => {
         if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
         if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
         if (command === 'dsh -V') return { code: 0, stdout: '0.1.0\n', stderr: '' }
+        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
+          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
+        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
         return undefined
       },
     })
@@ -200,6 +273,9 @@ describe('RemoteEngine', () => {
             ? { code: 1, stdout: '', stderr: 'not found' }
             : { code: 0, stdout: '0.2.0\n', stderr: '' }
         }
+        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
+          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
+        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
         return undefined
       },
     })

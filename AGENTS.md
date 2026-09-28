@@ -4,7 +4,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：五个可发布 npm 插件（dsh-mcp / dsh-models / dsh-notify / dsh-skills / dsh-zhipu-tools），独立版本、独立发布。
+- `plugins/<name>/`：六个可发布 npm 插件（dsh-mcp / dsh-models / dsh-notify / dsh-skills / dsh-zhipu-tools / dsh-remote——包名 `@weilence/dsh-remote`，裸名已被 npm 第三方包占用），独立版本、独立发布。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 栅栏 / errMsg / client 桥封装）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译基座。
 

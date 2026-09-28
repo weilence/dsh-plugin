@@ -8,7 +8,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { MCP_PLUGIN_NAME, type LocalMcpRow, type LocalPluginRow } from './shared'
+import { MCP_PLUGIN_NAME, REMOTE_PLUGIN_NAME, type LocalMcpRow, type LocalPluginRow } from './shared'
 import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type PatchInsert } from './patchDoc'
 
 /** 用户级 skills 根（与官方 skill-filesystem 的用户根同一逻辑）。 */
@@ -183,7 +183,9 @@ export function composeLocalRows(layers: readonly LocalPatchLayer[]): {
   for (const layer of layers) {
     for (const insert of scanInserts(layer.doc)) {
       if (insert.name === MCP_PLUGIN_NAME) continue
-      if (insert.id === 'dsh-remote') continue // 本插件是远端默认基线，不在同步清单里
+      // 本插件自身是远端默认基线，不进同步清单；旧裸名行在改名重装前的
+      // 过渡期一并排除，防止把自己当成业务插件同步出去。
+      if (insert.name === REMOTE_PLUGIN_NAME || insert.name === 'dsh-remote') continue
       const dedupe = insert.name
       if (seen.has(dedupe)) continue
       seen.add(dedupe)

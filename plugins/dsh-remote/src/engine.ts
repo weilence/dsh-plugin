@@ -4,8 +4,9 @@
  * （部署 / 连接 / 同步）由路由点火后在后台推进，面板轮询 GET /state 观察。
  *
  * 远端操作面（全部经 ssh，登录 shell 包装保证 PATH）：
- * - 部署：node/npm/pnpm 探针 → npm i -g dsh → `dsh plugin --profile <p>
- *   add dsh-remote`（远端默认只装本插件；其余插件走「同步本地插件」）。
+ * - 部署：node/npm/pnpm 探针 → npm i -g dsh（版本对齐本机）→ 对比远端
+ *   已装 @weilence/dsh-remote 版本，不一致才本地打包 tgz 推送并经
+ *   `dsh plugin add <tgz>` 安装（包名被第三方占用，不走 registry）。
  * - 连接：nohup 起实例 → 轮询日志 token 行 → 本地端口转发 → 健康检查。
  * - 同步：skills tar 单向推送 + manifest 跟踪式删除；MCP 行 cat→改→cat
  *   合并进远端 profile patch；插件经 `dsh plugin add/remove` 增删。
@@ -19,6 +20,7 @@ import { composeLocalRows, foldMcpRows, scanSkillsNames, skillsRoots, type Local
 import { emptyPatchDoc, parsePatchDoc, removeInsertRows, renderPatchDoc, upsertInsertRow } from './patchDoc'
 import {
   MCP_PLUGIN_NAME,
+  REMOTE_PLUGIN_NAME,
   REMOTE_PROFILE,
   type ConnOp,
   type ConnRow,
@@ -37,10 +39,16 @@ export interface EngineDeps {
   freeLocalPort(): Promise<number>
   healthCheck(url: string): Promise<boolean>
   pushTar(alias: string, localRoot: string, remoteRoot: string): Promise<void>
+  /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
+  pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
   readLocalLayers(): Promise<LocalPatchLayer[]>
   scanSkills(): Promise<{ key: string; path: string; names: string[] }[]>
   /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 远端装 latest。 */
   localDshVersion: string | null
+  /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
+  localPluginVersion: string | null
+  /** 本地打包插件 tgz（staging 组装 npm tarball 布局）；失败抛 SshFailure。 */
+  packPlugin(): Promise<{ path: string; fileName: string }>
   tools: { ssh: boolean; tar: boolean }
   homeDir: string
   now(): string
@@ -315,29 +323,68 @@ export class RemoteEngine {
         }
       }
 
-      // 远端默认只装 dsh-remote——其余插件由「同步本地插件」按勾选安装
-      this.step(id, 'install-plugin', 'dsh-remote')
-      const plugin = await this.deps.exec(
+      // 远端默认只装本插件——tgz 推送安装（裸名 dsh-remote 在 npm 已被第三方
+      // 包占用，不能走 registry）；版本与 profile 登记都一致时跳过。
+      this.step(id, 'install-plugin', REMOTE_PLUGIN_NAME)
+      const localPluginVersion = this.deps.localPluginVersion
+      const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
+      const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
+      const installedPkg = await this.deps.exec(alias, `cat ${remoteModulePkg} 2>/dev/null || true`)
+      const registered = await this.deps.exec(
         alias,
-        `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${shQuote('dsh-remote')}`,
-        {
-          timeoutMs: OP_TIMEOUT_MS,
-        },
+        `grep -q ${shQuote(REMOTE_PLUGIN_NAME)} ${remoteProfilePkg}`,
       )
-      if (plugin.code !== 0) {
-        throw new SshFailure(
-          'remote-cmd-failed',
-          `远端安装 dsh-remote 失败：${plugin.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
-        )
+      let remoteVersion: string | null = null
+      try {
+        const parsed = JSON.parse(installedPkg.stdout) as { version?: unknown }
+        remoteVersion =
+          typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
+      } catch {
+        // 未安装（cat 空）或输出异常：都按未安装处理
       }
-
-      this.step(id, 'verify')
-      const verify = await this.deps.exec(alias, 'dsh -V')
-      if (verify.code !== 0) {
-        throw new SshFailure(
-          'remote-cmd-failed',
-          '远端 dsh 安装后仍不可用：请检查 npm 全局 bin 是否在登录 shell 的 PATH 上',
+      if (registered.code === 0 && remoteVersion !== null && remoteVersion === localPluginVersion) {
+        this.step(id, 'verify', `已装 ${REMOTE_PLUGIN_NAME}@${remoteVersion}，跳过`)
+      } else {
+        const packed = await this.deps.packPlugin()
+        this.step(id, 'push', packed.fileName)
+        await this.deps.pushFile(alias, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
+        this.step(id, 'install-plugin', packed.fileName)
+        const add = await this.deps.exec(
+          alias,
+          `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}"`,
+          {
+            timeoutMs: OP_TIMEOUT_MS,
+          },
         )
+        if (add.code !== 0) {
+          throw new SshFailure(
+            'remote-cmd-failed',
+            `远端安装 ${REMOTE_PLUGIN_NAME} 失败：${add.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
+          )
+        }
+        // 假阳性防线：add 退出码 0 不等于装上——读回 node_modules 的版本确认
+        this.step(id, 'verify')
+        const settled = await this.deps.exec(alias, `cat ${remoteModulePkg}`)
+        let settledVersion: string | null = null
+        try {
+          const parsed = JSON.parse(settled.stdout) as { version?: unknown }
+          settledVersion =
+            typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
+        } catch {
+          // 读不回即视为未装上
+        }
+        if (settled.code !== 0 || settledVersion === null) {
+          throw new SshFailure(
+            'remote-cmd-failed',
+            `远端 ${REMOTE_PLUGIN_NAME} 安装后读不回 package.json：请重跑部署并查看远端 pnpm 输出`,
+          )
+        }
+        if (localPluginVersion !== null && settledVersion !== localPluginVersion) {
+          throw new SshFailure(
+            'remote-cmd-failed',
+            `远端装上的版本 ${settledVersion} 与本机 ${localPluginVersion} 不一致`,
+          )
+        }
       }
       this.settle(id, 'idle')
     } catch (error) {
@@ -597,13 +644,12 @@ export class RemoteEngine {
       const connection = this.connectionOf(id)
       const { pluginRows } = composeLocalRows(await this.deps.readLocalLayers())
       const localNames = new Set(pluginRows.map((row) => row.name))
-      const selected = connection.sync.pluginNames.filter(
-        (name) => name !== 'dsh-remote' && localNames.has(name),
-      )
-      const skipped = connection.sync.pluginNames.filter(
-        (name) => name !== 'dsh-remote' && !localNames.has(name),
-      )
-      const previous = this.manifestOf(id).plugins.filter((name) => name !== 'dsh-remote')
+      // 本插件自身是部署基线（tgz 推送安装），不参与插件同步；旧裸名在
+      // 本机改名重装前的过渡期一并排除。
+      const isSelf = (name: string): boolean => name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
+      const selected = connection.sync.pluginNames.filter((name) => !isSelf(name) && localNames.has(name))
+      const skipped = connection.sync.pluginNames.filter((name) => !isSelf(name) && !localNames.has(name))
+      const previous = this.manifestOf(id).plugins.filter((name) => !isSelf(name))
       const toInstall = selected.filter((name) => !previous.includes(name))
       const toRemove = previous.filter((name) => !selected.includes(name))
 

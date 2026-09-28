@@ -1,10 +1,11 @@
-# dsh-remote bundle patch
+# @weilence/dsh-remote bundle patch
 #
-# 安装后（dependencies 与 dsh.profile.bundles 均含 dsh-remote），启动时
-# profile boot 合并本 patch，把插件行插入 host composition。只硬依赖
+# 安装后（dependencies 与 dsh.profile.bundles 均含 @weilence/dsh-remote），
+# 启动时 profile boot 合并本 patch，把插件行插入 host composition。行 id 用
+# 短 slug（与官方 scoped 包行同惯例，如 ui-settings-general）。只硬依赖
 # webServer（HTTP 桥）；profileContext 经 ctx.get() 可选访问——官方
 # web/desktop 组合都提供，缺席时本地插件清单 / MCP 读取降级为不可用，
 # 不影响连接管理与部署。
 - insert:
     - id: dsh-remote
-      name: 'dsh-remote'
+      name: '@weilence/dsh-remote'

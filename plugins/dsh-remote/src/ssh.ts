@@ -46,8 +46,8 @@ const DEFAULT_TIMEOUT_MS = 30_000
 const OUTPUT_CAP = 200_000
 
 export interface SshExecOptions {
-  /** 写入远端命令 stdin 的文本（patch 落盘用）。 */
-  stdin?: string
+  /** 写入远端命令 stdin 的内容（patch 文本或 tgz 二进制，通道均为原始字节）。 */
+  stdin?: string | Uint8Array
   /** 超时毫秒数（默认 30s）。 */
   timeoutMs?: number
 }
@@ -138,7 +138,6 @@ export const sshExec: SshExec = (alias, command, options) =>
       child.stdin?.end()
     }
   })
-
 /** 本地端口转发子进程的抽象句柄（engine 测试注入 fake 用）。 */
 export interface ForwardHandle {
   kill(): void

@@ -14,10 +14,13 @@
 
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
+import { copyFile, cp, mkdir, mkdtemp, readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -25,8 +28,15 @@ import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } fr
 import { composeLocalRows, profileContextOf, readLocalLayers, scanSkillsNames, skillsRoots } from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
-import { sshExec, startSshForward, tarOverSsh } from './ssh'
-import type { LocalRowsResponse, OpRequest, SaveRequest, StateResponse, SyncRequest } from './shared'
+import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
+import {
+  REMOTE_PLUGIN_NAME,
+  type LocalRowsResponse,
+  type OpRequest,
+  type SaveRequest,
+  type StateResponse,
+  type SyncRequest,
+} from './shared'
 
 export const inject: string[] = ['webServer']
 
@@ -69,6 +79,82 @@ function localDshVersion(): string | null {
   return null
 }
 
+/** 构建产物 lib/index.js 所在包根（lib 的上一级）。 */
+function pluginPackageRoot(): string {
+  return dirname(dirname(fileURLToPath(import.meta.url)))
+}
+
+/** 本插件版本（远端部署版本对比目标）；读不到回 null（部署侧退化为每次重装）。 */
+function localPluginVersion(): string | null {
+  try {
+    const manifest = JSON.parse(readFileSync(join(pluginPackageRoot(), 'package.json'), 'utf8')) as {
+      version?: unknown
+    }
+    return typeof manifest.version === 'string' && manifest.version.length > 0 ? manifest.version : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 本地组装插件 tgz（npm tarball 布局：package/ 前缀）。不用 `pnpm pack`——
+ * 宿主形态（desktop / web CLI）不保证带着包管理器；系统 tar（Windows 10+
+ * 自带 bsdtar）+ files 清单拷贝即可产出 pnpm 可安装的包。staging 留在系统
+ * tmp 目录，量级几十 KB，交给 OS 清理。
+ */
+async function packPlugin(): Promise<{ path: string; fileName: string }> {
+  const root = pluginPackageRoot()
+  const version = localPluginVersion()
+  if (version === null) throw new SshFailure('unknown', '本插件 package.json 缺 version，无法打包')
+  for (const artifact of ['lib/index.js', 'lib/client.js']) {
+    if (!existsSync(join(root, artifact)))
+      throw new SshFailure('unknown', `本插件缺少构建产物 ${artifact}：先在插件目录执行 pnpm build`)
+  }
+  const staging = await mkdtemp(join(tmpdir(), 'dsh-remote-pack-'))
+  const bundle = join(staging, 'package')
+  await mkdir(bundle, { recursive: true })
+  await copyFile(join(root, 'package.json'), join(bundle, 'package.json'))
+  await copyFile(join(root, 'cordis.patch.yml'), join(bundle, 'cordis.patch.yml'))
+  await cp(join(root, 'lib'), join(bundle, 'lib'), { recursive: true })
+  // npm 对 scoped 包的 tarball 命名规则：@weilence/dsh-remote → weilence-dsh-remote
+  const fileName = `${REMOTE_PLUGIN_NAME.replace(/^@/, '').replace('/', '-')}-${version}.tgz`
+  const tarball = join(staging, fileName)
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn('tar', ['-czf', tarball, '-C', staging, 'package'], { windowsHide: true })
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      reject(
+        error.code === 'ENOENT'
+          ? new SshFailure(
+              'local-tool-missing',
+              '本机未找到 tar：Windows 10+ 自带 bsdtar，请确认其在 PATH 上',
+            )
+          : error,
+      )
+    })
+    child.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new SshFailure('unknown', `tar 打包失败（退出码 ${String(code)}）`))
+    })
+  })
+  return { path: tarball, fileName }
+}
+
+/** 单文件二进制推送：tgz 经 ssh stdin 直写远端 payload 目录。 */
+async function pushFile(
+  alias: string,
+  localPath: string,
+  remoteDir: string,
+  fileName: string,
+): Promise<void> {
+  const payload = await readFile(localPath)
+  const pushed = await sshExec(alias, `mkdir -p ${remoteDir} && cat > ${remoteDir}/${fileName}`, {
+    stdin: payload,
+    timeoutMs: 120_000,
+  })
+  if (pushed.code !== 0)
+    throw new SshFailure('remote-cmd-failed', `推送 ${fileName} 失败：${pushed.stderr.trim().slice(0, 200)}`)
+}
+
 function makeEngine(ctx: Context): RemoteEngine {
   const deps: EngineDeps = {
     exec: sshExec,
@@ -95,6 +181,7 @@ function makeEngine(ctx: Context): RemoteEngine {
       }
     },
     pushTar: tarOverSsh,
+    pushFile,
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
     scanSkills: async () => {
       const roots = []
@@ -104,6 +191,8 @@ function makeEngine(ctx: Context): RemoteEngine {
     },
     tools: { ssh: true, tar: true },
     localDshVersion: localDshVersion(),
+    localPluginVersion: localPluginVersion(),
+    packPlugin,
     homeDir: dshHomePath(),
     now: () => new Date().toISOString(),
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
