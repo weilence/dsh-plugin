@@ -2,90 +2,18 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { reasoningLabel, type PanelRoute } from '../pi-ai/view'
+import { reasoningLabel } from '../pi-ai/view'
 import type { PiAiOperations } from './operations'
 import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
 import { CreateProviderDialog } from './CreateProviderDialog'
 import { ModelTable } from '@dsh-plugins/client-ui'
-import {
-  ConfirmDialog,
-  ExpandableCard,
-  Panel,
-  useRowDragReorder,
-  type ExpandableCardInfoItem,
-  type RowDragHandlers,
-} from '@dsh-plugins/client-ui'
+import { CardList, ConfirmDialog, Panel, type ExpandableCardInfoItem } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 
 const styles = { ...shared }
 
 const PROVIDER_ORDER_KEY = 'dsh-models/provider-order'
-
-function RouteRow(props: {
-  route: PanelRoute
-  busy: boolean
-  onEdit(): void
-  onDelete(): void
-  dragging: boolean
-  dropLine: 'top' | 'bottom' | null
-  /** 行拖拽属性：start / end 在表头，over / drop 在整卡。 */
-  dragHandlers: RowDragHandlers
-}) {
-  const { route, dragHandlers } = props
-  const [open, setOpen] = useState(false)
-  const info: ExpandableCardInfoItem[] = []
-  if (route.api !== undefined) info.push({ label: 'API', value: route.api })
-  if (route.baseURL !== undefined) info.push({ label: 'Endpoint', value: route.baseURL })
-  return (
-    <ExpandableCard
-      open={open}
-      onToggle={() => setOpen(!open)}
-      title={route.displayName}
-      meta={route.provider}
-      info={info}
-      actions={
-        <>
-          <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
-            编辑
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={styles.dangerGhost}
-            disabled={props.busy}
-            onClick={props.onDelete}
-          >
-            删除
-          </Button>
-        </>
-      }
-      notice={route.error !== undefined ? <div className={styles.error}>{route.error}</div> : undefined}
-      scrollBody
-      ariaLabel={`展开 ${route.displayName} 的模型清单`}
-      dragging={props.dragging}
-      dropLine={props.dropLine}
-      dragHandlers={props.dragHandlers}
-    >
-      {route.rows.length > 0 ? (
-        <ModelTable
-          rows={route.rows.map((row) => ({
-            name: row.name,
-            id: row.id,
-            ctx: row.effectiveContextWindow,
-            out: row.effectiveMaxTokens,
-            input: row.effectiveInput,
-            reasoning: reasoningLabel(row),
-          }))}
-        />
-      ) : (
-        <div className={styles.empty}>
-          {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
-        </div>
-      )}
-    </ExpandableCard>
-  )
-}
 
 export interface ModelCatalogSectionProps extends SettingsSectionOwnerProps {
   store?: PanelStore
@@ -111,6 +39,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState<string | undefined>(undefined)
   const [keyState, setKeyState] = useState<Record<string, boolean | undefined>>({})
+  const [openProviders, setOpenProviders] = useState<ReadonlySet<string>>(() => new Set())
 
   // useMemo 保持引用稳定：直接 filter 每次渲染产生新数组，下面的凭据 effect
   // 将配合 setState 形成「describe 不停调用」的无限循环。
@@ -170,7 +99,6 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
       // 本地存储不可用（隐私模式等）时顺序仅本次会话生效。
     }
   }
-  const providerDrag = useRowDragReorder(moveProvider)
 
   return (
     <Panel
@@ -207,26 +135,78 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
       </div>
       {state.status === 'loading' ? <div className={styles.loading}>正在读取 llm-pi-ai 配置…</div> : null}
 
-      <div className={styles.rows}>
-        {orderedRoutes.map((route, index) => (
-          <RouteRow
-            key={route.provider}
-            route={route}
-            busy={busyProvider === route.provider}
-            onEdit={() => setEditing(route.provider)}
-            onDelete={() => setDeleting(route.provider)}
-            dragging={providerDrag.isDragging(index)}
-            dropLine={providerDrag.lineAt(index, orderedRoutes.length)}
-            dragHandlers={providerDrag.rowProps(index, route.provider)}
-          />
-        ))}
-        {routes.length === 0 && state.status === 'ready' ? (
-          <div className={styles.empty}>
-            还没有配置任何 Provider；点「新建 Provider」开始（使用内置 / 自定义 Provider）。
-            {dormant.length > 0 ? `（pi-ai 内置目录里有 ${dormant.length} 个可选 Provider，尚未配置）` : ''}
-          </div>
-        ) : null}
-      </div>
+      <CardList
+        items={orderedRoutes}
+        getKey={(route) => route.provider}
+        onReorder={moveProvider}
+        renderCard={(route) => {
+          const info: ExpandableCardInfoItem[] = []
+          if (route.api !== undefined) info.push({ label: 'API', value: route.api })
+          if (route.baseURL !== undefined) info.push({ label: 'Endpoint', value: route.baseURL })
+          return {
+            open: openProviders.has(route.provider),
+            onToggle: () =>
+              setOpenProviders((previous) => {
+                const next = new Set(previous)
+                if (next.has(route.provider)) next.delete(route.provider)
+                else next.add(route.provider)
+                return next
+              }),
+            title: route.displayName,
+            meta: route.provider,
+            info,
+            actions: (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busyProvider === route.provider}
+                  onClick={() => setEditing(route.provider)}
+                >
+                  编辑
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={styles.dangerGhost}
+                  disabled={busyProvider === route.provider}
+                  onClick={() => setDeleting(route.provider)}
+                >
+                  删除
+                </Button>
+              </>
+            ),
+            notice: route.error !== undefined ? <div className={styles.error}>{route.error}</div> : undefined,
+            scrollBody: true,
+            ariaLabel: `展开 ${route.displayName} 的模型清单`,
+            children:
+              route.rows.length > 0 ? (
+                <ModelTable
+                  rows={route.rows.map((row) => ({
+                    name: row.name,
+                    id: row.id,
+                    ctx: row.effectiveContextWindow,
+                    out: row.effectiveMaxTokens,
+                    input: row.effectiveInput,
+                    reasoning: reasoningLabel(row),
+                  }))}
+                />
+              ) : (
+                <div className={styles.empty}>
+                  {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
+                </div>
+              ),
+          }
+        }}
+        empty={
+          state.status === 'ready' ? (
+            <div className={styles.empty}>
+              还没有配置任何 Provider；点「新建 Provider」开始（使用内置 / 自定义 Provider）。
+              {dormant.length > 0 ? `（pi-ai 内置目录里有 ${dormant.length} 个可选 Provider，尚未配置）` : ''}
+            </div>
+          ) : null
+        }
+      />
 
       {editingRoute ? (
         <RouteEditor

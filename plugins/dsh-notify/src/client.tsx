@@ -84,6 +84,10 @@ function titleOf(ctx: ClientContext, sessionId: string): string {
 // 补弹，仍在浏览则放弃。
 function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?: string): void {
   if (!notifyEnabled) return
+  const id = sessionId as SessionId
+  const session = ctx.sessions.list.getSnapshot().byId[id]
+  // 未知会话不能证明是主代理；parentId 也可能只是普通分叉，须以子代理来源/地址判断。
+  if (!session || session.origin === 'subagent' || ctx.sessions.subagentAddress(id)) return
   const viewing = isPageViewing()
   console.info('[dsh-notify] event', kind, 'viewing=' + String(viewing))
   const fire = (): void => {
@@ -145,7 +149,7 @@ function NotifyPanel() {
   return (
     <div className={styles.panel}>
       <p className={styles.desc}>
-        当任意会话（含子代理）的模型回合处理完成、模型发起提问（含计划审批）
+        当主代理会话的模型回合处理完成、模型发起提问（含计划审批）
         等待您回答、或工具操作等待您批准时，通过浏览器 Notification API 发送
         系统级桌面通知，点击通知可聚焦回本页面。事件经宿主 Remote 通道实时
         转发，无轮询；需要本页面保持打开（关闭期间的事件无接收方、不会补发，

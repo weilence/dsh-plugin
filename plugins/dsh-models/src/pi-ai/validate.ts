@@ -9,6 +9,15 @@ export interface FieldIssue {
   message: string
 }
 
+export function validateProviderReasoning(
+  value: string,
+  levels: readonly ThinkingLevel[],
+): FieldIssue | undefined {
+  const effort = value.trim()
+  if (effort.length === 0 || levels.some((level) => level === effort)) return undefined
+  return { path: 'reasoning', message: `未知默认推理等级「${effort}」；可用等级为 ${levels.join(', ')}` }
+}
+
 function isThinkingLevel(value: string): value is ThinkingLevel {
   return LEVEL_SET.has(value)
 }

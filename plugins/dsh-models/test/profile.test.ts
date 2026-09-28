@@ -9,7 +9,11 @@ import {
   entryMatchesCatalog,
 } from '../src/pi-ai/profile'
 import { normalizeModelEntry } from '../src/pi-ai/normalize'
-import { validateReasoningEfforts, validateModelEntry } from '../src/pi-ai/validate'
+import {
+  validateReasoningEfforts,
+  validateModelEntry,
+  validateProviderReasoning,
+} from '../src/pi-ai/validate'
 import { jsonEqual, classifyWrite } from '../src/pi-ai/ops'
 
 const catalog = new Map([
@@ -191,6 +195,26 @@ describe('写入候选构造', () => {
     expect(entryMatchesCatalog({ id: 'a', maxTokens: 5 }, { id: 'a', maxTokens: 5 })).toBe(true)
     expect(entryMatchesCatalog({ id: 'a', maxTokens: 6 }, { id: 'a', maxTokens: 5 })).toBe(false)
     expect(entryMatchesCatalog({ id: 'a' }, undefined)).toBe(false)
+  })
+})
+
+describe('Provider 默认推理等级', () => {
+  it('空值继承、合法等级写入、清空时删除用户层覆盖', () => {
+    const levels = ['off', 'low', 'high'] as const
+    expect(validateProviderReasoning('  ', levels)).toBeUndefined()
+    expect(validateProviderReasoning(' high ', levels)).toBeUndefined()
+    expect(patchUserProfile({ apiKeyEnv: 'KEY' }, { reasoning: 'high' })).toEqual({
+      apiKeyEnv: 'KEY',
+      reasoning: 'high',
+    })
+    expect(patchUserProfile({ reasoning: 'high' }, { reasoning: undefined })).toEqual({})
+  })
+
+  it('拒绝不在官方 schema 内的等级', () => {
+    expect(validateProviderReasoning('extreme', ['off', 'low', 'high'])).toEqual({
+      path: 'reasoning',
+      message: '未知默认推理等级「extreme」；可用等级为 off, low, high',
+    })
   })
 })
 

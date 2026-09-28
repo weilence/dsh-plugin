@@ -125,6 +125,7 @@ export function SkillForm(props: SkillFormProps) {
             label="名称（kebab-case）"
             value={draft.name}
             placeholder="my-skill"
+            autoFocus
             onChange={(name) => setDraft((previous) => ({ ...previous, name }))}
           />
         </div>

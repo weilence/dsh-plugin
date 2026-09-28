@@ -12,7 +12,7 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
   行头显示显示名、route id 与协议 / Endpoint；展开后模型清单直接按行显示——每行是
   「显示名 + 模型 ID（同一行）/ 生效能力（容量与模态）/ 思考档位」（与会话模型选择器同一份事实）。
   列表页唯一的动作是「编辑」，点击弹出该 Provider 的大编辑弹窗。
-- **编辑弹窗**：编辑连接字段（`displayName` / `api` / `baseURL` / API Key）与模型清单（新增 / 编辑 / 删除 / 拖拽排序，
+- **编辑弹窗**：编辑 Provider 字段（`displayName` / `api` / `baseURL` / API Key / 可选 `reasoning` 默认推理等级）与模型清单（新增 / 编辑 / 删除 / 拖拽排序，
   模型字段含 `name` / `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`，
   全部有「继承」态）；保存即一次性整值写入用户层的**整个 `providers.<route>` 子树**。
 - **新建 Provider（统一入口，两种方式）**：

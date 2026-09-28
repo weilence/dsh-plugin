@@ -16,10 +16,12 @@ import {
   type ModelRow,
 } from '../pi-ai/profile'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
+import { validateProviderReasoning } from '../pi-ai/validate'
 import { effortsLabel, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
 import { ModelForm } from './ModelForm'
 import {
+  CardList,
   ConfirmDialog,
   Dialog,
   ExpandableCard,
@@ -27,7 +29,6 @@ import {
   TextField,
   IssueList,
   formatTokenCount,
-  useRowDragReorder,
   type ExpandableCardInfoItem,
   type ExpandableCardProps,
 } from '@dsh-plugins/client-ui'
@@ -66,6 +67,7 @@ interface ProviderDraft {
   displayName: string
   api: string
   baseURL: string
+  reasoning: string
 }
 
 function initialProviderDraft(route: PanelRoute): ProviderDraft {
@@ -73,6 +75,7 @@ function initialProviderDraft(route: PanelRoute): ProviderDraft {
     displayName: typeof route.userProfile?.displayName === 'string' ? route.userProfile.displayName : '',
     api: typeof route.userProfile?.api === 'string' ? route.userProfile.api : '',
     baseURL: typeof route.userProfile?.baseURL === 'string' ? route.userProfile.baseURL : '',
+    reasoning: typeof route.userProfile?.reasoning === 'string' ? route.userProfile.reasoning : '',
   }
 }
 
@@ -100,7 +103,7 @@ type Confirm = { kind: 'leave' } | { kind: 'delete' }
 
 function isBuiltinOnly(profile: PiAiProviderEntry | undefined): boolean {
   if (profile === undefined) return true
-  return Object.keys(profile).every((key) => key === 'apiKeyEnv')
+  return Object.keys(profile).every((key) => ['apiKeyEnv', 'displayName', 'reasoning'].includes(key))
 }
 
 export function RouteEditor(props: RouteEditorProps) {
@@ -128,8 +131,7 @@ export function RouteEditor(props: RouteEditorProps) {
     formAppliedIdRef.current = undefined
     setModelEdit(next)
   }
-  // 内置模式不可切换：挂载时按「已存 profile 是否只写了 API Key 引用」定性。
-  // 内置模式只保留显示名与 API Key（显示名可改），其余全部继承安装目录。
+  // 内置模式不可切换：只配置凭据、显示名和默认推理等级时保留目录继承。
   const useBuiltin = !route.declared && isBuiltinOnly(route.userProfile)
 
   const keyRef =
@@ -145,16 +147,16 @@ export function RouteEditor(props: RouteEditorProps) {
   const catalogIds = useMemo(() => new Set(props.catalog.keys()), [props.catalog])
 
   const candidate = useMemo(() => {
-    const next = patchUserProfile(
-      draftProfile,
-      useBuiltin
-        ? { displayName: providerDraft.displayName.trim() || undefined }
+    const next = patchUserProfile(draftProfile, {
+      displayName: providerDraft.displayName.trim() || undefined,
+      reasoning: providerDraft.reasoning.trim() || undefined,
+      ...(useBuiltin
+        ? {}
         : {
-            displayName: providerDraft.displayName.trim() || undefined,
             api: providerDraft.api.trim() || undefined,
             baseURL: providerDraft.baseURL.trim() || undefined,
-          },
-    )
+          }),
+    })
     if (key.trim().length > 0 && typeof next.apiKeyEnv !== 'string') next.apiKeyEnv = keyRef
     return next
   }, [draftProfile, providerDraft, key, keyRef, useBuiltin])
@@ -164,6 +166,8 @@ export function RouteEditor(props: RouteEditorProps) {
 
   const issues = useMemo(() => {
     const list: string[] = []
+    const reasoningIssue = validateProviderReasoning(providerDraft.reasoning, props.choices.thinkingLevels)
+    if (reasoningIssue !== undefined) list.push(reasoningIssue.message)
     if (!useBuiltin) {
       if (route.declared && providerDraft.api.trim().length === 0) list.push('手写 route 必须指定 API 协议')
       if (route.declared && providerDraft.baseURL.trim().length === 0) {
@@ -182,7 +186,7 @@ export function RouteEditor(props: RouteEditorProps) {
     }
     if (keyError !== undefined) list.push(keyError)
     return list
-  }, [route.declared, providerDraft, candidate, keyError, useBuiltin])
+  }, [route.declared, providerDraft, candidate, keyError, useBuiltin, props.choices.thinkingLevels])
 
   const rowOf = (id: string) => route.rows.find((row) => row.id === id)
   const factsOf = (id: string) => rowOf(id)?.facts
@@ -343,9 +347,6 @@ export function RouteEditor(props: RouteEditorProps) {
     )
   }
 
-  // 模型卡片的拖拽排序与 provider 列表同一控制器（drag.ts）。
-  const modelDrag = useRowDragReorder(reorderModel)
-
   const requestLeave = () => {
     if (dirty) setConfirm({ kind: 'leave' })
     else props.onExit()
@@ -401,9 +402,8 @@ export function RouteEditor(props: RouteEditorProps) {
   }
 
   const canReorder = draftSource === 'explicit' || draftSource === 'declared'
-  const cardTotal = displayRows.length + (modelEdit !== undefined && modelEdit.creating ? 1 : 0)
 
-  const modelCard = (row: ModelRow, index: number): ExpandableCardProps => {
+  const modelCard = (row: ModelRow): Omit<ExpandableCardProps, 'dragging' | 'dropLine' | 'dragHandlers'> => {
     const expanded = row.id === editingId
     const badge = draftRowLabel(draftSource, row)
     return {
@@ -427,9 +427,6 @@ export function RouteEditor(props: RouteEditorProps) {
         </Button>
       ),
       children: expanded ? modelForm : undefined,
-      dragging: modelDrag.isDragging(index),
-      dropLine: modelDrag.lineAt(index, cardTotal),
-      dragHandlers: canReorder ? modelDrag.rowProps(index, row.id) : undefined,
     }
   }
 
@@ -461,11 +458,6 @@ export function RouteEditor(props: RouteEditorProps) {
         {modelForm}
       </ExpandableCard>
     ) : undefined
-
-  const modelCards = [
-    ...displayRows.map((row, index) => <ExpandableCard key={row.id} {...modelCard(row, index)} />),
-    ...(creatingCard !== undefined ? [creatingCard] : []),
-  ]
 
   // 「新增中」卡片追加在清单末尾，展开的表单常在视口外：打开时把它滚进来
   // （block: 'nearest'，本就在视口内时不产生滚动；输入过程中不重复滚动）。
@@ -540,6 +532,17 @@ export function RouteEditor(props: RouteEditorProps) {
               placeholder={route.displayName || route.provider}
               onChange={(value) => setProviderDraft({ ...providerDraft, displayName: value })}
             />
+            <TextField
+              label="默认推理等级（reasoning，可选）"
+              value={providerDraft.reasoning}
+              disabled={props.busy}
+              placeholder={route.effectiveProfile?.reasoning ?? '留空继承默认'}
+              datalist={props.choices.thinkingLevels.map((level) => ({ value: level }))}
+              error={
+                validateProviderReasoning(providerDraft.reasoning, props.choices.thinkingLevels)?.message
+              }
+              onChange={(value) => setProviderDraft({ ...providerDraft, reasoning: value })}
+            />
             {useBuiltin ? null : (
               <TextField
                 label="Endpoint（baseURL）"
@@ -567,15 +570,22 @@ export function RouteEditor(props: RouteEditorProps) {
         {useBuiltin ? null : (
           <section className={styles.section}>
             <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
-            {modelCards.length > 0 ? (
-              <div className={styles.rows} ref={modelListRef}>
-                {modelCards}
-              </div>
-            ) : (
-              <div className={styles.empty}>
-                {route.declared ? '手写 route 至少需要一个模型' : '没有用户层模型配置，全部继承安装目录'}
-              </div>
-            )}
+            <CardList
+              items={displayRows}
+              getKey={(row) => row.id}
+              renderCard={modelCard}
+              onReorder={canReorder ? reorderModel : undefined}
+              canDrag={() => !props.busy}
+              after={creatingCard}
+              empty={
+                creatingCard === undefined ? (
+                  <div className={styles.empty}>
+                    {route.declared ? '手写 route 至少需要一个模型' : '没有用户层模型配置，全部继承安装目录'}
+                  </div>
+                ) : null
+              }
+              listRef={modelListRef}
+            />
             <div className={styles.toolbar}>
               <Button
                 variant="outline"

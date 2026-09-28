@@ -31,6 +31,8 @@ export function TextField(props: {
   inputMode?: 'numeric'
   autoComplete?: 'off'
   disabled?: boolean
+  /** 挂载即聚焦（新建表单开卡即输入，省一次点击）。 */
+  autoFocus?: boolean
   /** 跨满网格整行（grid-column: 1 / -1）。 */
   wide?: boolean
   /** 输入框右侧的联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
@@ -50,6 +52,7 @@ export function TextField(props: {
     inputMode,
     autoComplete,
     disabled,
+    autoFocus,
     wide,
     addon,
     error,
@@ -70,6 +73,7 @@ export function TextField(props: {
           inputMode={inputMode}
           autoComplete={autoComplete}
           disabled={disabled}
+          autoFocus={autoFocus}
           onChange={(event) => onChange(event.target.value)}
         />
       ) : (
@@ -83,6 +87,7 @@ export function TextField(props: {
             inputMode={inputMode}
             autoComplete={autoComplete}
             disabled={disabled}
+            autoFocus={autoFocus}
             onChange={(event) => onChange(event.target.value)}
           />
           <button

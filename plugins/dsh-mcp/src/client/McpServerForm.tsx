@@ -408,6 +408,7 @@ function EditBody(props: {
           label="serverName（工具名前缀）"
           value={draft.serverName}
           placeholder="context7"
+          autoFocus={props.mode === 'create'}
           onChange={(serverName) => patch({ serverName })}
         />
         {draft.transport === 'stdio' ? (

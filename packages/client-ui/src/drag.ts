@@ -4,6 +4,7 @@ import type { DragEvent as ReactDragEvent } from 'react'
 /** 一次行拖拽的共享状态。 */
 interface RowDragState {
   from: number
+  keys: readonly string[]
   over: { index: number; half: 'before' | 'after' } | null
 }
 
@@ -49,15 +50,23 @@ function useNativeDragAcceptance(active: boolean): void {
   }, [active])
 }
 
-/**
- * 行拖拽排序控制器，语义对齐官方 workspace 的 Rows：onReorder(from, to)
- * 收到原始下标语义的目标位（半区边界已折算），原位放置不会触发调用；插入
- * 标记画在插入边界上，光标在边界两侧的行半区之间晃动时标记纹丝不动。
- */
+export function reorderTarget(
+  from: number,
+  over: { index: number; half: 'before' | 'after' },
+): number | null {
+  const insertAt = over.half === 'before' ? over.index : over.index + 1
+  if (insertAt === from || insertAt === from + 1) return null
+  return insertAt > from ? insertAt - 1 : insertAt
+}
+
+// 对齐官方 workspace Rows：onReorder 使用移除原行后的目标下标。
 export function useRowDragReorder(
   onReorder: ((from: number, to: number) => void) | undefined,
+  keys: readonly string[],
 ): RowDragControllers {
   const [drag, setDrag] = useState<RowDragState | undefined>(undefined)
+  const keysRef = useRef(keys)
+  keysRef.current = keys
   /** 一次拖拽只提交一次：drop 与 dragend 都可能先到。 */
   const dropCommitted = useRef(false)
   const reorderRef = useRef(onReorder)
@@ -68,9 +77,15 @@ export function useRowDragReorder(
     if (dropCommitted.current) return
     dropCommitted.current = true
     setDrag(undefined)
-    const insertAt = over.half === 'before' ? over.index : over.index + 1
-    if (insertAt === state.from || insertAt === state.from + 1) return
-    reorderRef.current?.(state.from, insertAt > state.from ? insertAt - 1 : insertAt)
+    const currentKeys = keysRef.current
+    if (
+      state.keys.length !== currentKeys.length ||
+      state.keys.some((key, index) => key !== currentKeys[index])
+    ) {
+      return
+    }
+    const target = reorderTarget(state.from, over)
+    if (target !== null) reorderRef.current?.(state.from, target)
   }
 
   return {
@@ -91,7 +106,7 @@ export function useRowDragReorder(
           event.dataTransfer.effectAllowed = 'move'
           event.dataTransfer.setData('text/plain', key)
           dropCommitted.current = false
-          setDrag({ from: index, over: null })
+          setDrag({ from: index, keys: [...keysRef.current], over: null })
         },
         onDragOver: (event) => {
           if (drag === undefined) return
