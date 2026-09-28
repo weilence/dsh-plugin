@@ -1,0 +1,10 @@
+# dsh-remote bundle patch
+#
+# 安装后（dependencies 与 dsh.profile.bundles 均含 dsh-remote），启动时
+# profile boot 合并本 patch，把插件行插入 host composition。只硬依赖
+# webServer（HTTP 桥）；profileContext 经 ctx.get() 可选访问——官方
+# web/desktop 组合都提供，缺席时本地插件清单 / MCP 读取降级为不可用，
+# 不影响连接管理与部署。
+- insert:
+    - id: dsh-remote
+      name: 'dsh-remote'

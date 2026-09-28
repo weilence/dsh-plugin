@@ -1,0 +1,87 @@
+{
+  "name": "dsh-remote",
+  "version": "0.1.0",
+  "description": "DSH web 插件（远程开发）：设置页新增「远程开发」菜单——经用户自备的 OpenSSH 别名管理远端机上的完整 dsh web 实例：一键部署（远端默认只装 dsh-remote）、连接（nohup 起实例 + SSH 端口转发 + token URL 直开）、断开；同步能力全部收敛在本插件面板：用户级 skills 单向同步（tar-over-ssh + 跟踪式删除）、本机 MCP 配置按条下发到远端 patch（comment 保留合并）、本地插件同步到远端（dsh plugin add / manifest 跟踪式移除）。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepack": "tsdown",
+    "watch": "tsdown --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "remote-development",
+    "ssh",
+    "sync"
+  ],
+  "engines": {
+    "node": ">=20",
+    "dsh": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weilence/dsh-plugins.git",
+    "directory": "plugins/dsh-remote"
+  },
+  "bugs": {
+    "url": "https://github.com/weilence/dsh-plugins/issues"
+  },
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-remote#readme",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.7-rc.2 <0.2.0",
+    "@deepseek-ai/dsh-home-paths": ">=0.1.7-rc.2 <0.2.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.1.7-rc.2 <0.2.0"
+  },
+  "devDependencies": {
+    "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/shared": "workspace:*",
+    "@dsh-plugins/tsdown-config": "workspace:*",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-home-paths": "catalog:",
+    "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "yaml": "^2.9.0"
+  }
+}

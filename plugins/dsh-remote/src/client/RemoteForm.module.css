@@ -1,0 +1,15 @@
+/* RemoteForm 表单私有样式；字段网格 / 开关行 / 清单类见
+ * @dsh-plugins/client-ui/styles（shared.module.css）。 */
+
+.formBody {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* footer 动作行（共享表里无此类，各插件自带同款）。 */
+.formActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}

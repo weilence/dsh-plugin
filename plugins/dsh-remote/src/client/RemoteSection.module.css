@@ -1,0 +1,23 @@
+/* RemoteSection 面板私有样式；共享行 / 表单 / 清单类见
+ * @dsh-plugins/client-ui/styles（shared.module.css）。 */
+
+.creatingRow {
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-secondary);
+  border-radius: 10px;
+}
+
+.actionCluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.dangerZone {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--dsw-alias-border-secondary);
+}
