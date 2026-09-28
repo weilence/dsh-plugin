@@ -1,15 +1,6 @@
 /* dsh-mcp 面板私有样式：面板骨架（Panel）、服务器卡片（RowCard）、
    工具条 / 卡片列表 / 弹窗档位等都在 @dsh-plugins/client-ui 的
-   shared.module.css。这里只剩 MCP 特有的两层 patch 路径展示条与
-   新建弹窗的输入模式切换行。 */
-
-/* 两层 patch 的路径展示条。 */
-.scopeBar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+   shared.module.css。这里只剩新建弹窗的输入模式切换行与工具清单。 */
 
 /* 新建弹窗的输入模式切换（表单 / JSON 粘贴）与解析操作行。候选勾选
    清单是共享组件 PickList（@dsh-plugins/client-ui），样式在
@@ -37,4 +28,11 @@
   line-height: 1.8;
   max-height: 180px;
   overflow: auto;
+}
+
+/* 展开卡片内表单底部的按钮行（取消 / 保存 / 导入选中）。 */
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }

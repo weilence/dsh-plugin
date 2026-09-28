@@ -142,21 +142,6 @@
   overflow-wrap: anywhere;
 }
 
-/* 路径短标：code 字体弱化底的圆角小条（超出省略，完整值看 title）。 */
-.scopePath {
-  font-family: var(--ds-font-family-code);
-  font-size: 11px;
-  line-height: 17px;
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-2);
-  border-radius: 6px;
-  padding: 4px 8px;
-  max-width: 420px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .checkRow {
   display: flex;
   gap: 14px;
@@ -355,12 +340,12 @@
 
 /* 状态 pill：base 为弱化底，tone 类只覆盖配色；超长文本省略。 */
 .pill {
-  font-size: 11px;
-  line-height: 17px;
+  font-size: 10px;
+  line-height: 15px;
   color: var(--dsw-alias-label-secondary);
   background: var(--dsw-alias-bg-layer-2);
   border-radius: 999px;
-  padding: 1px 8px;
+  padding: 0 7px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;

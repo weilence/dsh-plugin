@@ -9,7 +9,7 @@
 - `src/mcpConfig.ts`：配置校验与编辑合并（对齐官方 mcp-client Config schema）。
 - `src/live.ts`：Loader / 工具注册表运行态内省（结构化最小接口，防御式读取，服务缺席时降级）。
 - `src/shared.ts`：双端 wire 类型与常量。
-- `src/client/`：settings.section 面板 + 新建 / 编辑 / 查看弹窗；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-mcp`）。
+- `src/client/`：settings.section 面板；服务器为可展开卡片——点行在行内新建 / 编辑 / 查看（McpServerForm / McpServerView，编辑弹窗已移除）；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-mcp`）。
 
 ## 改动约定
 

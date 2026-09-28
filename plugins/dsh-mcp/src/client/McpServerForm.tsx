@@ -1,19 +1,13 @@
 /**
- * MCP 服务器编辑弹窗（新建 / 编辑 / 查看三态）。
- *
- * - 新建：选目标层（profile / home）+ 传输形态，按形态给字段；serverName
- *   即模型侧工具名前缀，创建后 patch 行 id 固定为 mcp-<serverName>；
- * - 编辑：从行快照回填，未知键（reconnect 等）host 侧原样保留；
- * - 查看：只读展示生效配置、运行态与已注册工具清单（只读来源也走此视图）。
- *
- * args / env / headers 用等宽 textarea 逐行编辑（args 一行一个、env 与
- * headers 为 KEY=VALUE），保存前客户端做前置校验，最终以 host 侧为准。
+ * MCP 服务器表单（新建 / 编辑）与只读详情视图，内嵌在列表的展开卡片里。
+ * 表单与 JSON 是同一份草稿的两种输入视图：新建的 JSON 粘贴解析三种方言
+ * → 勾选批量导入；编辑的 JSON 直接回填草稿（serverName 是行 id 锚点，
+ * 以表单为准）。保存与导入成功后回调 onDone，由父级收起卡片。
  */
 
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  Dialog,
   IssueList,
   MetaItem,
   PickList,
@@ -22,7 +16,14 @@ import {
   TextField,
   type PickItem,
 } from '@dsh-plugins/client-ui'
-import type { McpRow, McpScope, McpTransport, SaveRequest } from '../shared'
+import type {
+  McpConfigDraft,
+  McpEffectiveConfig,
+  McpRow,
+  McpScope,
+  McpTransport,
+  SaveRequest,
+} from '../shared'
 import { SERVER_NAME_PATTERN } from '../shared'
 import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
 import type { McpStore } from './store'
@@ -31,12 +32,15 @@ import local from './McpSection.module.css'
 
 const styles = { ...shared, ...local }
 
-export interface McpEditorProps {
-  mode: 'create' | 'edit' | 'view'
+export interface McpServerFormProps {
+  mode: 'create' | 'edit'
   row?: McpRow
   store: McpStore
   busy: boolean
   error: string | null
+  /** 保存 / 导入成功后回调（父级收起卡片）。 */
+  onDone(): void
+  /** 取消编辑（父级收起卡片，未保存的草稿丢弃）。 */
   onCancel(): void
 }
 
@@ -59,19 +63,20 @@ const TRANSPORT_LABELS: Record<McpTransport, string> = {
   'streamable-http': 'streamable-http（HTTP 端点）',
 }
 
-export function McpEditor(props: McpEditorProps) {
+export function McpServerForm(props: McpServerFormProps) {
   const { mode, row, store } = props
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props))
   const [touched, setTouched] = useState(false)
 
-  // 新建模式的两种输入：结构化表单 / 粘贴 JSON（mcpServers 包装、
-  // 名称直接映射与裸对象三种写法，名称一律来自 JSON）。编辑与查看
-  // 只有表单 / 只读视图。
+  // 两种输入视图共享同一份草稿：新建的 JSON 粘贴走批量导入（jsonText /
+  // parsed / picked），编辑的 JSON 直接回填草稿（jsonEdited）。
   const [inputMode, setInputMode] = useState<'form' | 'json'>('form')
   const [jsonText, setJsonText] = useState('')
   const [parsed, setParsed] = useState<McpJsonParseResult | null>(null)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [jsonError, setJsonError] = useState<string | null>(null)
+  const [jsonEdited, setJsonEdited] = useState<string | null>(null)
+  const [jsonEditError, setJsonEditError] = useState<string | null>(null)
 
   const knownServerNames = useMemo(
     () =>
@@ -85,6 +90,36 @@ export function McpEditor(props: McpEditorProps) {
 
   const issues = validateDraft(draft, mode, knownServerNames)
   const busy = props.busy
+
+  const switchInputMode = (next: 'form' | 'json'): void => {
+    setInputMode(next)
+    // 进入编辑的 JSON 视图时以当前草稿为准重新生成文本（表单侧的修改不丢）。
+    if (mode === 'edit' && next === 'json') {
+      setJsonEdited(jsonTextOf(draft))
+      setJsonEditError(null)
+    }
+  }
+
+  /** 编辑的 JSON 文本回填：解析成功即应用到草稿；serverName 由外层键给出，
+   *  回填时以当前行为准（名称改动 = 删除后新建，不走编辑）。 */
+  const applyJsonEdit = (text: string): void => {
+    setJsonEdited(text)
+    setJsonEditError(null)
+    if (text.trim().length === 0) return
+    try {
+      const result = parseMcpJsonText(text)
+      if (result.entries.length !== 1) {
+        setJsonEditError('需要恰好一个服务器对象；多台批量导入请用「新建服务器」的 JSON 粘贴')
+        return
+      }
+      setDraft((previous) => ({
+        ...draftFromConfig(result.entries[0].draft, previous.scope),
+        serverName: previous.serverName,
+      }))
+    } catch (error) {
+      setJsonEditError(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   const parseJson = (): void => {
     setJsonError(null)
@@ -117,163 +152,126 @@ export function McpEditor(props: McpEditorProps) {
       })
       if (!ok) return
     }
-    props.onCancel()
+    props.onDone()
   }
 
   const submit = async (): Promise<void> => {
     setTouched(true)
     if (issues.length > 0) return
-    const transport = draft.transport
     const request: SaveRequest = {
       scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
       ...(mode === 'edit' && row !== undefined ? { id: row.id } : {}),
-      config: {
-        transport,
-        serverName: draft.serverName.trim(),
-        ...(transport === 'stdio'
-          ? {
-              command: draft.command.trim(),
-              ...(draft.args.trim().length > 0
-                ? {
-                    args: draft.args
-                      .split(/\r?\n/)
-                      .map((line) => line.trim())
-                      .filter((line) => line.length > 0),
-                  }
-                : {}),
-              ...(parseEntries(draft.env, '=') !== undefined ? { env: parseEntries(draft.env, '=') } : {}),
-              ...(draft.cwd.trim().length > 0 ? { cwd: draft.cwd.trim() } : {}),
-            }
-          : {
-              url: draft.url.trim(),
-              ...(parseEntries(draft.headers, '=') !== undefined
-                ? { headers: parseEntries(draft.headers, '=') }
-                : {}),
-            }),
-        ...(draft.toolCallTimeoutMs.trim().length > 0
-          ? { toolCallTimeoutMs: Number(draft.toolCallTimeoutMs) }
-          : {}),
-        failOnStartupError: draft.failOnStartupError,
-      },
+      config: configOf(draft),
     }
-    if (await store.save(request)) props.onCancel()
+    if (await store.save(request)) props.onDone()
   }
 
-  const title =
-    mode === 'create'
-      ? '新建 MCP 服务器'
-      : mode === 'edit'
-        ? `编辑 ${row?.config.serverName ?? ''}`
-        : `查看 ${row?.config.serverName ?? row?.id ?? ''}`
-
   return (
-    <Dialog
-      title={title}
-      onClose={() => {
-        if (!props.busy) props.onCancel()
-      }}
-      meta={mode === 'view' ? `patch id：${row?.id ?? ''}` : targetHint(draft, mode, row)}
-      actions={
-        mode !== 'view' ? (
-          <>
-            <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-              取消
-            </Button>
-            {mode === 'create' && inputMode === 'json' ? (
-              <Button
-                variant="primary"
-                disabled={props.busy || parsed === null || picked.size === 0}
-                onClick={() => void importSelected()}
-              >
-                {props.busy ? '导入中…' : `导入选中（${picked.size}）`}
-              </Button>
-            ) : (
-              <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-                {props.busy ? '保存中…' : '保存'}
-              </Button>
-            )}
-          </>
-        ) : null
-      }
-    >
-      {mode === 'view' ? (
-        <ViewBody row={row} />
-      ) : (
-        <>
-          {mode === 'create' ? (
-            <div className={styles.tabRow}>
-              <Button
-                size="sm"
-                variant={inputMode === 'form' ? 'primary' : 'outline'}
-                onClick={() => setInputMode('form')}
-              >
-                表单输入
-              </Button>
-              <Button
-                size="sm"
-                variant={inputMode === 'json' ? 'primary' : 'outline'}
-                onClick={() => setInputMode('json')}
-              >
-                JSON 粘贴
-              </Button>
+    <div className={styles.section}>
+      <div className={styles.tabRow}>
+        <Button
+          size="sm"
+          variant={inputMode === 'form' ? 'primary' : 'outline'}
+          onClick={() => switchInputMode('form')}
+        >
+          表单输入
+        </Button>
+        <Button
+          size="sm"
+          variant={inputMode === 'json' ? 'primary' : 'outline'}
+          onClick={() => switchInputMode('json')}
+        >
+          {mode === 'create' ? 'JSON 粘贴' : 'JSON 编辑'}
+        </Button>
+      </div>
+      {mode === 'create' && inputMode === 'json' ? (
+        <JsonBody
+          jsonText={jsonText}
+          onText={setJsonText}
+          onParse={parseJson}
+          parsed={parsed}
+          picked={picked}
+          onTogglePick={togglePick}
+          scope={draft.scope}
+          onScope={(scope) => setDraft((previous) => ({ ...previous, scope }))}
+          jsonError={jsonError}
+          busy={busy}
+        />
+      ) : inputMode === 'json' ? (
+        <div className={styles.section}>
+          <TextAreaField
+            label="配置（外层键即 serverName，名称以当前行为准）"
+            value={jsonEdited ?? jsonTextOf(draft)}
+            spellCheck={false}
+            minHeight={280}
+            onChange={applyJsonEdit}
+          />
+          {jsonEditError !== null ? (
+            <div className={styles.error} role="alert">
+              {jsonEditError}
             </div>
           ) : null}
-          {mode === 'create' && inputMode === 'json' ? (
-            <JsonBody
-              jsonText={jsonText}
-              onText={setJsonText}
-              onParse={parseJson}
-              parsed={parsed}
-              picked={picked}
-              onTogglePick={togglePick}
-              scope={draft.scope}
-              onScope={(scope) => setDraft((previous) => ({ ...previous, scope }))}
-              jsonError={jsonError}
-              busy={props.busy}
-            />
-          ) : (
-            <EditBody
-              draft={draft}
-              setDraft={setDraft}
-              mode={mode}
-              issues={issues}
-              touched={touched}
-              error={props.error}
-            />
-          )}
-        </>
+        </div>
+      ) : (
+        <EditBody
+          draft={draft}
+          setDraft={setDraft}
+          mode={mode}
+          issues={issues}
+          touched={touched}
+          error={props.error}
+        />
       )}
-    </Dialog>
+      <div className={styles.formActions}>
+        <Button variant="outline" disabled={busy} onClick={props.onCancel}>
+          取消
+        </Button>
+        {mode === 'create' && inputMode === 'json' ? (
+          <Button
+            variant="primary"
+            disabled={busy || parsed === null || picked.size === 0}
+            onClick={() => void importSelected()}
+          >
+            {busy ? '导入中…' : `导入选中（${picked.size}）`}
+          </Button>
+        ) : (
+          <Button variant="primary" disabled={busy} onClick={() => void submit()}>
+            {busy ? '保存中…' : '保存'}
+          </Button>
+        )}
+      </div>
+    </div>
   )
 }
 
-function ViewBody(props: { row: McpRow | undefined }) {
+/** 只读详情（bundle / overlay 等不可编辑来源的展开体）。 */
+export function McpServerView(props: { row: McpRow }) {
   const { row } = props
-  const configText = useMemo(() => JSON.stringify(row?.config ?? {}, null, 2), [row])
+  const configText = useMemo(() => JSON.stringify(row.config ?? {}, null, 2), [row])
   return (
     <div className={styles.section}>
       <div className={styles.metaGrid}>
-        <MetaItem label="serverName" value={row?.config.serverName} />
+        <MetaItem label="serverName" value={row.config.serverName} />
         <MetaItem
           label="传输"
           value={
-            row?.config.transport === 'stdio'
+            row.config.transport === 'stdio'
               ? 'stdio'
-              : row?.config.transport === 'streamable-http'
+              : row.config.transport === 'streamable-http'
                 ? 'streamable-http'
                 : '—'
           }
         />
-        <MetaItem label="端点" value={row ? endpointText(row) : undefined} wide />
-        <MetaItem label="运行态" value={row?.live ? liveText(row) : '待生效（尚未挂载）'} />
-        <MetaItem label="工具数" value={row?.live ? String(row.live.tools.length) : '—'} />
+        <MetaItem label="端点" value={endpointText(row)} wide />
+        <MetaItem label="运行态" value={row.live ? liveText(row) : '待生效（尚未挂载）'} />
+        <MetaItem label="工具数" value={row.live ? String(row.live.tools.length) : '—'} />
       </div>
-      {row?.live?.error !== undefined ? (
+      {row.live?.error !== undefined ? (
         <div className={styles.error} role="alert">
           {row.live.error}
         </div>
       ) : null}
-      {row?.live && row.live.tools.length > 0 ? (
+      {row.live && row.live.tools.length > 0 ? (
         <div className={styles.bodyField}>
           <span className={styles.label}>已注册工具</span>
           <ul className={styles.toolList}>
@@ -352,13 +350,6 @@ function JsonBody(props: {
           }))}
         />
       ) : null}
-      <p className={styles.hint}>
-        {
-          '兼容 Agent Plugins mcp.json 与 Claude .mcp.json 的 mcpServers 格式；{"名称": {...}} 直接映射同样支持，'
-        }
-        裸对象自动从 command / URL 推导名称；http / sse 归一为 streamable-http；表单外的未知键（reconnect
-        等）原样透传，由 Loader 加载时校验；{'${PLUGIN_ROOT}'} 类占位符 DSH 无法解析，会直接报错。
-      </p>
     </div>
   )
 }
@@ -390,8 +381,8 @@ function EditBody(props: {
   const patch = (partial: Partial<DraftState>): void => setDraft((previous) => ({ ...previous, ...partial }))
   return (
     <div className={styles.section}>
-      {props.mode === 'create' ? (
-        <div className={styles.grid}>
+      <div className={styles.grid}>
+        {props.mode === 'create' ? (
           <SelectField
             label="目标层"
             value={draft.scope}
@@ -401,30 +392,17 @@ function EditBody(props: {
             ]}
             onChange={(scope) => patch({ scope: scope as McpScope })}
           />
-          <SelectField
-            label="传输形态"
-            value={draft.transport}
-            options={[
-              { value: 'stdio', label: TRANSPORT_LABELS.stdio },
-              { value: 'streamable-http', label: TRANSPORT_LABELS['streamable-http'] },
-            ]}
-            onChange={(transport) => patch({ transport: transport as McpTransport })}
-          />
-        </div>
-      ) : (
-        <div className={styles.grid}>
-          <TextField
-            label="传输（编辑时不可改）"
-            value={TRANSPORT_LABELS[draft.transport]}
-            disabled
-            onChange={() => {}}
-          />
-          <div className={styles.fieldWide}>
-            <span className={styles.label}>目标</span>
-            <span className={styles.hintLine}>{targetHint(draft, props.mode, undefined)}</span>
-          </div>
-        </div>
-      )}
+        ) : null}
+        <SelectField
+          label="传输形态"
+          value={draft.transport}
+          options={[
+            { value: 'stdio', label: TRANSPORT_LABELS.stdio },
+            { value: 'streamable-http', label: TRANSPORT_LABELS['streamable-http'] },
+          ]}
+          onChange={(transport) => patch({ transport: transport as McpTransport })}
+        />
+      </div>
       <div className={styles.grid}>
         <TextField
           label="serverName（工具名前缀）"
@@ -498,10 +476,6 @@ function EditBody(props: {
           </label>
         </div>
       </div>
-      <p className={styles.hint}>
-        高级键（reconnect / maxInstructionBytes 等）不在表单内：编辑时原样保留，可手动改 patch 文件。
-        serverName 决定模型看到的工具名前缀 mcp__&lt;serverName&gt;__*，全局唯一。
-      </p>
       {props.touched && props.issues.length > 0 ? (
         <IssueList issues={props.issues.map((message) => ({ message }))} />
       ) : null}
@@ -555,17 +529,51 @@ function parseEntries(text: string, separator: string): Record<string, string> |
   return Object.keys(record).length > 0 ? record : undefined
 }
 
-function initialDraft(props: McpEditorProps): DraftState {
-  const config = props.row?.config ?? {}
-  const entriesText = (value: unknown): string =>
-    typeof value === 'object' && value !== null && !Array.isArray(value)
-      ? Object.entries(value as Record<string, unknown>)
-          .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-          .map(([key, val]) => `${key}=${val}`)
-          .join('\n')
-      : ''
+function entriesText(value: unknown): string {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? Object.entries(value as Record<string, unknown>)
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        .map(([key, val]) => `${key}=${val}`)
+        .join('\n')
+    : ''
+}
+
+/** 草稿 → 单服务器 config 对象（保存写入与 JSON 视图的序列化同源）。 */
+function configOf(draft: DraftState): McpConfigDraft {
   return {
-    scope: props.mode === 'create' ? 'profile' : ((props.row?.scope as McpScope) ?? 'profile'),
+    transport: draft.transport,
+    serverName: draft.serverName.trim(),
+    ...(draft.transport === 'stdio'
+      ? {
+          command: draft.command.trim(),
+          ...(draft.args.trim().length > 0
+            ? {
+                args: draft.args
+                  .split(/\r?\n/)
+                  .map((line) => line.trim())
+                  .filter((line) => line.length > 0),
+              }
+            : {}),
+          ...(parseEntries(draft.env, '=') !== undefined ? { env: parseEntries(draft.env, '=') } : {}),
+          ...(draft.cwd.trim().length > 0 ? { cwd: draft.cwd.trim() } : {}),
+        }
+      : {
+          url: draft.url.trim(),
+          ...(parseEntries(draft.headers, '=') !== undefined
+            ? { headers: parseEntries(draft.headers, '=') }
+            : {}),
+        }),
+    ...(draft.toolCallTimeoutMs.trim().length > 0
+      ? { toolCallTimeoutMs: Number(draft.toolCallTimeoutMs) }
+      : {}),
+    failOnStartupError: draft.failOnStartupError,
+  }
+}
+
+/** config 对象 → 草稿（JSON 视图回填；scope 由调用方给定）。 */
+function draftFromConfig(config: McpConfigDraft | McpEffectiveConfig, scope: McpScope): DraftState {
+  return {
+    scope,
     transport: config.transport === 'streamable-http' ? 'streamable-http' : 'stdio',
     serverName: typeof config.serverName === 'string' ? config.serverName : '',
     command: typeof config.command === 'string' ? config.command : '',
@@ -581,12 +589,18 @@ function initialDraft(props: McpEditorProps): DraftState {
   }
 }
 
-function validateDraft(
-  draft: DraftState,
-  mode: 'create' | 'edit' | 'view',
-  knownServerNames: Set<string>,
-): string[] {
-  if (mode === 'view') return []
+function initialDraft(props: McpServerFormProps): DraftState {
+  const scope = props.mode === 'create' ? 'profile' : ((props.row?.scope as McpScope) ?? 'profile')
+  return draftFromConfig(props.row?.config ?? {}, scope)
+}
+
+/** 编辑 JSON 视图的文本：外层键即 serverName，值为其 config。 */
+function jsonTextOf(draft: DraftState): string {
+  const { serverName, ...rest } = configOf(draft)
+  return JSON.stringify({ [serverName]: rest }, null, 2)
+}
+
+function validateDraft(draft: DraftState, mode: 'create' | 'edit', knownServerNames: Set<string>): string[] {
   const issues: string[] = []
   if (!SERVER_NAME_PATTERN.test(draft.serverName.trim())) {
     issues.push('serverName 需匹配 ^[A-Za-z0-9_-]{1,32}$，如 context7')
@@ -611,10 +625,4 @@ function validateDraft(
     if (!Number.isFinite(value) || value <= 0) issues.push('调用超时必须是正数（毫秒）')
   }
   return issues
-}
-
-function targetHint(draft: DraftState, mode: 'create' | 'edit' | 'view', row: McpRow | undefined): string {
-  if (mode === 'edit' && row !== undefined)
-    return `patch id ${row.id} · ${row.scope === 'home' ? '全局层' : 'Profile 层'}`
-  return `将写入${draft.scope === 'home' ? '全局层' : 'Profile 层'}，行 id mcp-${draft.serverName.trim() || '<serverName>'}`
 }

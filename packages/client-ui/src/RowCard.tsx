@@ -1,14 +1,6 @@
 import type { ReactNode } from 'react'
+import { Pill, type PillData } from './Pill'
 import shared from './shared.module.css'
-
-export interface RowCardPill {
-  text: ReactNode
-  /** neutral = 弱化底（默认）；ok / err / warn = 语义色；brand = 品牌色
-   *  （Git 来源等自定义标记）。 */
-  tone?: 'neutral' | 'ok' | 'err' | 'warn' | 'brand'
-  /** 悬停说明（完整路径、上游详情等）。 */
-  title?: string
-}
 
 /** 行卡片：标题行（名称 + 徽标 + 状态 pill 组）+ 描述 / 说明 / 路径 / 错误行
  *  + 右侧动作列。不可展开；可展开场景用 ExpandableCard。 */
@@ -16,7 +8,7 @@ export function RowCard(props: {
   title: ReactNode
   /** 紧跟标题后的静态徽标（来源、传输形态等，弱化 pill）。 */
   badge?: ReactNode
-  pills?: readonly RowCardPill[]
+  pills?: readonly PillData[]
   description?: ReactNode
   /** 次级说明行（适用时机等，弱化色）。 */
   note?: ReactNode
@@ -26,16 +18,6 @@ export function RowCard(props: {
   error?: string
   actions?: ReactNode
 }) {
-  const pillClass = (tone: RowCardPill['tone']) =>
-    tone === undefined || tone === 'neutral'
-      ? shared.pill
-      : tone === 'ok'
-        ? shared.pillOk
-        : tone === 'err'
-          ? shared.pillErr
-          : tone === 'warn'
-            ? shared.pillWarn
-            : shared.pillBrand
   return (
     <section className={shared.row}>
       <div className={shared.rowMain}>
@@ -43,9 +25,7 @@ export function RowCard(props: {
           <span className={shared.rowName}>{props.title}</span>
           {props.badge}
           {props.pills?.map((pill, index) => (
-            <span key={index} className={pillClass(pill.tone)} title={pill.title}>
-              {pill.text}
-            </span>
+            <Pill key={index} text={pill.text} tone={pill.tone} title={pill.title} />
           ))}
         </div>
         {props.description !== undefined ? <p className={shared.rowDesc}>{props.description}</p> : null}

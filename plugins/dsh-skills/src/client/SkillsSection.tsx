@@ -1,19 +1,20 @@
 /**
  * 设置页「Skills 管理」面板：管理范围固定两档——「工作区级」（跟随主视图
- * 会话的工作目录）与「全局」——外加技能目录列表、新建 / 编辑弹窗、删除
- * 确认、Git 安装与更新跟踪。数据经 SkillsStore 与 host 桥交互；面板卸载
- * 时清一次性提示（Toast 计时只在挂载期间有效）。
+ * 会话的工作目录）与「全局」——外加技能卡片列表（点行展开即编辑 / 查看，
+ * 新建技能在列表末尾追加展开态卡片）、删除确认、Git 安装与更新跟踪。
+ * 数据经 SkillsStore 与 host 桥交互；面板卸载时清一次性提示（Toast 计时
+ * 只在挂载期间有效）。
  */
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { ConfirmDialog, Panel, RowCard, SelectField, fieldInputCls } from '@dsh-plugins/client-ui'
-import type { GitCheckResult, RootInfo, SkillRow } from '../shared'
+import { ConfirmDialog, ExpandableCard, Panel, SelectField, fieldInputCls } from '@dsh-plugins/client-ui'
+import type { SkillRow } from '../shared'
 import { sourceLabel, sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
 import { updateKey } from './store'
-import { SkillEditor } from './SkillEditor'
+import { SkillForm, SkillView } from './SkillForm'
 import { GitInstallDialog } from './GitInstallDialog'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SkillsSection.module.css'
@@ -116,14 +117,22 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   }
 
   const [creating, setCreating] = useState(false)
-  const [editing, setEditing] = useState<SkillRow | undefined>(undefined)
-  const [viewing, setViewing] = useState<SkillRow | undefined>(undefined)
+  /** 展开中的行：可编辑行展开 = 编辑，只读 / Git 行展开 = 查看。 */
+  const [openKey, setOpenKey] = useState<string | undefined>(undefined)
   const [deleting, setDeleting] = useState<SkillRow | undefined>(undefined)
   const [installing, setInstalling] = useState(false)
   /** 列表过滤关键字（名称 / 描述 / 适用场景，大小写不敏感）。 */
   const [filter, setFilter] = useState('')
   /** 「本地已修改」行的更新需确认（将覆盖本地改动）。 */
   const [confirmUpdate, setConfirmUpdate] = useState<SkillRow | undefined>(undefined)
+  const rowsRef = useRef<HTMLDivElement | null>(null)
+
+  /** 行的展开标识：作用域 + 根 + 名称在列表内唯一。 */
+  const skillKey = (skill: SkillRow): string => `${skill.source}:${skill.rootId ?? ''}:${skill.name}`
+  const collapse = (): void => {
+    setCreating(false)
+    setOpenKey(undefined)
+  }
 
   const ordered = useMemo(
     () =>
@@ -162,10 +171,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   const busy = state.busy !== null || state.loadingFile !== null
 
   return (
-    <Panel
-      title="Skills 管理"
-      subtitle="管理工作区级与全局的技能：直接扫描标准技能根（.dsh/skills 与 .agents/skills）并按官方规则校验，新建 / 编辑 / 删除技能文件；内置与自定义目录等只读来源仅展示。"
-    >
+    <Panel title="Skills 管理">
       <div className={styles.scopeBar}>
         <div className={styles.scopeField}>
           <SelectField
@@ -178,20 +184,10 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             onChange={(value) => changeMode(value as ScopeMode)}
           />
         </div>
-        {mode === 'workspace' ? (
-          workspaceCwd !== undefined ? (
-            <span className={styles.scopePath} title={workspaceCwd}>
-              {workspaceCwd}
-            </span>
-          ) : (
-            <span className={styles.scopeHint}>当前没有打开的工作区会话，先显示全局技能</span>
-          )
+        {mode === 'workspace' && workspaceCwd === undefined ? (
+          <span className={styles.scopeHint}>当前没有打开的工作区会话，先显示全局技能</span>
         ) : null}
       </div>
-      <p className={styles.hint}>
-        新增、删除技能或修改名称 / 描述后，正在运行的会话会在下一个回复自动收到新目录（约 0.2
-        秒稳定窗，无需刷新）；修改正文不重播目录，但下次调用 skill 工具即读到新内容。
-      </p>
 
       {state.error ? (
         <div className={styles.error} role="alert">
@@ -202,7 +198,14 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
       <div className={styles.listToolbar}>
-        <Button variant="primary" disabled={state.status !== 'ready'} onClick={() => setCreating(true)}>
+        <Button
+          variant="primary"
+          disabled={state.status !== 'ready'}
+          onClick={() => {
+            setOpenKey(undefined)
+            setCreating(!creating)
+          }}
+        >
           新建技能
         </Button>
         <Button variant="outline" disabled={state.status !== 'ready'} onClick={() => setInstalling(true)}>
@@ -239,24 +242,135 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         </div>
       ) : null}
 
-      <div className={styles.rows}>
-        {visible.map((skill) => (
-          <SkillCard
-            key={`${skill.source}:${skill.name}:${skill.path ?? ''}`}
-            skill={skill}
-            roots={state.roots}
-            busy={busy || state.busy === skill.name}
-            update={
-              skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined
-            }
-            updating={state.gitBusy === 'update'}
-            onView={() => setViewing(skill)}
-            onEdit={() => setEditing(skill)}
-            onDelete={() => setDeleting(skill)}
-            onUpdate={() => requestUpdate(skill)}
-          />
-        ))}
-        {visible.length === 0 && state.status === 'ready' ? (
+      <div className={styles.rows} ref={rowsRef}>
+        {visible.map((skill) => {
+          const key = skillKey(skill)
+          const open = openKey === key
+          const update =
+            skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined
+          return (
+            <ExpandableCard
+              key={`${skill.source}:${skill.name}:${skill.path ?? ''}`}
+              title={skill.name}
+              pills={[
+                ...(readonlyLabelOf(skill.source) !== null
+                  ? [{ text: readonlyLabelOf(skill.source), title: skill.path }]
+                  : []),
+                ...(skill.git !== undefined
+                  ? [
+                      {
+                        text: <>Git · {repoLabelOf(skill.git.url)}</>,
+                        tone: 'brand' as const,
+                        title: `Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`,
+                      },
+                    ]
+                  : []),
+                ...(update?.status === 'update'
+                  ? [
+                      {
+                        text: '有更新' as const,
+                        tone: 'warn' as const,
+                        title:
+                          update.description !== undefined
+                            ? `上游描述：${update.description}`
+                            : '上游有新版本',
+                      },
+                    ]
+                  : []),
+                ...(update?.status === 'local'
+                  ? [
+                      {
+                        text: '有更新 · 本地已修改' as const,
+                        tone: 'warn' as const,
+                        title: '上游有新版本；本地内容也被修改过，更新将覆盖本地改动',
+                      },
+                    ]
+                  : []),
+                ...(update?.status === 'removed'
+                  ? [{ text: '上游已移除' as const, title: '上游仓库里已发现不到该技能目录' }]
+                  : []),
+                ...(skill.invalid !== undefined
+                  ? [{ text: <>无效：{skill.invalid}</>, tone: 'err' as const, title: skill.invalid }]
+                  : []),
+                ...(skill.effective ? [] : [{ text: '被同名来源遮蔽' as const }]),
+                ...(skill.userInvocable ? [] : [{ text: '用户不可调用' as const }]),
+              ]}
+              description={skill.description.length > 0 ? skill.description : '（无描述）'}
+              note={skill.whenToUse !== undefined ? <>适用：{skill.whenToUse}</> : undefined}
+              path={skill.path}
+              open={open}
+              onToggle={() => {
+                if (busy) return
+                setCreating(false)
+                setOpenKey(open ? undefined : key)
+              }}
+              actions={
+                <>
+                  {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || state.gitBusy === 'update'}
+                      onClick={() => requestUpdate(skill)}
+                    >
+                      更新
+                    </Button>
+                  ) : null}
+                  {skill.editable ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={styles.dangerGhost}
+                      disabled={busy}
+                      onClick={() => setDeleting(skill)}
+                    >
+                      删除
+                    </Button>
+                  ) : null}
+                </>
+              }
+            >
+              {open ? (
+                skill.editable ? (
+                  <SkillForm
+                    mode="edit"
+                    skill={skill}
+                    roots={state.roots}
+                    skills={state.skills}
+                    busy={busy || state.busy === skill.name}
+                    error={state.error}
+                    store={store}
+                    onDone={collapse}
+                    onCancel={collapse}
+                  />
+                ) : (
+                  <SkillView skill={skill} busy={busy} error={state.error} store={store} />
+                )
+              ) : null}
+            </ExpandableCard>
+          )
+        })}
+        {creating ? (
+          <ExpandableCard
+            title="新建技能"
+            open
+            onToggle={() => {
+              if (!busy) setCreating(false)
+            }}
+          >
+            <SkillForm
+              mode="create"
+              roots={state.roots}
+              skills={state.skills}
+              busy={busy}
+              error={state.error}
+              store={store}
+              onDone={collapse}
+              onCancel={collapse}
+            />
+          </ExpandableCard>
+        ) : null}
+        {visible.length === 0 && state.status === 'ready' && !creating ? (
           <div className={styles.empty}>
             {keyword.length > 0 ? (
               <>没有匹配「{filter.trim()}」的技能</>
@@ -272,17 +386,6 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         ) : null}
       </div>
 
-      {creating ? (
-        <SkillEditor
-          mode="create"
-          roots={state.roots}
-          skills={state.skills}
-          busy={busy}
-          error={state.error}
-          store={store}
-          onCancel={() => setCreating(false)}
-        />
-      ) : null}
       {installing ? (
         <GitInstallDialog
           store={store}
@@ -292,30 +395,6 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           installing={state.gitBusy === 'install'}
           error={state.error}
           onClose={() => setInstalling(false)}
-        />
-      ) : null}
-      {editing !== undefined ? (
-        <SkillEditor
-          mode="edit"
-          skill={editing}
-          roots={state.roots}
-          skills={state.skills}
-          busy={busy}
-          error={state.error}
-          store={store}
-          onCancel={() => setEditing(undefined)}
-        />
-      ) : null}
-      {viewing !== undefined ? (
-        <SkillEditor
-          mode="view"
-          skill={viewing}
-          roots={state.roots}
-          skills={state.skills}
-          busy={busy}
-          error={state.error}
-          store={store}
-          onCancel={() => setViewing(undefined)}
         />
       ) : null}
 
@@ -333,6 +412,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           onConfirm={() => {
             const target = deleting
             setDeleting(undefined)
+            if (openKey === skillKey(target)) setOpenKey(undefined)
             void store.remove(target)
           }}
         />
@@ -355,103 +435,5 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         />
       ) : null}
     </Panel>
-  )
-}
-
-function SkillCard(props: {
-  skill: SkillRow
-  roots: readonly RootInfo[]
-  busy: boolean
-  update?: GitCheckResult
-  updating: boolean
-  onView(): void
-  onEdit(): void
-  onDelete(): void
-  onUpdate(): void
-}) {
-  const { skill } = props
-  const update = props.update
-  return (
-    <RowCard
-      title={skill.name}
-      pills={[
-        ...(readonlyLabelOf(skill.source) !== null
-          ? [{ text: readonlyLabelOf(skill.source), title: skill.path }]
-          : []),
-        ...(skill.git !== undefined
-          ? [
-              {
-                text: <>Git · {repoLabelOf(skill.git.url)}</>,
-                tone: 'brand' as const,
-                title: `Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`,
-              },
-            ]
-          : []),
-        ...(update?.status === 'update'
-          ? [
-              {
-                text: '有更新' as const,
-                tone: 'warn' as const,
-                title: update.description !== undefined ? `上游描述：${update.description}` : '上游有新版本',
-              },
-            ]
-          : []),
-        ...(update?.status === 'local'
-          ? [
-              {
-                text: '有更新 · 本地已修改' as const,
-                tone: 'warn' as const,
-                title: '上游有新版本；本地内容也被修改过，更新将覆盖本地改动',
-              },
-            ]
-          : []),
-        ...(update?.status === 'removed'
-          ? [{ text: '上游已移除' as const, title: '上游仓库里已发现不到该技能目录' }]
-          : []),
-        ...(skill.invalid !== undefined
-          ? [{ text: <>无效：{skill.invalid}</>, tone: 'err' as const, title: skill.invalid }]
-          : []),
-        ...(skill.effective ? [] : [{ text: '被同名来源遮蔽' as const }]),
-        ...(skill.userInvocable ? [] : [{ text: '用户不可调用' as const }]),
-      ]}
-      description={skill.description.length > 0 ? skill.description : '（无描述）'}
-      note={skill.whenToUse !== undefined ? <>适用：{skill.whenToUse}</> : undefined}
-      actions={
-        <>
-          {(update?.status === 'update' || update?.status === 'local') && skill.editable ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={props.busy || props.updating}
-              onClick={props.onUpdate}
-            >
-              更新
-            </Button>
-          ) : null}
-          {/* 查看：给不可编辑的行（只读来源 / Git 安装）留信息入口；可编辑行用编辑看详情。 */}
-          {!skill.editable || skill.git !== undefined ? (
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onView}>
-              查看
-            </Button>
-          ) : null}
-          {skill.editable && skill.git === undefined ? (
-            <Button variant="outline" size="sm" disabled={props.busy} onClick={props.onEdit}>
-              编辑
-            </Button>
-          ) : null}
-          {skill.editable ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={styles.dangerGhost}
-              disabled={props.busy}
-              onClick={props.onDelete}
-            >
-              删除
-            </Button>
-          ) : null}
-        </>
-      }
-    />
   )
 }

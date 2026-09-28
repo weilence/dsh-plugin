@@ -116,7 +116,6 @@ export function SkillEditor(props: SkillEditorProps) {
       onClose={() => {
         if (!props.busy) props.onCancel()
       }}
-      meta={mode === 'create' ? targetHint(draft, props.roots) : undefined}
       actions={
         mode !== 'view' ? (
           <>
@@ -250,10 +249,6 @@ export function SkillEditor(props: SkillEditorProps) {
             minHeight={260}
             onChange={(body) => setDraft((previous) => ({ ...previous, body }))}
           />
-          <p className={styles.hint}>
-            frontmatter 之外的未知字段会在保存时原样保留；两个开关保持开启时不会写入对应键
-            （官方缺省即允许）。
-          </p>
           {touched && issues.length > 0 ? (
             <IssueList issues={issues.map((message) => ({ message }))} />
           ) : null}
@@ -299,10 +294,4 @@ function validateDraft(
   }
   if (draft.description.trim().length === 0) issues.push('描述不能为空')
   return issues
-}
-
-function targetHint(draft: DraftState, roots: readonly RootInfo[]): string {
-  const root = roots.find((candidate) => candidate.id === draft.rootId)
-  const label = root !== undefined ? `${root.label} · ${root.path}` : draft.rootId
-  return draft.format === 'bundle' ? `将创建 <name>/SKILL.md（${label}）` : `将创建 <name>.md（${label}）`
 }

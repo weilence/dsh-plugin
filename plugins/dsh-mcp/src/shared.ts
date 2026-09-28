@@ -117,14 +117,6 @@ export interface DeleteRequest {
   id: string
 }
 
-/** 作用域展示名。 */
-export const SCOPE_LABELS: Record<McpScope | McpReadOnlySource, string> = {
-  profile: '本 Profile',
-  home: '全局（~/.dsh）',
-  bundle: 'Bundle 声明',
-  overlay: '运行时覆盖（--patch）',
-}
-
 /** serverName → 稳定 patch 行 id。 */
 export function rowIdOf(serverName: string): string {
   return `mcp-${serverName}`

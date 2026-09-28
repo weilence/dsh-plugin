@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RowDragHandlers } from './drag'
+import { Pill, type PillData } from './Pill'
+import shared from './shared.module.css'
 import styles from './ExpandableCard.module.css'
 
 export interface ExpandableCardInfoItem {
@@ -22,8 +24,18 @@ export interface ExpandableCardProps {
   meta?: ReactNode
   /** 标题行主文本后的附加标记（徽标）。 */
   badge?: ReactNode
+  /** 标题行上的状态 pill 组。 */
+  pills?: readonly PillData[]
+  /** 标题行下的描述行（端点等，普通字重）。 */
+  description?: ReactNode
+  /** 次级说明行（适用时机等，弱化色）。 */
+  note?: ReactNode
+  /** 错误行（错误色，最多两行截断）。 */
+  error?: string
   /** 行头的 label / value 信息项，空缺省不渲染。 */
   info?: readonly ExpandableCardInfoItem[]
+  /** 等宽字体的路径行（patch id 等，超出省略）。 */
+  path?: ReactNode
   /** 行头右侧动作区（阻止冒泡，不触发展开）。 */
   actions?: ReactNode
   /** 行头与展开体之间的整卡提示行。 */
@@ -76,10 +88,20 @@ export function ExpandableCard(props: ExpandableCardProps) {
           <span className={styles.titleRow}>
             <span className={styles.title}>{props.title}</span>
             {props.badge}
+            {props.pills?.map((pill, index) => (
+              <Pill key={index} text={pill.text} tone={pill.tone} title={pill.title} />
+            ))}
             {props.meta !== undefined && props.meta !== '' ? (
               <span className={styles.meta}>{props.meta}</span>
             ) : null}
           </span>
+          {props.description !== undefined ? <p className={shared.rowDesc}>{props.description}</p> : null}
+          {props.note !== undefined ? <p className={shared.rowWhen}>{props.note}</p> : null}
+          {props.error !== undefined && props.error.length > 0 ? (
+            <p className={shared.rowErrText} title={props.error}>
+              {props.error}
+            </p>
+          ) : null}
           {props.info !== undefined && props.info.length > 0 ? (
             <div className={styles.info}>
               {props.info.map((item) => (
@@ -90,6 +112,7 @@ export function ExpandableCard(props: ExpandableCardProps) {
               ))}
             </div>
           ) : null}
+          {props.path !== undefined ? <p className={shared.rowPath}>{props.path}</p> : null}
         </div>
         {props.actions !== undefined ? (
           <div className={styles.actions} onClick={(event) => event.stopPropagation()}>
