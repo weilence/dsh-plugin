@@ -11,12 +11,12 @@
 - `src/patchDoc.ts`：远端 patch 的注释保留合并（按行 id 整块 upsert / 移除；编辑面比 dsh-mcp 的 patchFile 小）。
 - `src/localenv.ts`：本机清单读取（skills 两根扫描、两层 patch 的 MCP 行 fold 与插件行——插件行含安装形态与包定位：层 package.json dependencies 的 link:/file: spec 为本地、spec 目标即包根；registry 行定位层内 node_modules 实体）——全部只读。
 - `src/connections.ts`：`$DSH_HOME/dsh-remote.json` 持久化（连接库 + 同步 manifest）与保存请求校验。
-- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按相渲染，行上带「同步…」与「删除」），行内编辑表单只管基本信息；三类同步的勾选清单在 SyncDialog（同步弹窗：skills / MCP / 插件 + 插件安装方式，确认即保存清单并一次 `sync all`）；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-remote`）。
+- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按相渲染，行上带同步下拉（hover 展开三项菜单）与「删除」），行内编辑表单只管基本信息；菜单选类别后 SyncDialog 打开该类勾选清单（保存即同步该类；wire 仍支持 kind=all 一次串行三类）；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-remote`）。
 
 ## 改动约定
 
 - 远端 profile 固定 `web`（`REMOTE_PROFILE` 常量；面板无输入、wire 无字段。shipped web 模板含 dsh-web-app——`--no-open`/`--port 0` 是它的 flag、`dsh web:` token 行由它输出；headless 模板是一次性 agent，两者缺一连接即不成立）；远端 dsh 版本部署时对齐本机运行时（host 侧沿 node_modules 查找序探测 `@deepseek-ai/dsh-app-boot/package.json`，解析不到装 latest）。
-- 三类同步一律手动触发（SyncDialog 一次 all 或单类），连接路径零同步动作；skills 按连接勾选的 skillNames 推送（tar 只打包勾选名，取消勾选的按 manifest 跟踪删除）；「同步本地插件」逐插件版本对比后分流：本地路径安装恒本地打包传输（未发布的开发版本也能到达远端），registry 插件按连接选项 `sync.registryPluginInstall` 选「本地传输」或「远端 npm 下载（add name@本机version）」；取消勾选按 manifest `remove`（只移除本插件装过的）；skills / MCP 同理跟踪式删除，远端手装内容零接触。
+- 三类同步一律手动触发（下拉菜单选类别 → 弹窗勾选 → 同步该类），连接路径零同步动作；skills 按连接勾选的 skillNames 推送（tar 只打包勾选名，取消勾选的按 manifest 跟踪删除）；「同步本地插件」逐插件版本对比后分流：本地路径安装恒本地打包传输（未发布的开发版本也能到达远端），registry 插件按连接选项 `sync.registryPluginInstall` 选「本地传输」或「远端 npm 下载（add name@本机version）」；取消勾选按 manifest `remove`（只移除本插件装过的）；skills / MCP 同理跟踪式删除，远端手装内容零接触。
 - 远端装本插件不走 registry（裸名被第三方占用）：部署时对比远端 `node_modules/@weilence/dsh-remote` 的 version 与 profile 登记和本机一致则跳过；否则 `packPlugin` 本地组装 tgz（npm tarball 布局，依赖构建产物 lib/ 已存在）→ `pushFile` 落盘 `~/.dsh/dsh-remote/payload/` → `dsh plugin add "$HOME/....tgz"`；装毕读回远端 package.json 的 version 防假阳性（add 退出码 0 不等于装上——旧实现只查 `dsh -V`，实测掩盖过未装）。
 - 插件激活写远端 profile package.json 的 `dsh.profile.bundles`（不是 patch 行）；MCP 下发写远端 `<profile>/cordis.patch.yml`，行 id 沿用 `mcp-<serverName>`，远端 dsh-mcp 面板可无缝接手。
 - 本插件不做第二套远端状态存储：连接库持久化在 `$DSH_HOME/dsh-remote.json`；运行态（相位 / 转发子进程 / pid）只驻内存，宿主重启即回 idle。

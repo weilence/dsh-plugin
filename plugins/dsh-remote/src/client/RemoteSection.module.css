@@ -14,6 +14,44 @@
   justify-content: flex-end;
 }
 
+/* 同步下拉：hover 移入即展开（focus-within 兜底键盘可达），菜单浮在卡片之上 */
+.menuWrap {
+  position: relative;
+  display: inline-block;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  z-index: 30;
+  min-width: 132px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--dsw-alias-surface-primary, #fff);
+  border: 1px solid var(--dsw-alias-border-secondary);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 18%);
+}
+
+.menuItem {
+  all: unset;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--dsw-alias-surface-secondary, rgb(0 0 0 / 6%));
+}
+
 .dangerZone {
   display: flex;
   justify-content: flex-end;

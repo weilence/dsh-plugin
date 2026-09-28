@@ -30,8 +30,8 @@ export interface RemoteState {
   testResult: { id: string; result: TestResponse } | null
   /** 删除确认弹窗的目标连接。 */
   deleting: ConnRow | null
-  /** 同步弹窗的目标连接（勾选清单在弹窗内编辑）。 */
-  syncing: ConnRow | null
+  /** 同步弹窗的目标：连接 + 从下拉菜单选定的类别（勾选清单在弹窗内编辑）。 */
+  syncing: { id: string; kind: SyncKind } | null
 }
 
 const INITIAL: RemoteState = {
@@ -175,8 +175,8 @@ export class RemoteStore {
     this.set({ deleting: row })
   }
 
-  askSync(row: ConnRow | null): void {
-    this.set({ syncing: row })
+  askSync(target: { id: string; kind: SyncKind } | null): void {
+    this.set({ syncing: target })
   }
 
   dismissNotice(): void {

@@ -238,6 +238,7 @@ function connectionCard(
       {state.syncing?.id === row.id ? (
         <SyncDialog
           row={row}
+          kind={state.syncing.kind === 'all' ? 'plugins' : state.syncing.kind}
           store={store}
           localRows={state.localRows}
           busy={busy || opBusy}
@@ -268,7 +269,7 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        {action('同步…', () => store.askSync(row))}
+        <SyncMenuButton disabled={busy || opBusy} onPick={(kind) => store.askSync({ id: row.id, kind })} />
         <Button
           size="sm"
           variant="ghost"
@@ -302,5 +303,53 @@ function CopyUrlButton(props: { url: string; disabled: boolean }) {
     >
       {copied ? '已复制' : '复制 URL'}
     </Button>
+  )
+}
+
+/** 同步下拉按钮：hover 移入展开三项菜单，点选后打开对应类别的勾选弹窗。 */
+function SyncMenuButton(props: { disabled: boolean; onPick(kind: 'skills' | 'mcp' | 'plugins'): void }) {
+  const [open, setOpen] = useState(false)
+  const items: { kind: 'skills' | 'mcp' | 'plugins'; label: string }[] = [
+    { kind: 'skills', label: '同步 skills…' },
+    { kind: 'mcp', label: '下发 MCP…' },
+    { kind: 'plugins', label: '同步插件…' },
+  ]
+  return (
+    <div
+      className={local.menuWrap}
+      onMouseEnter={() => {
+        if (!props.disabled) setOpen(true)
+      }}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={props.disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((previous) => !previous && !props.disabled)}
+      >
+        同步 ▾
+      </Button>
+      {open ? (
+        <div className={local.menu} role="menu">
+          {items.map((item) => (
+            <button
+              key={item.kind}
+              type="button"
+              role="menuitem"
+              className={local.menuItem}
+              onClick={() => {
+                setOpen(false)
+                props.onPick(item.kind)
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
