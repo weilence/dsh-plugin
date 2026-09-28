@@ -18,3 +18,11 @@ DSH 插件共享的 client UI 组件。
 - `.` 组件（Field 套件 / ConfirmDialog / PickList / ToneChip）
 - `./styles` 共享基础样式表的类名映射（领域组件按 `{...shared, ...local}` 合并消费）
 - `./tone` 语气色调色板（toneStyles + ToneChip）
+
+## 设置弹窗加宽
+
+宿主把设置弹窗钉死在 800×800 且无尺寸 API；`useWideSettingsDialog()` 供
+`settings.section` 分区根组件挂一次——本分区激活期间给弹窗面板
+（`[data-shortcut-modal="settings"]`，宿主快捷键系统的稳定钩子）挂加宽类，
+卸载即还原，其他分区不受影响。多个插件同时接入互不冲突：同一时刻只有一个
+分区挂载。

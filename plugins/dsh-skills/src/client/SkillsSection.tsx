@@ -15,6 +15,7 @@ import {
   ExpandableCard,
   Panel,
   SelectField,
+  useWideSettingsDialog,
   fieldInputCls,
 } from '@dsh-plugins/client-ui'
 import type { SkillRow } from '../shared'
@@ -83,6 +84,7 @@ export interface SkillsPanelEnv {
 }
 
 export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps) {
+  useWideSettingsDialog()
   return <SkillsPanel {...props} env={props} />
 }
 

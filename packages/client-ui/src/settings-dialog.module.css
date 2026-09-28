@@ -1,0 +1,12 @@
+/* 宿主设置弹窗（ui-settings-general 的 SettingsRoot）把面板钉死在 800×800 且
+   不暴露任何尺寸 API，管理类插件的表单在这个宽度下放不下。useWideSettingsDialog
+   在分区激活期间把本类挂到弹窗面板上放宽高，切走分区随组件卸载自动还原，
+   其他设置分区不受影响。
+   挂载点用 [data-shortcut-modal="settings"]——宿主快捷键系统识别弹窗的稳定
+   钩子，比 CSS modules 散列出的类名（随官方构建变化）可靠；属性选择器把
+   特异性抬到 0-2-0 稳压宿主的单类规则，不赌样式注入顺序。宽高沿用宿主自己的
+   视口护栏（48px 页边距 / frame-top-clearance），小屏不会溢出。 */
+.wide[data-shortcut-modal='settings'] {
+  width: min(1200px, calc(100vw - 48px));
+  height: min(920px, calc(100vh - 2 * max(24px, var(--dsh-frame-top-clearance, 24px))));
+}

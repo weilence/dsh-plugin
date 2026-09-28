@@ -9,6 +9,7 @@ DSH 设置页「MCP 管理」插件：以官方 [mcp-client](https://github.com/
 - **新建 / 编辑**：表单覆盖两种传输形态的常用键（stdio 的 `command`/`args`/`env`/`cwd` 与 streamable-http 的 `url`/`headers`，及 `toolCallTimeoutMs`、`failOnStartupError`），也支持 JSON 直接粘贴；高级键（`reconnect`、`maxInstructionBytes`）编辑时原样保留。
 - **启停 / 删除**：停用写入官方 plugin-manager 同形态的 `{ id, disabled: true }` 裸行；删除移除 insert 声明与所有指向它的裸覆盖行。
 - **注释保留**：所有写入都是注释保留的 YAML 往返，文件里的手写注释与无关行不动。
+- **宽版弹窗**：进入本分区时自动放宽宿主设置弹窗（官方把面板钉在 800×800 且无尺寸 API），切到其他分区即还原，不影响其余设置页。
 
 ## 生效时机
 

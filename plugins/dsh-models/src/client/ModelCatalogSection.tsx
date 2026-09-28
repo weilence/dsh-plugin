@@ -11,6 +11,7 @@ import {
   ConfirmDialog,
   ExpandableCard,
   Panel,
+  useWideSettingsDialog,
   type ExpandableCardInfoItem,
 } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -25,6 +26,7 @@ export interface ModelCatalogSectionProps extends SettingsSectionOwnerProps {
 }
 
 export function ModelCatalogSection(props: ModelCatalogSectionProps) {
+  useWideSettingsDialog()
   const store = props.store
   const operations = props.operations
   if (!store || !operations) {

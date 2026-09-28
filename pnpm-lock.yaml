@@ -119,6 +119,9 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 3.2.7(@types/node@26.6.2)(lightningcss@1.33.0)(yaml@2.9.1)
 
   packages/shared:
     devDependencies:

@@ -20,6 +20,8 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** �
   「自定义 Provider」填 Provider ID / 显示名 / API Key，Endpoint 可从 models.dev 的 Provider 里选择
   （自动带上协议），也可手动填写自定义地址；「获取模型」用 API Key 询问 Endpoint 的模型清单，
   并按 models.dev 元数据补全每个模型的能力。模型清单默认为空，不获取也可以直接创建。
+- **宽版弹窗**：进入本分区时自动放宽宿主设置弹窗（官方把面板钉在 800×800 且无尺寸 API），
+  切到其他分区即还原，不影响其余设置页。
 
 **API Key**
 

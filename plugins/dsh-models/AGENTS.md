@@ -9,7 +9,7 @@
 - `src/effective.ts`：只读能力桥（`ctx.llm.resolveModelInfo` 的面板投影，与会话模型选择器同一份事实）。
 - `src/catalog/`：models.dev wire 解析与映射（parse / map / matching / types）。
 - `src/pi-ai/`：纯逻辑层——route 状态判定与写入候选（profile / ops）、官方格式归一化与校验（normalize / validate）、schema 内省（choices / view）、类型（types）。
-- `src/client/`：面板——`index.ts` 接线、store / operations 状态层；ModelCatalogSection 在 CardList 首行挂 CreateProviderForm，新建内置 / 自定义 Provider 并复用 ModelsDevImport；已配置 Provider 展开后由 RouteEditor / ModelForm 行内编辑。CardList 与 ExpandableCard 来自 `@dsh-plugins/client-ui`。
+- `src/client/`：面板——`index.ts` 接线、store / operations 状态层；ModelCatalogSection 在 CardList 首行挂 CreateProviderForm，新建内置 / 自定义 Provider 并复用 ModelsDevImport；已配置 Provider 展开后由 RouteEditor / ModelForm 行内编辑。CardList 与 ExpandableCard 来自 `@dsh-plugins/client-ui`。面板根经 `useWideSettingsDialog()`（同包）在本分区挂载期间放大宿主设置弹窗——官方钉死 800×800 且无尺寸 API；卸载即还原。
 
 ## 改动约定
 

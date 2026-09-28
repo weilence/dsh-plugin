@@ -9,7 +9,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import { CardList, ConfirmDialog, ExpandableCard, Panel } from '@dsh-plugins/client-ui'
+import { CardList, ConfirmDialog, ExpandableCard, Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import type { McpRow } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
 import type { McpStore } from './store'
@@ -25,6 +25,7 @@ export interface McpPanelEnv {
 }
 
 export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
+  useWideSettingsDialog()
   return <McpPanel {...props} env={props} />
 }
 

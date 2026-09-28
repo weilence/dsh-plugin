@@ -10,7 +10,7 @@
 - `src/frontmatter.ts`：行级已知键往返（无 YAML 依赖；读取端兼容引号 / 块标量，写入端新值按 YAML 双引号标量序列化）。
 - `src/gitInstall.ts` / `gitUpdate.ts` / `gitMeta.ts`：Git 仓库技能发现与安装、更新检查与应用、安装元数据索引。
 - `src/shared.ts`：双端 wire 类型与常量。
-- `src/client/`：面板；技能为可展开卡片——点行在行内新建 / 编辑 / 查看（SkillForm / SkillView）；Git 安装为弹窗；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-skills`）。
+- `src/client/`：面板；技能为可展开卡片——点行在行内新建 / 编辑 / 查看（SkillForm / SkillView）；Git 安装为弹窗；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-skills`）。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）在本分区挂载期间放大宿主设置弹窗——官方钉死 800×800 且无尺寸 API；卸载即还原。
 
 ## 改动约定
 
