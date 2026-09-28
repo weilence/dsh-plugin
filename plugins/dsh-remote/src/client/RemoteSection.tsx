@@ -7,10 +7,11 @@
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-import { Button, Menu, Toast, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Toast, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
+  MenuButton,
   Panel,
   useWideSettingsDialog,
   type ExpandableCardProps,
@@ -269,7 +270,18 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        <SyncMenuButton disabled={busy || opBusy} onPick={(kind) => store.askSync({ id: row.id, kind })} />
+        <MenuButton
+          label="同步 ▾"
+          disabled={busy || opBusy}
+          items={[
+            { id: 'skills', label: '同步 skills…' },
+            { id: 'mcp', label: '下发 MCP…' },
+            { id: 'plugins', label: '同步插件…' },
+          ]}
+          onSelect={(id) => {
+            if (id === 'skills' || id === 'mcp' || id === 'plugins') store.askSync({ id: row.id, kind: id })
+          }}
+        />
         <Button
           size="sm"
           variant="ghost"
@@ -303,46 +315,5 @@ function CopyUrlButton(props: { url: string; disabled: boolean }) {
     >
       {copied ? '已复制' : '复制 URL'}
     </Button>
-  )
-}
-
-/** 同步下拉按钮：官方 Menu（portal 免被设置弹窗滚动容器裁剪），hover 移入
- *  展开三项菜单（closeOnPointerLeave 带指针容错），点选后打开对应类别的勾选弹窗。 */
-function SyncMenuButton(props: { disabled: boolean; onPick(kind: 'skills' | 'mcp' | 'plugins'): void }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <Menu
-      open={open}
-      portal
-      align="end"
-      closeOnPointerLeave
-      onClose={() => setOpen(false)}
-      onSelect={(id) => {
-        setOpen(false)
-        if (id === 'skills' || id === 'mcp' || id === 'plugins') props.onPick(id)
-      }}
-      anchor={
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={props.disabled}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          onMouseEnter={() => {
-            if (!props.disabled) setOpen(true)
-          }}
-          onClick={() => {
-            if (!props.disabled) setOpen((previous) => !previous)
-          }}
-        >
-          同步 ▾
-        </Button>
-      }
-      items={[
-        { id: 'skills', label: '同步 skills…' },
-        { id: 'mcp', label: '下发 MCP…' },
-        { id: 'plugins', label: '同步插件…' },
-      ]}
-    />
   )
 }

@@ -1,5 +1,6 @@
 export { Field, TextField, SelectField, TextAreaField, IssueList, fieldInputCls } from './form'
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog'
+export { MenuButton, type MenuButtonItem } from './MenuButton'
 export { PickList, type PickItem } from './PickList'
 export { ToneChip, toneStyles, type Tone } from './tone'
 export { ExpandableCard, type ExpandableCardInfoItem, type ExpandableCardProps } from './ExpandableCard'
