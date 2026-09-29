@@ -1,9 +1,3 @@
-/**
- * 面板状态存储：settings 页打开期间的生命周期内持有目录快照与作用域，
- * 写操作（保存 / 删除）成功后自动刷新。不做跨组件持久订阅——面板是唯一
- * 读者，React 经 useSyncExternalStore 消费。
- */
-
 import { errMsg } from '@dsh-plugins/shared'
 import { skillsApi } from './api'
 import type {

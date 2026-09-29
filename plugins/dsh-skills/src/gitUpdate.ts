@@ -1,19 +1,7 @@
-/**
- * Git 安装技能的更新跟踪（host 专用）。
- *
- * 依据各根的 .dsh-skills.json 索引（gitMeta）把已安装技能回指到源
- * 仓库，同一仓库只克隆一次：
- *
- * - 检查（checkGitUpdates）：commit 快路径——记录的 HEAD 即当前 HEAD
- *   直接判「已最新」；否则重发现仓库，按目录内容哈希逐技能判定
- *   update（上游变了、本地未动）/ local（两侧都变，更新会覆盖本地
- *   改动）/ removed（上游已移除）。
- * - 应用（applyGitUpdates）：staging 目录复制 → 原子换名覆盖，成功后
- *   刷新索引里的 commit / 内容哈希 / 时间。
- * - 登记（recordInstalls）：git-install 成功后由桥调用，把来源写进索引。
- *
- * @module dsh-skills
- */
+// Git 安装技能的更新跟踪（host 专用）：依据各根的 .dsh-skills.json 索引
+// （gitMeta）把已安装技能回指到源仓库，同一仓库只克隆一次。检查走 commit
+// 快路径（记录 HEAD 即当前 HEAD 直接判已最新），否则按目录内容哈希逐技能
+// 判定 update / local / removed；应用走 staging 复制 + 原子换名。
 
 import { rename, rm, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
@@ -25,44 +13,9 @@ import type {
   GitUpdateResponse,
   RootId,
 } from './shared'
-import { cloneToTemp, copyTree, discoverRepoSkills, headCommit, treeHash } from './gitInstall'
+import { cloneToTemp, copyTree, discoverRepoSkills, headCommit, repoDir, treeHash } from './gitInstall'
 import { readGitIndex, writeGitIndex, type RootGitIndex } from './gitMeta'
 import type { ManagedRoot } from './roots'
-
-/** 索引里的仓库内路径（'.' 允许，= 仓库根单技能）→ 仓库内绝对路径。 */
-function repoDir(repo: string, dir: string): string {
-  return dir === '.' ? repo : resolve(repo, ...dir.split('/'))
-}
-
-/**
- * 把一次成功安装 / 更新的技能写进根索引（git-install 桥在复制成功后、
- * 清理临时克隆前调用）。picked = 全部候选（带 dir / origin），installed
- * = 实际落地的技能名。
- */
-export async function recordInstalls(
-  rootPath: string,
-  url: string,
-  temp: string,
-  picked: readonly GitSkillCandidate[],
-  installed: readonly string[],
-): Promise<void> {
-  if (installed.length === 0) return
-  const index = await readGitIndex(rootPath)
-  const commit = await headCommit(temp)
-  const installedSet = new Set(installed)
-  for (const candidate of picked) {
-    if (!installedSet.has(candidate.name)) continue
-    index.skills[candidate.name] = {
-      url,
-      dir: candidate.dir,
-      origin: candidate.origin,
-      ...(commit !== undefined ? { commit } : {}),
-      contentHash: await treeHash(repoDir(temp, candidate.dir)),
-      installedAt: new Date().toISOString(),
-    }
-  }
-  await writeGitIndex(rootPath, index)
-}
 
 /** 一个被跟踪的已安装技能。 */
 interface TrackedSkill {
@@ -147,7 +100,7 @@ export async function checkGitUpdates(roots: readonly ManagedRoot[]): Promise<Gi
           name,
           dir: record.dir,
           status,
-          ...(candidate.description.length > 0 ? { description: candidate.description } : {}),
+          description: candidate.description || undefined,
         })
       }
     } finally {
@@ -220,7 +173,7 @@ export async function applyGitUpdates(
             url,
             dir: record.dir,
             origin: record.origin,
-            ...(head !== undefined ? { commit: head } : {}),
+            commit: head,
             contentHash: hash,
             installedAt: new Date().toISOString(),
           }

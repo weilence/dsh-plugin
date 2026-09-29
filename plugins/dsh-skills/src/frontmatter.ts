@@ -1,16 +1,3 @@
-/**
- * 技能文件 frontmatter 的结构化往返（纯函数，双端安全）。
- *
- * 官方 skill-filesystem provider 用 YAML 解析 frontmatter，只消费五个
- * 已知键：name / description / whenToUse / disable-model-invocation /
- * user-invocable。本模块不引入 YAML 依赖，而是做「行级已知键替换」：
- * 编辑时只重写这五个键的值，其余行（未知键、注释、空行、嵌套块）原样
- * 保留在原位——避免把宿主未建模的自定义 frontmatter 字段静默丢掉。
- *
- * 已知键的值在本插件管理的写入路径上恒为标量（字符串/布尔），行级替换
- * 足够；读取端兼容引号标量与块标量（> / |），用于加载既有文件进表单。
- */
-
 import type { SkillFormat } from './shared'
 
 /** 已知 frontmatter 键的规范名（键名即官方 parser 逐字匹配的键）。 */

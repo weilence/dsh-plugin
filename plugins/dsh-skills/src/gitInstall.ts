@@ -1,31 +1,16 @@
-/**
- * 从 Git 仓库安装技能（host 专用）：部分克隆 + 稀疏检出（只物化技能
- * 相关目录）、仓库内技能发现、整目录复制进目标可写根。
- *
- * 拉取用 `git clone --depth 1 --filter=blob:none --sparse` 起步（只检出
- * 仓库根文件），再 `sparse-checkout set skills .agents/skills
- * .claude/skills .claude-plugin` 物化标准位置，并根据 marketplace /
- * plugin 清单补充声明的插件目录——docs、src 等其余内容不落盘。服务器
- * 不支持 blob 过滤时 git 自动降级（整包浅克隆）；本地 git 过旧不认识
- * 这些参数时回退普通 `--depth 1` 克隆。
- *
- * 发现规则对齐社区事实标准（vercel-labs/skills CLI 的仓库内发现）：
- * ① `.claude-plugin/marketplace.json`（或单插件仓库的 plugin.json）声明
- * 的技能路径与插件目录下的标准位置；② 仓库根 SKILL.md 与标准容器
- * （skills/、.agents/skills/、.claude/skills/），容器内最多下探 3 层，
- * 浅层 SKILL.md 遮蔽深层。安装即整目录复制（保留 references / scripts /
- * assets），同名冲突拒绝不覆盖。
- *
- * @module dsh-skills
- */
+// Git 仓库技能的克隆与发现、整目录安装（host 专用）。克隆走部分克隆 +
+// 稀疏检出（只物化技能相关目录）；发现对齐社区 marketplace.json / 标准技能
+// 目录的几种约定；安装复制后把来源登记进根索引，供更新跟踪回指。
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { SKILL_NAME_PATTERN, type GitSkillCandidate } from './shared'
 import { parseSkillFile } from './scan'
+import { readGitIndex, writeGitIndex } from './gitMeta'
 import type { ManagedRoot } from './roots'
 
 const CLONE_TIMEOUT_MS = 120_000
@@ -67,7 +52,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
     let stderr = ''
     const timer = setTimeout(() => {
       child.kill()
-      rejectRun(new Error('git clone 超时（120 秒）'))
+      rejectRun(new Error(`git ${args[0]} 超时（${CLONE_TIMEOUT_MS / 1000} 秒）`))
     }, CLONE_TIMEOUT_MS)
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8')
@@ -89,7 +74,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
       else
         rejectRun(
           new Error(
-            `git clone 失败：${stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`}`,
+            `git ${args[0]} 失败：${stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`}`,
           ),
         )
     })
@@ -99,38 +84,46 @@ function runGit(args: string[], cwd: string): Promise<string> {
 /** 浅克隆起步时物化的标准位置（仓库根文件随 --sparse 自带）。 */
 const SPARSE_BASE_DIRS = ['skills', '.agents/skills', '.claude/skills', '.claude-plugin'] as const
 
-/**
- * 从 marketplace / plugin 清单算出需要补充物化的插件目录（相对仓库根，
- * posix 分隔）。必须在发现前跑：插件目录不在标准集合里，不补就看不见。
- */
-async function declaredPluginDirs(repo: string): Promise<string[]> {
+/** marketplace / plugin 清单的声明面（无清单返回 undefined）。 */
+async function readPluginManifest(
+  repo: string,
+): Promise<{ fromMarketplace: boolean; pluginRoot: string; entries: Record<string, unknown>[] } | undefined> {
   const marketplaceDoc = asRecord(await readJsonFile(join(repo, '.claude-plugin', 'marketplace.json')))
   const pluginDoc =
     marketplaceDoc === undefined
       ? asRecord(await readJsonFile(join(repo, '.claude-plugin', 'plugin.json')))
       : undefined
-  if (marketplaceDoc === undefined && pluginDoc === undefined) return []
+  if (marketplaceDoc === undefined && pluginDoc === undefined) return undefined
   const pluginRoot =
     marketplaceDoc !== undefined
       ? typeof (asRecord(marketplaceDoc.metadata) ?? {}).pluginRoot === 'string'
         ? (asRecord(marketplaceDoc.metadata) as { pluginRoot: string }).pluginRoot
         : './plugins'
       : '.'
-  const entries: unknown[] =
+  const entries =
     marketplaceDoc !== undefined && Array.isArray(marketplaceDoc.plugins)
-      ? marketplaceDoc.plugins
+      ? marketplaceDoc.plugins.filter(
+          (entry): entry is Record<string, unknown> => asRecord(entry) !== undefined,
+        )
       : pluginDoc !== undefined
         ? [pluginDoc]
         : []
+  return { fromMarketplace: marketplaceDoc !== undefined, pluginRoot, entries }
+}
+
+/** 清单 source 字段 → 仓库内相对路径（'./' '../' 相对仓库根，其余锚定 pluginRoot）。 */
+function pluginSourceRel(pluginRoot: string, source: string): string {
+  return source.startsWith('./') || source.startsWith('../') ? source : `${pluginRoot}/${source}`
+}
+
+/** 需要补充物化的插件目录（相对仓库根，posix 分隔）；不补稀疏检出就看不见它们。 */
+async function declaredPluginDirs(repo: string): Promise<string[]> {
+  const manifest = await readPluginManifest(repo)
+  if (manifest === undefined) return []
   const dirs = new Set<string>()
-  for (const entry of entries) {
-    const plugin = asRecord(entry)
-    if (plugin === undefined || typeof plugin.source !== 'string') continue
-    const rel =
-      plugin.source.startsWith('./') || plugin.source.startsWith('../')
-        ? plugin.source
-        : `${pluginRoot}/${plugin.source}`
-    const cleaned = rel
+  for (const plugin of manifest.entries) {
+    if (typeof plugin.source !== 'string') continue
+    const cleaned = pluginSourceRel(manifest.pluginRoot, plugin.source)
       .split(/[\\/]/)
       .filter((part) => part.length > 0 && part !== '.' && part !== '..')
       .join('/')
@@ -139,11 +132,9 @@ async function declaredPluginDirs(repo: string): Promise<string[]> {
   return [...dirs]
 }
 
-/**
- * 部分克隆 + 稀疏检出（只物化技能相关目录）到临时目录；失败自清理并
- * 抛错（消息面向用户）。旧 git 不认识 --sparse / --filter 时回退整仓
- * 浅克隆，两次都失败报告首个错误。
- */
+/** 部分克隆 + 稀疏检出（只物化技能相关目录）到临时目录。仅旧 git 不认识
+ *  --sparse / --filter / sparse-checkout 时回退整仓浅克隆——网络 / 认证
+ *  失败重试注定同样失败，直接抛首错。 */
 export async function cloneToTemp(url: string): Promise<string> {
   const dest = await mkdtemp(join(tmpdir(), 'dsh-skills-'))
   const trimmed = url.trim()
@@ -158,6 +149,10 @@ export async function cloneToTemp(url: string): Promise<string> {
     return dest
   } catch (error) {
     await rm(dest, { recursive: true, force: true })
+    // runGit 已把 stderr 折进消息，按其特征判定是否旧 git 参数不支持
+    const unknownOption =
+      error instanceof Error && /unknown (?:option|switch)|unknown subcommand/i.test(error.message)
+    if (!unknownOption) throw error
     try {
       await runGit(['clone', '--depth', '1', '--quiet', '--', trimmed, dest], dest)
       return dest
@@ -166,6 +161,11 @@ export async function cloneToTemp(url: string): Promise<string> {
       throw error
     }
   }
+}
+
+/** 索引里的仓库内路径（'.' 允许，= 仓库根单技能）→ 仓库内绝对路径。 */
+export function repoDir(repo: string, dir: string): string {
+  return dir === '.' ? repo : resolve(repo, ...dir.split('/'))
 }
 
 /** 仓库当前 HEAD 提交号（浅克隆也有）；不可得时回 undefined（更新检查退化为内容比对）。 */
@@ -205,8 +205,6 @@ export async function treeHash(dir: string): Promise<string> {
   await walk(dir, '')
   return createHash('sha256').update(lines.sort().join('\n')).digest('hex')
 }
-
-// ---- 仓库内发现 ----
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -292,9 +290,9 @@ async function candidateOf(
     dir: rel.length === 0 ? '.' : toPosix(rel),
     name: parsed.name,
     description: parsed.description,
-    ...(parsed.whenToUse !== undefined && parsed.whenToUse.length > 0 ? { whenToUse: parsed.whenToUse } : {}),
+    whenToUse: parsed.whenToUse,
     origin,
-    ...(parsed.invalid !== undefined ? { problem: parsed.invalid } : {}),
+    problem: parsed.invalid,
   }
 }
 
@@ -373,21 +371,10 @@ export async function discoverRepoSkills(
   return { skills, notes }
 }
 
-// ---- 安装（整目录复制） ----
-
 export interface GitInstallOutcome {
   installed: { name: string; path: string }[]
   conflicts: { name: string; path: string }[]
   failed: { name: string; error: string }[]
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
 }
 
 export async function copyTree(from: string, to: string): Promise<void> {
@@ -411,7 +398,8 @@ export async function copyTree(from: string, to: string): Promise<void> {
       if (files > MAX_FILES_PER_SKILL) throw new Error(`文件数超过上限（${MAX_FILES_PER_SKILL}）`)
       const info = await stat(sourceChild)
       bytes += info.size
-      if (bytes > MAX_BYTES_PER_SKILL) throw new Error(`总体积超过上限（20 MiB）`)
+      if (bytes > MAX_BYTES_PER_SKILL)
+        throw new Error(`总体积超过上限（${MAX_BYTES_PER_SKILL / 1024 / 1024} MiB）`)
       await copyFile(sourceChild, destChild)
     }
   }
@@ -442,7 +430,7 @@ export async function installCandidates(
       continue
     }
     const dest = join(target.path, candidate.name)
-    if (await pathExists(dest)) {
+    if (existsSync(dest)) {
       conflicts.push({ name: candidate.name, path: dest })
       continue
     }
@@ -455,4 +443,33 @@ export async function installCandidates(
     }
   }
   return { installed, conflicts, failed }
+}
+
+/** 安装并登记：复制成功即把来源（url / dir / HEAD / 内容哈希）写进根索引
+ *  （更新跟踪的回指依据）；一个都没装上时不触碰索引。 */
+export async function installFromRepo(
+  target: ManagedRoot,
+  url: string,
+  candidates: readonly GitSkillCandidate[],
+  sourceRoot: string,
+): Promise<GitInstallOutcome> {
+  const outcome = await installCandidates(target, candidates, sourceRoot)
+  const installed = outcome.installed.map((row) => row.name)
+  if (installed.length === 0) return outcome
+  const index = await readGitIndex(target.path)
+  const commit = await headCommit(sourceRoot)
+  const installedSet = new Set(installed)
+  for (const candidate of candidates) {
+    if (!installedSet.has(candidate.name)) continue
+    index.skills[candidate.name] = {
+      url,
+      dir: candidate.dir,
+      origin: candidate.origin,
+      commit,
+      contentHash: await treeHash(repoDir(sourceRoot, candidate.dir)),
+      installedAt: new Date().toISOString(),
+    }
+  }
+  await writeGitIndex(target.path, index)
+  return outcome
 }

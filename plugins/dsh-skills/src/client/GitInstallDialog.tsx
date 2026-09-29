@@ -1,8 +1,3 @@
-/**
- * 从 Git 仓库安装技能的弹窗：输入仓库地址 → host 浅克隆并发现技能 →
- * 勾选 + 选目标根 → 整目录复制安装。同名冲突拒绝不覆盖（结果里列出）。
- */
-
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, SelectField, TextField, type PickItem } from '@dsh-plugins/client-ui'

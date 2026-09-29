@@ -1,11 +1,3 @@
-/**
- * 设置页「Skills 管理」面板：管理范围固定两档——「工作区级」（跟随主视图
- * 会话的工作目录）与「全局」——外加技能卡片列表（点行展开即编辑 / 查看，
- * 新建技能卡片插入列表顶部，触发按钮正下方）。删除确认、Git 安装与更新
- * 跟踪。数据经 SkillsStore 与 host 桥交互；面板卸载时清一次性提示
- * （Toast 计时只在挂载期间有效）。
- */
-
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'

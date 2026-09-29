@@ -4,9 +4,10 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { cloneToTemp, discoverRepoSkills, headCommit, installCandidates, treeHash } from '../src/gitInstall'
+import { cloneToTemp, discoverRepoSkills, headCommit, treeHash } from '../src/gitInstall'
 import { readGitIndex, writeGitIndex } from '../src/gitMeta'
-import { applyGitUpdates, checkGitUpdates, recordInstalls } from '../src/gitUpdate'
+import { applyGitUpdates, checkGitUpdates } from '../src/gitUpdate'
+import { installFromRepo } from '../src/gitInstall'
 import type { RootId } from '../src/shared'
 
 const execFileAsync = promisify(execFile)
@@ -119,9 +120,8 @@ describe('安装登记与更新跟踪（真实 git 仓库）', () => {
     // 安装（用仓库本体当 sourceRoot / temp：headCommit 与 treeHash 都可用）。
     const rootPath = join(work, 'track-root')
     const candidates = (await discoverRepoSkills(repo)).skills
-    const outcome = await installCandidates({ id: 'user-agents', path: rootPath }, candidates, repo)
+    const outcome = await installFromRepo({ id: 'user-agents', path: rootPath }, url, candidates, repo)
     expect(outcome.installed.map((row) => row.name)).toEqual(['alpha'])
-    await recordInstalls(rootPath, url, repo, candidates, ['alpha'])
     const record = (await readGitIndex(rootPath)).skills['alpha']
     expect(record?.url).toBe(url)
     expect(record?.dir).toBe('skills/alpha')

@@ -1,17 +1,7 @@
-/**
- * Git 安装记录的根级索引（host 专用）。
- *
- * 每个可写技能根放一个 `<root>/.dsh-skills.json`：dotfile，扫描器只认
- * `.md` 与目录包，天然不会当成技能。key = 根下的技能目录名（安装时
- * dest = join(root, name)，目录名即技能名），记录源仓库、仓库内路径、
- * 安装时 HEAD 与内容哈希——检查更新与应用更新的全部依据。
- *
- * 读侧对损坏 / 缺失一律回空索引（视为没有 Git 安装记录），不做 GET
- * 期间的写回收；本地目录已不存在的陈旧条目在合并行时被忽略，并在
- * 下一次写入（安装 / 更新 / 删除）时自然清理。
- *
- * @module dsh-skills
- */
+// Git 安装记录的根级索引（host 专用）：每个可写技能根一个 <root>/.dsh-skills.json
+// （dotfile，扫描器只认 .md 与目录包，不会当成技能），记录源仓库、仓库内
+// 路径、安装时 HEAD 与内容哈希。读侧对损坏 / 缺失一律回空索引；陈旧条目
+// 在合并行时被忽略，下一次写入时自然清理。
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -26,8 +16,6 @@ export interface RootGitIndex {
   skills: Record<string, GitSkillRecord>
 }
 
-export const EMPTY_GIT_INDEX: RootGitIndex = { version: 1, skills: {} }
-
 /** 记录是否具备最小可用形状（url / dir 为非空字符串）。 */
 function isRecord(value: unknown): value is GitSkillRecord {
   if (typeof value !== 'object' || value === null) return false
@@ -41,20 +29,20 @@ export async function readGitIndex(rootPath: string): Promise<RootGitIndex> {
   try {
     raw = await readFile(join(rootPath, GIT_INDEX_NAME), 'utf8')
   } catch {
-    return { ...EMPTY_GIT_INDEX, skills: {} }
+    return { version: 1, skills: {} }
   }
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return { ...EMPTY_GIT_INDEX, skills: {} }
+    if (typeof parsed !== 'object' || parsed === null) return { version: 1, skills: {} }
     const skills = (parsed as { skills?: unknown }).skills
-    if (typeof skills !== 'object' || skills === null) return { ...EMPTY_GIT_INDEX, skills: {} }
+    if (typeof skills !== 'object' || skills === null) return { version: 1, skills: {} }
     const result: Record<string, GitSkillRecord> = {}
     for (const [name, value] of Object.entries(skills as Record<string, unknown>)) {
       if (isRecord(value)) result[name] = value
     }
     return { version: 1, skills: result }
   } catch {
-    return { ...EMPTY_GIT_INDEX, skills: {} }
+    return { version: 1, skills: {} }
   }
 }
 

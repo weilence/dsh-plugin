@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ROOT_LABELS, agentsSkillsDir, findProjectRoot, isUnder, managedRoots, matchRoot } from '../src/roots'
+import { RootMatcher, agentsSkillsDir, findProjectRoot, isUnder, managedRoots } from '../src/roots'
+import { sourceLabel } from '../src/shared'
 
 const tempDirs: string[] = []
 
@@ -58,15 +59,16 @@ describe('managedRoots', () => {
   })
 })
 
-describe('matchRoot', () => {
-  it('归属命中的根', async () => {
+describe('RootMatcher 归属判定', () => {
+  it('命中的根（含 realpath 变体）', async () => {
     const base = await tempDir()
     const rootDir = join(base, 'skills')
     await mkdir(rootDir, { recursive: true })
     const roots = [{ id: 'user-dsh' as const, path: rootDir }]
-    expect((await matchRoot(join(rootDir, 'a.md'), roots))?.id).toBe('user-dsh')
-    expect((await matchRoot(join(rootDir, 'a', 'SKILL.md'), roots))?.id).toBe('user-dsh')
-    expect(await matchRoot(join(base, 'outside.md'), roots)).toBeUndefined()
+    const matcher = await RootMatcher.create(roots)
+    expect((await matcher.match(join(rootDir, 'a.md')))?.id).toBe('user-dsh')
+    expect((await matcher.match(join(rootDir, 'a', 'SKILL.md')))?.id).toBe('user-dsh')
+    expect(await matcher.match(join(base, 'outside.md'))).toBeUndefined()
   })
 })
 
@@ -77,9 +79,9 @@ describe('环境变量解析', () => {
     )
   })
 
-  it('四个根都有标签', () => {
-    expect(ROOT_LABELS['user-dsh']).toContain('.dsh/skills')
-    expect(ROOT_LABELS['project-agents']).toContain('.agents/skills')
+  it('四个根都有展示标签', () => {
+    expect(sourceLabel('user-dsh')).toContain('.dsh/skills')
+    expect(sourceLabel('project-agents')).toContain('.agents/skills')
   })
 })
 

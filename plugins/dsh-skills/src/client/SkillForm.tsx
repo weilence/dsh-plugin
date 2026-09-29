@@ -1,9 +1,3 @@
-/**
- * 技能表单（新建 / 编辑）与只读视图，内嵌在列表的展开卡片里。
- * 编辑：加载原文做行级 frontmatter 往返（未知字段原样保留），名称锁定；
- * 只读：展示元信息与原文。保存成功后回调 onDone，由父级收起卡片。
- */
-
 import { useEffect, useState } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
@@ -84,17 +78,18 @@ export function SkillForm(props: SkillFormProps) {
   const submit = async (): Promise<void> => {
     setTouched(true)
     if (issues.length > 0) return
+    const scope = store.getSnapshot().scope
     const request: SaveRequest = {
-      ...(store.getSnapshot().scope === '' ? {} : { cwd: store.getSnapshot().scope }),
+      cwd: scope === '' ? undefined : scope,
       rootId: draft.rootId,
       name: draft.name,
-      ...(mode === 'create' ? { format: draft.format } : {}),
+      format: mode === 'create' ? draft.format : undefined,
       description: draft.description.trim(),
-      ...(draft.whenToUse.trim().length > 0 ? { whenToUse: draft.whenToUse.trim() } : {}),
+      whenToUse: draft.whenToUse.trim() || undefined,
       modelInvocable: draft.modelInvocable,
       userInvocable: draft.userInvocable,
       body: draft.body,
-      ...(mode === 'edit' && skill?.path !== undefined ? { editPath: skill.path } : {}),
+      editPath: mode === 'edit' ? skill?.path : undefined,
     }
     if (await store.save(request)) props.onDone()
   }

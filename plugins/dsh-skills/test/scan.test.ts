@@ -2,8 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { effectiveNames, parseSkillFile, scanRoot, ROOT_RANK } from '../src/scan'
-import type { ScannedSkill } from '../src/scan'
+import { parseSkillFile, scanRoot } from '../src/scan'
 
 const tempDirs: string[] = []
 
@@ -87,34 +86,5 @@ describe('scanRoot（发现规则）', () => {
 
   it('根不存在返回空数组', async () => {
     expect(await scanRoot({ id: 'user-dsh', path: join(await tempDir(), 'missing') })).toEqual([])
-  })
-})
-
-describe('effectiveNames（同名遮蔽）', () => {
-  const row = (name: string, source: ScannedSkill['source'], invalid?: string): ScannedSkill => ({
-    name,
-    description: 'd',
-    invocation: { modelInvocable: true, userInvocable: true },
-    source,
-    path: `/${source}/${name}`,
-    format: 'flat',
-    ...(invalid !== undefined ? { invalid } : {}),
-  })
-
-  it('rank 低的来源胜出，无效条目不参与遮蔽判定', () => {
-    const effective = effectiveNames([
-      row('x', 'user-dsh'),
-      row('x', 'project-dsh'),
-      row('y', 'project-agents'),
-      row('y', 'user-agents', '缺少 description'),
-      row('z', 'user-agents', '缺少 description'),
-    ])
-    expect(effective.has('x')).toBe(true)
-    // y 的 project-agents 条目合法 → 胜出；无效的 user-agents 不参与。
-    expect(effective.has('y')).toBe(true)
-    // z 只有无效条目 → 不生效。
-    expect(effective.has('z')).toBe(false)
-    // project-dsh(100) < user-dsh(400)：两者同名时只有前者胜。
-    expect(ROOT_RANK['project-dsh']).toBeLessThan(ROOT_RANK['user-dsh'])
   })
 })

@@ -1,24 +1,23 @@
-/**
- * dsh-skills host half：设置页「Skills 管理」面板的 HTTP 桥。
- *
- * 官方 web/desktop 组合刻意禁用 host 级 skill-filesystem（本地发现由各
- * agent preset 的 scoped 层负责），全局 `ctx.skills` 注册表默认为空，
- * 因此读侧以「直接扫描四个标准技能根」为主（与官方 provider 同一套
- * 发现与校验规则），并集上全局注册表里落在这四个根之外的条目（内置 /
- * 自定义目录 / 运行时技能）作只读展示。写侧直接落盘（node:fs），
- * frontmatter 只做行级已知键替换，未知字段原样保留；删除只作用于归属
- * 可写根的单文件 / 目录包。
- *
- * @module dsh-skills
- */
+// dsh-skills host half：设置页「Skills 管理」面板的 HTTP 桥。读侧以直接
+// 扫描四个标准技能根为主，全局注册表条目作只读补充；写侧 node:fs 直接
+// 落盘（宿主侧受信代码，不走模型沙箱）。@module dsh-skills
 
-import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { basename, dirname, join, relative, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-skill'
 import {
+  DELETE_PATH,
+  FILE_PATH,
+  GIT_CHECK_PATH,
+  GIT_INSTALL_PATH,
+  GIT_SCAN_PATH,
+  GIT_UPDATE_PATH,
+  LIST_PATH,
+  SAVE_PATH,
   SKILL_NAME_PATTERN,
   sourceOrder,
   type DeleteRequest,
@@ -36,25 +35,17 @@ import {
   type SkillRow,
 } from './shared'
 import { applyKnown, formatOfPath, renderFile, splitFrontmatter } from './frontmatter'
-import { cloneToTemp, discoverRepoSkills, gitUrlProblem, installCandidates } from './gitInstall'
+import { cloneToTemp, discoverRepoSkills, gitUrlProblem, installFromRepo } from './gitInstall'
 import { readGitIndex, writeGitIndex, type RootGitIndex } from './gitMeta'
-import { applyGitUpdates, checkGitUpdates, recordInstalls } from './gitUpdate'
+import { applyGitUpdates, checkGitUpdates } from './gitUpdate'
 import { RootMatcher, managedRoots, rootInfos, type ManagedRoot } from './roots'
 import { scanRoot } from './scan'
 // 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
+import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 
 export const inject: string[] = ['webServer']
-
-export const LIST_PATH = '/dsh-skills/list'
-export const FILE_PATH = '/dsh-skills/file'
-export const SAVE_PATH = '/dsh-skills/save'
-export const DELETE_PATH = '/dsh-skills/delete'
-export const GIT_SCAN_PATH = '/dsh-skills/git-scan'
-export const GIT_INSTALL_PATH = '/dsh-skills/git-install'
-export const GIT_CHECK_PATH = '/dsh-skills/git-check'
-export const GIT_UPDATE_PATH = '/dsh-skills/git-update'
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined
@@ -62,15 +53,6 @@ function optionalString(value: unknown): string | undefined {
 
 function optionalBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
 }
 
 /** 解析查询里的 cwd：空白或缺席 = 全局作用域。 */
@@ -95,21 +77,21 @@ function skillRowOf(
     invalid?: string
     format?: SkillFormat
   },
-  rootId: string | undefined,
+  rootId: RootId | undefined,
   effective: boolean,
 ): SkillRow {
   return {
     name: summary.name,
     description: summary.description,
-    ...(summary.whenToUse !== undefined ? { whenToUse: summary.whenToUse } : {}),
+    whenToUse: summary.whenToUse,
     modelInvocable: summary.invocation.modelInvocable,
     userInvocable: summary.invocation.userInvocable,
     source: summary.source,
     provider: summary.provider,
-    ...(summary.path !== undefined ? { path: summary.path } : {}),
-    ...(rootId !== undefined ? { rootId: rootId as SkillRow['rootId'] } : {}),
-    ...(summary.format !== undefined ? { format: summary.format } : {}),
-    ...(summary.invalid !== undefined ? { invalid: summary.invalid } : {}),
+    path: summary.path,
+    rootId,
+    format: summary.format,
+    invalid: summary.invalid,
     editable: rootId !== undefined,
     effective,
   }
@@ -166,7 +148,7 @@ export function apply(ctx: Context): void {
               row.git = {
                 url: record.url,
                 dir: record.dir,
-                ...(record.commit !== undefined ? { commit: record.commit.slice(0, 7) } : {}),
+                commit: record.commit?.slice(0, 7),
                 installedAt: record.installedAt,
               }
             }
@@ -193,7 +175,7 @@ export function apply(ctx: Context): void {
             }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, 500, { error: String(error) })
+            writeJson(res, 500, { error: errMsg(error) })
           }
         },
       }),
@@ -242,7 +224,7 @@ export function apply(ctx: Context): void {
             const response: FileResponse = { path, raw }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, 500, { error: String(error) })
+            writeJson(res, 500, { error: errMsg(error) })
           }
         },
       }),
@@ -276,7 +258,7 @@ export function apply(ctx: Context): void {
             const draft = {
               name,
               description,
-              ...(whenToUse !== undefined ? { whenToUse } : {}),
+              whenToUse,
               modelInvocable: optionalBoolean(request.modelInvocable, true),
               userInvocable: optionalBoolean(request.userInvocable, true),
             }
@@ -314,7 +296,7 @@ export function apply(ctx: Context): void {
               const flatPath = join(root.path, `${name}.md`)
               const bundlePath = join(root.path, name, 'SKILL.md')
               for (const candidate of [flatPath, bundlePath]) {
-                if (await pathExists(candidate)) {
+                if (existsSync(candidate)) {
                   throw new HttpError(409, `目标根已存在同名技能：${candidate}`)
                 }
               }
@@ -327,7 +309,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),
@@ -386,7 +368,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, { removed: true })
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),
@@ -414,13 +396,13 @@ export function apply(ctx: Context): void {
             try {
               temp = await cloneToTemp(url)
             } catch (error) {
-              throw new HttpError(400, error instanceof Error ? error.message : String(error))
+              throw new HttpError(400, errMsg(error))
             }
             const { skills, notes } = await discoverRepoSkills(temp)
             writeJson(res, 200, { skills, notes })
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           } finally {
             if (temp !== undefined) await rm(temp, { recursive: true, force: true })
           }
@@ -458,7 +440,7 @@ export function apply(ctx: Context): void {
             try {
               temp = await cloneToTemp(url)
             } catch (error) {
-              throw new HttpError(400, error instanceof Error ? error.message : String(error))
+              throw new HttpError(400, errMsg(error))
             }
             const { skills: candidates } = await discoverRepoSkills(temp)
             const byDir = new Map<string, GitSkillCandidate>(candidates.map((skill) => [skill.dir, skill]))
@@ -473,16 +455,11 @@ export function apply(ctx: Context): void {
                 problem: '仓库里未找到该技能（内容可能已变化），请重新扫描',
               }
             })
-            const outcome = await installCandidates(target, selected, temp)
-            // 复制成功即登记来源（commit + 内容哈希），供后续检查更新回指。
-            const installedNames = outcome.installed.map((row) => row.name)
-            if (installedNames.length > 0) {
-              await recordInstalls(target.path, url, temp, selected, installedNames)
-            }
+            const outcome = await installFromRepo(target, url, selected, temp)
             writeJson(res, 200, outcome as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           } finally {
             if (temp !== undefined) await rm(temp, { recursive: true, force: true })
           }
@@ -510,7 +487,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),
@@ -545,7 +522,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),

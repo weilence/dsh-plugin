@@ -1,13 +1,6 @@
-/**
- * 四个标准技能根的直接扫描（host 专用）。
- *
- * 官方 web/desktop 组合刻意禁用 host 级 skill-filesystem（本地发现由
- * 各 agent preset 的 scoped 层负责），因此全局 `ctx.skills` 注册表在
- * 默认组合里是空的。本模块按官方 provider 同一套发现规则直接扫描根
- * 目录：扁平 `<name>.md` 与目录包 `<name>/SKILL.md`、user-dsh 根跳过
- * `.system` 子目录、frontmatter 逐键校验——校验失败的文件以 invalid
- * 行呈现（可在面板里修复），而不是从目录里消失。
- */
+// 四个标准技能根的直接扫描（host 专用）：按官方 provider 同一套发现规则
+// （扁平 <name>.md / 目录包 <name>/SKILL.md / user-dsh 跳 .system），校验
+// 失败以 invalid 行呈现供面板修复，不从目录里消失。
 
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -15,14 +8,6 @@ import type { RootId, SkillFormat } from './shared'
 import { SKILL_NAME_PATTERN } from './shared'
 import { parseKnown, splitFrontmatter } from './frontmatter'
 import type { ManagedRoot } from './roots'
-
-/** 根的官方 rank（遮蔽序，小者胜）。 */
-export const ROOT_RANK: Record<RootId, number> = {
-  'project-dsh': 100,
-  'project-agents': 200,
-  'user-dsh': 400,
-  'user-agents': 500,
-}
 
 /** 一个扫描出的技能条目（含校验结果）。 */
 export interface ScannedSkill {
@@ -116,7 +101,7 @@ export function parseSkillFile(
   return {
     name,
     description: known.description,
-    ...optionalWhen(known.whenToUse),
+    whenToUse: known.whenToUse || undefined,
     invocation: invocationOf(known),
   }
 }
@@ -131,10 +116,6 @@ function invocationOf(known: ReturnType<typeof parseKnown>): {
     modelInvocable: known.disableModelInvocation !== true,
     userInvocable: known.userInvocable !== false,
   }
-}
-
-function optionalWhen(whenToUse: string | undefined): { whenToUse?: string } {
-  return whenToUse !== undefined && whenToUse.length > 0 ? { whenToUse } : {}
 }
 
 /** 官方 parser 拒绝的旧版调用策略键：出现即整个文件不可用。 */
@@ -173,18 +154,4 @@ export async function scanRoot(root: ManagedRoot): Promise<ScannedSkill[]> {
     skills.push({ ...parseSkillFile(raw, fallback), source: root.id, path: filePath, format })
   }
   return skills
-}
-
-/** 同名遮蔽：合法条目里 rank 最小者胜出。 */
-export function effectiveNames(scanned: readonly ScannedSkill[]): Set<string> {
-  const best = new Map<string, ScannedSkill>()
-  for (const skill of [...scanned].sort((left, right) => ROOT_RANK[left.source] - ROOT_RANK[right.source])) {
-    if (skill.invalid !== undefined) continue
-    if (!best.has(skill.name)) best.set(skill.name, skill)
-  }
-  const names = new Set<string>()
-  for (const [name, winner] of best) {
-    if (winner !== undefined) names.add(name)
-  }
-  return names
 }

@@ -1,25 +1,12 @@
-/**
- * 可写技能根的计算与路径归属（host 专用，node:path / node:fs）。
- *
- * 与官方 skill-filesystem provider 的默认根逻辑对齐：项目根 = 最近的
- * 含 `.git` 祖先（找不到则 cwd 自身）；用户根 = DSH_HOME（或 ~/.dsh）与
- * DSH_AGENTS_HOME（或 ~/.agents）下的 skills 目录。customSkillDirs 与
- * bundledDir 是组合层配置/安装目录，本插件不写入，因此不参与。
- */
+// 可写技能根的计算与路径归属（host 专用）。根集合与官方 skill-filesystem
+// provider 对齐：项目根 = 最近的含 .git 祖先，用户根 = DSH_HOME / ~/.agents
+// 下的 skills；customSkillDirs / bundledDir 是组合层目录，本插件不写入。
 
 import { realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import type { RootId, RootInfo } from './shared'
-
-/** 根的展示标签（wire 上的 label）。 */
-export const ROOT_LABELS: Record<RootId, string> = {
-  'project-dsh': '工作区级 .dsh/skills',
-  'project-agents': '工作区级 .agents/skills',
-  'user-dsh': '全局 ~/.dsh/skills',
-  'user-agents': '全局 ~/.agents/skills',
-}
+import { sourceLabel, type RootId, type RootInfo } from './shared'
 
 /** 一个待判定的可写根（present 标志由调用方补充）。 */
 export interface ManagedRoot {
@@ -153,14 +140,6 @@ export class RootMatcher {
   }
 }
 
-/** 便捷封装：一次性匹配（测试与低频路径用；列表页请用 RootMatcher）。 */
-export async function matchRoot(
-  path: string,
-  roots: readonly ManagedRoot[],
-): Promise<ManagedRoot | undefined> {
-  return RootMatcher.create(roots).then((matcher) => matcher.match(path))
-}
-
 /** 根目录当前是否存在（目录实体）。 */
 export async function isPresentDir(path: string): Promise<boolean> {
   try {
@@ -175,7 +154,7 @@ export async function rootInfos(roots: readonly ManagedRoot[]): Promise<RootInfo
   return Promise.all(
     roots.map(async (root) => ({
       id: root.id,
-      label: ROOT_LABELS[root.id],
+      label: sourceLabel(root.id),
       path: root.path,
       present: await isPresentDir(root.path),
     })),

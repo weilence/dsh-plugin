@@ -1,9 +1,15 @@
-/**
- * dsh-skills 的 client ↔ host 桥共享契约（wire 类型 + 常量）。
- *
- * 本模块必须保持双端安全：不引入 node: 或浏览器专属 API，host half
- * （src/index.ts）与 client half（src/client/*）各自打包时都会内联它。
- */
+// dsh-skills 的 client ↔ host 桥共享契约。必须保持双端安全：不引入 node: /
+// 浏览器专属 API，两个 half 打包时都会内联本模块。
+
+/** host 桥路由路径（client api.ts 复用，端点单源）。 */
+export const LIST_PATH = '/dsh-skills/list'
+export const FILE_PATH = '/dsh-skills/file'
+export const SAVE_PATH = '/dsh-skills/save'
+export const DELETE_PATH = '/dsh-skills/delete'
+export const GIT_SCAN_PATH = '/dsh-skills/git-scan'
+export const GIT_INSTALL_PATH = '/dsh-skills/git-install'
+export const GIT_CHECK_PATH = '/dsh-skills/git-check'
+export const GIT_UPDATE_PATH = '/dsh-skills/git-update'
 
 /** 官方 skill 名称文法（@deepseek-ai/dsh-skill 的 isSkillName 同款）。 */
 export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -124,8 +130,6 @@ export interface GitSkillRecord {
   installedAt: string
 }
 
-// ---- 从 Git 仓库安装（host 侧 git clone --depth 1 + 目录发现） ----
-
 /** Git 仓库里发现的一个技能候选。 */
 export interface GitSkillCandidate {
   /** 技能目录在仓库内的相对路径（posix 分隔，安装请求按它回指）。 */
@@ -170,8 +174,6 @@ export interface GitInstallResponse {
   conflicts: { name: string; path: string }[]
   failed: { name: string; error: string }[]
 }
-
-// ---- Git 安装记录与更新跟踪 ----
 
 /** 检查更新的结果状态。 */
 export type GitUpdateStatus =
