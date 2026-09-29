@@ -4,6 +4,7 @@ import { discoveredToCatalogEntry } from '../catalog/matching'
 import type { ModelsDevCatalog } from '../catalog/types'
 import { jsonEqual } from '../pi-ai/ops'
 import type { PiAiChoices } from '../pi-ai/choices'
+import { errMsg } from '@dsh-plugins/shared'
 import {
   modelEntries,
   patchUserProfile,
@@ -145,12 +146,8 @@ export function RouteEditor(props: RouteEditorProps) {
     const next = patchUserProfile(draftProfile, {
       displayName: providerDraft.displayName.trim() || undefined,
       reasoning: providerDraft.reasoning.trim() || undefined,
-      ...(useBuiltin
-        ? {}
-        : {
-            api: providerDraft.api.trim() || undefined,
-            baseURL: providerDraft.baseURL.trim() || undefined,
-          }),
+      api: useBuiltin ? undefined : providerDraft.api.trim() || undefined,
+      baseURL: useBuiltin ? undefined : providerDraft.baseURL.trim() || undefined,
     })
     if (key.trim().length > 0 && typeof next.apiKeyEnv !== 'string') next.apiKeyEnv = keyRef
     return next
@@ -316,8 +313,7 @@ export function RouteEditor(props: RouteEditorProps) {
             },
       )
     } catch (error) {
-      const message = (error as { message?: string } | null | undefined)?.message
-      setFetchStatus({ kind: 'error', text: message || String(error) })
+      setFetchStatus({ kind: 'error', text: errMsg(error) })
     } finally {
       setFetching(false)
     }

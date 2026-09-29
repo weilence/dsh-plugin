@@ -3,7 +3,7 @@ import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { loadCatalog } from '../catalog/parse'
 import type { ModelsDevCatalog } from '../catalog/types'
 import { readChoices, type PiAiChoices } from '../pi-ai/choices'
-import type { DiscoveredModelFacts } from '../pi-ai/profile'
+import { providersRecordOf, type DiscoveredModelFacts } from '../pi-ai/profile'
 import { jsonEqual, type WriteOutcome } from '../pi-ai/ops'
 import type { PiAiProviderEntry } from '../pi-ai/types'
 import { buildRoutes, type PanelRoute } from '../pi-ai/view'
@@ -47,17 +47,6 @@ export interface StoreContext {
   remote: { $on?(name: string, listener: () => void): () => void }
   on(name: string, listener: () => void): void
   off(name: string, listener: () => void): void
-}
-
-function providersOf(root: unknown): Record<string, PiAiProviderEntry> {
-  if (typeof root !== 'object' || root === null || Array.isArray(root)) return {}
-  const providers = (root as Record<string, unknown>)['providers']
-  if (typeof providers !== 'object' || providers === null || Array.isArray(providers)) return {}
-  const result: Record<string, PiAiProviderEntry> = {}
-  for (const [key, value] of Object.entries(providers)) {
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) result[key] = value
-  }
-  return result
 }
 
 const CONFLICT_MESSAGE = '配置已被其他窗口或外部文件修改；请刷新后重试。'
@@ -160,14 +149,14 @@ export class PanelStore {
       // 只为「已配置」的 route 读安装目录：官方会把全部内置 provider 声明进
       // 可配置目录（几十个），休眠 provider 的模型清单面板从不展示，逐个
       // discover 只会产生几十次无谓请求。
-      const configuredProviders = new Set(Object.keys(providersOf(settings.value)))
+      const configuredProviders = new Set(Object.keys(providersRecordOf(settings.value)))
       const catalogs = new Map<string, ReadonlyMap<string, DiscoveredModelFacts>>()
       const effective = new Map<string, ReadonlyMap<string, EffectiveModelFacts>>()
       await Promise.all(
         directory.map(async (row) => {
           if (!row.declared && configuredProviders.has(row.provider)) {
             const discovered = await this.operations.discover(row.provider)
-            catalogs.set(row.provider, new Map((discovered ?? []).map((model) => [model.id, model])))
+            catalogs.set(row.provider, new Map(discovered.map((model) => [model.id, model])))
           }
           // active 蕴含 configured：已注册的 route 必然配置过。
           if (row.active) {
@@ -213,7 +202,7 @@ export class PanelStore {
   }
 
   private userProfile(provider: string): PiAiProviderEntry | undefined {
-    return providersOf(this.scope.getSnapshot().user)[provider]
+    return providersRecordOf(this.scope.getSnapshot().user)[provider]
   }
 
   // 失败返回 false 且错误已写入快照（冲突给统一提示）。
@@ -297,7 +286,7 @@ export class PanelStore {
   async createProvider(
     provider: string,
     profile: PiAiProviderEntry,
-    options: { apiKey?: string } = {},
+    options: { apiKey?: string; notice?: string } = {},
   ): Promise<boolean> {
     this.set({ busy: provider, error: null, notice: null })
     try {
@@ -321,7 +310,7 @@ export class PanelStore {
           return false
         }
       }
-      this.set({ notice: `已保存 Provider ${provider}` })
+      this.set({ notice: options.notice ?? `已保存 Provider ${provider}` })
       await this.refresh()
       return true
     } catch (error) {

@@ -1,9 +1,6 @@
 import type { PiAiModelEntry } from './types'
+import { isRecord } from './record'
 import { normalizeReasoningEfforts } from './validate'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 // 只写用户真正编辑过的字段并按官方字段顺序排列，避免 schema 默认值物化进
 // 用户配置；面板不认识的既有字段原样保留（未展示的现有字段编辑后仍会保留，

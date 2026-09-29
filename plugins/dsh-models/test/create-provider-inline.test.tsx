@@ -23,12 +23,12 @@ function renderForm(dormantProviders: readonly string[]) {
     createElement(CreateProviderForm, {
       busy: false,
       error: null,
-      knownProviders: [],
       dormantProviders,
       catalog: null,
       modelsDevLoading: false,
       modelsDevError: null,
       routes: [],
+      protocols: ['openai-completions'],
       onCancel: () => {},
       onLoadCatalog: () => {},
       onCreate: async () => true,

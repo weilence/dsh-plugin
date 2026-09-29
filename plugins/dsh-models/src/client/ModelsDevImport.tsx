@@ -16,6 +16,8 @@ export interface ModelsDevImportProps {
   error: string | null
   /** 已配置的 route：目标 ID 命中即拒绝——只能新建 Provider。 */
   routes: readonly PanelRoute[]
+  /** 协议下拉建议（外层 choices 内省所得）。 */
+  protocols: readonly string[]
   busy: boolean
   onCancel(): void
   /** 获取模型：按 Endpoint + 协议 + 一次性 API Key 询问 Host 的模型清单。 */
@@ -38,14 +40,12 @@ export interface ModelsDevImportHandle {
   apply(): void
 }
 
-function endpointOptions(catalog: ModelsDevCatalog | null): readonly ModelsDevProvider[] {
+function endpointOptions(catalog: ModelsDevCatalog | null): readonly (ModelsDevProvider & { api: string })[] {
   return (catalog?.providers ?? []).filter(
     (provider): provider is ModelsDevProvider & { api: string } =>
       typeof provider.api === 'string' && provider.api.length > 0,
   )
 }
-
-const KNOWN_PROTOCOLS: readonly string[] = ['openai-completions', 'openai-responses', 'anthropic-messages']
 
 function mappedProtocol(provider: ModelsDevProvider): string | undefined {
   const plan = planProviderCreation(provider)
@@ -170,9 +170,10 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                 label="Provider"
                 value={endpoint}
                 placeholder="https://api.example.com/v1"
-                datalist={endpointOptions(props.catalog)
-                  .filter((item) => item.api !== undefined)
-                  .map((item) => ({ value: item.api as string, label: item.name }))}
+                datalist={endpointOptions(props.catalog).map((item) => ({
+                  value: item.api,
+                  label: item.name,
+                }))}
                 onChange={(next) => {
                   setModels(null)
                   setFetchError(null)
@@ -210,7 +211,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                 label="API 协议（api；可留空，创建后展开卡片补全）"
                 value={api}
                 placeholder={protocolLabel || 'openai-completions'}
-                datalist={KNOWN_PROTOCOLS.map((protocol) => ({ value: protocol }))}
+                datalist={props.protocols.map((protocol) => ({ value: protocol }))}
                 onChange={setApi}
               />
             </div>

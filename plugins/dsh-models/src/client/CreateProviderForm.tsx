@@ -13,15 +13,14 @@ const styles = { ...shared, ...local }
 export function CreateProviderForm(props: {
   busy: boolean
   error: string | null
-  /** 已被任何层配置过的 route（含手写），不能重复创建。 */
-  knownProviders: readonly string[]
   /** pi-ai 内置但尚未配置的 route：选中即继承目录，无需填协议与 Endpoint。 */
   dormantProviders: readonly string[]
   catalog: ModelsDevCatalog | null
   modelsDevLoading: boolean
   modelsDevError: string | null
-  /** 已配置的 route（自定义 Provider 只能新建，命中即拒绝）。 */
+  /** 已配置的 route（自定义 Provider 只能新建，命中即拒绝；内置模式据此查重）。 */
   routes: readonly PanelRoute[]
+  protocols: readonly string[]
   onCancel(): void
   onLoadCatalog(): void
   onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): Promise<boolean>
@@ -41,7 +40,9 @@ export function CreateProviderForm(props: {
   const issues: string[] = []
   if (mode === 'builtin') {
     if (builtinId.length === 0) issues.push('请选择一个内置 Provider')
-    if (props.knownProviders.includes(builtinId)) issues.push(`Provider ID「${builtinId}」已存在`)
+    if (props.routes.some((route) => route.provider === builtinId)) {
+      issues.push(`Provider ID「${builtinId}」已存在`)
+    }
   }
   const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
   if (keyError) issues.push(keyError)
@@ -99,6 +100,7 @@ export function CreateProviderForm(props: {
           loading={props.modelsDevLoading}
           error={props.modelsDevError}
           routes={props.routes}
+          protocols={props.protocols}
           busy={props.busy}
           onCancel={props.onCancel}
           onError={props.onError}

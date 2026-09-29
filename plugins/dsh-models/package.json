@@ -50,8 +50,7 @@
     "dsh",
     "dsh-plugin",
     "models.dev",
-    "llm",
-    "@weilence/dsh-models"
+    "llm"
   ],
   "engines": {
     "node": ">=20",

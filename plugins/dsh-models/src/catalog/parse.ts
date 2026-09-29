@@ -1,4 +1,5 @@
 import type { ModelsDevCatalog, ModelsDevModel, ModelsDevProvider, ModelsDevReasoningOption } from './types'
+import { positiveTime } from '../time'
 
 const MAX_CLIENT_BODY_CHARS = 16 * 1024 * 1024
 
@@ -98,12 +99,6 @@ export function parseCatalogWire(
   }
 }
 
-function headerTime(value: string | null) {
-  if (!value) return null
-  const n = Number(value)
-  return Number.isFinite(n) && n > 0 ? n : null
-}
-
 let cached: ModelsDevCatalog | null = null
 let cachedEtag: string | null = null
 let inflight: Promise<ModelsDevCatalog> | null = null
@@ -133,8 +128,8 @@ export async function loadCatalog(force = false): Promise<ModelsDevCatalog> {
     }
     const catalog = parseCatalogWire(raw, {
       etag: response.headers.get('etag'),
-      checkedAt: headerTime(response.headers.get('x-dsh-models-checked-at')),
-      updatedAt: headerTime(response.headers.get('x-dsh-models-updated-at')),
+      checkedAt: positiveTime(response.headers.get('x-dsh-models-checked-at')),
+      updatedAt: positiveTime(response.headers.get('x-dsh-models-updated-at')),
     })
     cached = catalog
     cachedEtag = catalog.etag

@@ -28,8 +28,12 @@ export type EffectiveOutcome =
 
 export interface PiAiOperations {
   loadDirectory(): Promise<RouteDirectoryRow[]>
-  /** 读一个 route 的安装目录模型；pi-ai 不提供该 route 时返回 undefined。 */
-  discover(provider: string): Promise<readonly LlmDiscoveredModel[] | undefined>
+  /**
+   * 读一个 route 的安装目录模型；失败抛出携带 Host 原因的错误（面板经
+   * store 的 catch 显示）。手工声明 route 没有安装目录，store 根本不发起
+   * 这里的请求。
+   */
+  discover(provider: string): Promise<readonly LlmDiscoveredModel[]>
   /**
    * 询问一个草稿 Endpoint 的模型清单：携带 provider 时 Host 可回读该 route
    * 已存凭据，并按协议走原生模型列表接口（openai 的 /models 等）。
@@ -85,8 +89,7 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
     async discover(provider) {
       const response = await ctx.remote.llm.discoverModels(PI_AI_NS, { provider })
       if (response.ok) return response.value
-      // 手工声明 route 没有安装目录；这不是错误，只是没有可继承的模型。
-      return undefined
+      throw new Error(remoteMessage(response.error, '读取模型目录失败'))
     },
 
     async discoverEndpoint(request) {
@@ -169,6 +172,7 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
 
     async describeCredential(ref) {
       const response = await ctx.remote.credentials.describe([ref])
+      // 失败折叠成 undefined 是 UI 语义：凭据状态显示「未知」小圆点，不该打断面板。
       return response.ok ? response.value[ref] : undefined
     },
 

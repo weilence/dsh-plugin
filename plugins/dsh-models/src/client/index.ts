@@ -28,19 +28,6 @@ interface Injected {
   operations: PiAiOperations
 }
 
-function choicesFromContext(ctx: SectionContext & OfficialServices): () => ReturnType<typeof readChoices> {
-  return () => {
-    try {
-      const view = ctx.configForms.describe().getSnapshot().view
-      const row = view?.namespaces.find((entry) => entry.ns === 'llm-pi-ai')
-      if (row !== undefined) return readChoices(ctx.settingsSchema.rehydrate(row.schema))
-    } catch {
-      // 镜像不可用，走 FALLBACK_CHOICES。
-    }
-    return readChoices(undefined)
-  }
-}
-
 export const inject: string[] = [
   'slots',
   'remote',
@@ -57,7 +44,16 @@ export function apply(ctx: unknown) {
   const services = ctx as CordisLike
   const operations = createOperations(services as unknown as Parameters<typeof createOperations>[0])
   const scope = services.configForms.get('llm-pi-ai')
-  const getChoices = choicesFromContext(services)
+  const getChoices = () => {
+    try {
+      const view = services.configForms.describe().getSnapshot().view
+      const row = view?.namespaces.find((entry) => entry.ns === 'llm-pi-ai')
+      if (row !== undefined) return readChoices(services.settingsSchema.rehydrate(row.schema))
+    } catch {
+      // 镜像不可用，走 FALLBACK_CHOICES。
+    }
+    return readChoices(undefined)
+  }
   const store = new PanelStore({ ctx: services, operations, scope, getChoices })
   services.effect(() => store.start(), 'dsh-models: model catalog panel')
   const slots = services.slots

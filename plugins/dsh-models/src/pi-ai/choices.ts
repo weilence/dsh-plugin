@@ -1,4 +1,5 @@
 import type { SchemaNode } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { PiAiThinkingFormat } from '@deepseek-ai/dsh-llm-pi-ai'
 import { THINKING_LEVELS, type PiAiModality, type ThinkingLevel } from './types'
 
 export interface PiAiChoices {
@@ -8,23 +9,26 @@ export interface PiAiChoices {
   modalities: readonly PiAiModality[]
 }
 
+// 完备性锁：官方 SUPPORTED_THINKING_FORMATS 新增/删减格式时，这个键全集字面量在此编译期报错；键序沿用官方 most-reached-first。
+const THINKING_FORMAT_FLAGS = {
+  openai: true,
+  deepseek: true,
+  openrouter: true,
+  together: true,
+  baseten: true,
+  zai: true,
+  qwen: true,
+  'chat-template': true,
+  'qwen-chat-template': true,
+  'string-thinking': true,
+  'ant-ling': true,
+} as const satisfies Record<PiAiThinkingFormat, true>
+
 /** 官方 schema 无法内省时的保守回退（与 0.1.5-rc.2 的取值一致）。 */
 export const FALLBACK_CHOICES: PiAiChoices = {
   protocols: ['openai-completions', 'openai-responses', 'anthropic-messages'],
   thinkingLevels: THINKING_LEVELS,
-  thinkingFormats: [
-    'openai',
-    'deepseek',
-    'openrouter',
-    'together',
-    'baseten',
-    'zai',
-    'qwen',
-    'chat-template',
-    'qwen-chat-template',
-    'string-thinking',
-    'ant-ling',
-  ],
+  thinkingFormats: Object.keys(THINKING_FORMAT_FLAGS) as PiAiThinkingFormat[],
   modalities: ['text', 'image'],
 }
 

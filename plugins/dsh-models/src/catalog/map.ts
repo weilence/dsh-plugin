@@ -53,7 +53,6 @@ export function discoveredToEntry(model: {
   return entry
 }
 
-/** Provider 创建方案。 */
 export type ProviderCreation =
   { kind: 'custom'; profile: Record<string, unknown> } | { kind: 'unsupported'; reason: string }
 

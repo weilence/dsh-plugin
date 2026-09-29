@@ -2,6 +2,7 @@ import type { PiAiModelEntry, PiAiProviderEntry, RouteSource } from './types'
 import {
   effectiveModel,
   firstString,
+  providersRecordOf,
   routeCompat,
   routeModelRows,
   routeSource,
@@ -11,16 +12,8 @@ import {
 } from './profile'
 import type { EffectiveModelFacts, RouteDirectoryRow } from '../client/operations'
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function providerOf(root: unknown, provider: string): PiAiProviderEntry | undefined {
-  if (!isRecord(root)) return undefined
-  const providers = root['providers']
-  if (!isRecord(providers)) return undefined
-  const profile = providers[provider]
-  return isRecord(profile) ? (profile as PiAiProviderEntry) : undefined
+  return providersRecordOf(root)[provider]
 }
 
 export interface RouteInputs {
@@ -57,8 +50,6 @@ export function buildRoute(inputs: RouteInputs): PanelRoute {
     displayName: directory.displayName,
     declared: directory.declared,
     active: directory.active,
-    // schema 默认只把 providers 物化成 {}，因此 providers.<route> 存在就说明
-    // 组合 base 或用户层写过它。
     configured: effectiveProfile !== undefined,
     error: directory.error,
     source,
@@ -128,6 +119,3 @@ export function effortsLabel(entry: PiAiModelEntry): string {
   if (efforts === undefined || Object.keys(efforts).length === 0) return '默认'
   return Object.keys(efforts).join('/')
 }
-
-export type { DiscoveredModelFacts, EffectiveModelFacts, ModelRow, RouteView, RouteSource }
-export type { PiAiModelEntry, PiAiProviderEntry }

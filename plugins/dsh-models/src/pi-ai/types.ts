@@ -13,15 +13,18 @@ export type { PiAiModality, PiAiReasoningEfforts } from '@deepseek-ai/dsh-llm-pi
 
 export type ThinkingLevel = keyof PiAiReasoningEfforts
 
-export const THINKING_LEVELS = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-] as const satisfies readonly ThinkingLevel[]
+// 完备性锁：官方 PiAiReasoningEfforts 新增/删减等级时，这个键全集字面量在此编译期报错；键序即展示序（沿用官方升级序）。
+const THINKING_LEVEL_FLAGS = {
+  off: true,
+  minimal: true,
+  low: true,
+  medium: true,
+  high: true,
+  xhigh: true,
+  max: true,
+} as const satisfies Record<ThinkingLevel, true>
+
+export const THINKING_LEVELS: readonly ThinkingLevel[] = Object.keys(THINKING_LEVEL_FLAGS) as ThinkingLevel[]
 
 export interface PiAiModelEntry extends Omit<PiAiModelProfile, 'input' | 'compat'> {
   input?: readonly PiAiModality[]

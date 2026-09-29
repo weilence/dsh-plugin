@@ -91,7 +91,7 @@ function sameModalities(a: readonly PiAiModality[], b: readonly string[]) {
  * 草稿 → 官方条目：勾选即设置（推理等级勾了才写字典、全不勾 = 不写该
  * 字段）；输入模态与继承默认一致时不写 input（保持继承态，配置最小化）。
  */
-export function draftToEntry(id: string, draft: Draft, defaultInput?: readonly string[]): PiAiModelEntry {
+function draftToEntry(id: string, draft: Draft, defaultInput?: readonly string[]): PiAiModelEntry {
   const entry: PiAiModelEntry = { id }
   if (draft.name.trim().length > 0) entry.name = draft.name.trim()
   if (draft.contextWindow.trim().length > 0) entry.contextWindow = Number(draft.contextWindow)

@@ -33,7 +33,6 @@ function toBody(info: LlmResolvedModelInfo): EffectiveModelFacts {
   }
 }
 
-/** 一次查询的结果。 */
 export type EffectiveResult =
   { kind: 'ok'; models: readonly EffectiveModelFacts[] } | { kind: 'unavailable'; message: string }
 
@@ -47,7 +46,7 @@ export async function effectiveModelsFor(ctx: Context, provider: string): Promis
       try {
         models.push(toBody(await ctx.llm.resolveModelInfo(provider, model.id)))
       } catch {
-        // 该模型当前无法解析；能力未知，跳过。
+        // 单模型解析失败属瞬态 catalog drift，不该让整条只读桥变 unavailable。
       }
     }
     return { kind: 'ok', models }

@@ -1,12 +1,21 @@
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm/types'
 import type { PiAiModelEntry, PiAiProviderEntry, RouteSource } from './types'
+import { isRecord } from './record'
 import { normalizeModelEntry } from './normalize'
 
 /** 官方模型发现结果的目录投影：目录继承比较只关心这三个字段。 */
 export type DiscoveredModelFacts = Pick<LlmDiscoveredModel, 'name' | 'contextWindow' | 'maxTokens'>
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+// schema 默认只把 providers 物化成 {}，因此 providers.<route> 存在就说明组合 base 或用户层写过它。
+export function providersRecordOf(root: unknown): Record<string, PiAiProviderEntry> {
+  const providers = isRecord(root) ? root['providers'] : undefined
+  const result: Record<string, PiAiProviderEntry> = {}
+  if (isRecord(providers)) {
+    for (const [key, value] of Object.entries(providers)) {
+      if (isRecord(value)) result[key] = value
+    }
+  }
+  return result
 }
 
 export function firstString(...candidates: unknown[]): string | undefined {

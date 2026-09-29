@@ -1,12 +1,12 @@
 # @weilence/dsh-models
 
-DeepSeek Harness Web 插件：在 Settings 里新增独立的 **模型目录** 菜单，浏览 [models.dev](https://models.dev)
+DeepSeek Harness Web 插件：在 Settings 里新增独立菜单 **模型**（面板标题「模型目录」），浏览 [models.dev](https://models.dev)
 并把 Provider / 模型写入宿主的 `llm-pi-ai`，在面板上为每个模型设置**能力**（输入模态、上下文、输出上限）
 与**推理强度**（`reasoningEfforts`）。生成内容严格遵循官方 `@deepseek-ai/dsh-llm-pi-ai` 配置格式。
 
 ## 功能
 
-**设置菜单「模型目录」（`settings.section` id `@weilence/dsh-models`）**
+**设置菜单「模型」（`settings.section` id `dsh-models`，面板标题「模型目录」）**
 
 - **Provider 列表（行内编辑）**：只展示**已经配置过**的 route（组合配置或用户层写过 `providers.<route>`）：
   行头显示显示名、route id 与协议 / Endpoint；点击卡片展开连接字段和模型清单，切换卡片或收起时会确认放弃未保存的修改。

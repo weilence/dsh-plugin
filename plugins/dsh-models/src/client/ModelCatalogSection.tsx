@@ -84,6 +84,13 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
     setCreating(false)
   }
 
+  const switchToCreate = (next?: string) => {
+    setEditing(next)
+    setEditingDirty(false)
+    setCreating(true)
+    if (dormant.length === 0) void props.store.ensureModelsDev()
+  }
+
   const requestCreate = () => {
     if (busyProvider !== null) return
     if (creating) {
@@ -94,10 +101,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
       setPendingExit({ create: true })
       return
     }
-    setEditing(undefined)
-    setEditingDirty(false)
-    setCreating(true)
-    if (dormant.length === 0) void props.store.ensureModelsDev()
+    switchToCreate()
   }
 
   const [providerOrder, setProviderOrder] = useState<string[] | null>(() => {
@@ -184,19 +188,19 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
               <CreateProviderForm
                 busy={busyProvider !== null}
                 error={state.error}
-                knownProviders={routes.map((route) => route.provider)}
                 dormantProviders={dormant.map((route) => route.provider)}
                 catalog={state.modelsDev}
                 modelsDevLoading={state.modelsDevLoading}
                 modelsDevError={state.modelsDevError}
                 routes={routes}
+                protocols={state.choices.protocols}
                 onCancel={() => setCreating(false)}
                 onLoadCatalog={() => void props.store.ensureModelsDev()}
                 onCreate={(provider, profile, apiKey) =>
                   props.store.createProvider(provider, profile, { apiKey })
                 }
                 onSaveProfile={(provider, profile, notice, apiKey) =>
-                  props.store.createProvider(provider, profile, { apiKey })
+                  props.store.createProvider(provider, profile, { apiKey, notice })
                 }
                 onFetchModels={(request) => props.operations.discoverEndpoint(request)}
                 onError={(message) => props.store.fail(message)}
@@ -270,11 +274,10 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
           busy={busyProvider !== null}
           onCancel={() => setPendingExit(null)}
           onConfirm={() => {
-            setEditing(pendingExit.next)
-            setEditingDirty(false)
-            if (pendingExit.create) {
-              setCreating(true)
-              if (dormant.length === 0) void props.store.ensureModelsDev()
+            if (pendingExit.create) switchToCreate(pendingExit.next)
+            else {
+              setEditing(pendingExit.next)
+              setEditingDirty(false)
             }
             setPendingExit(null)
           }}

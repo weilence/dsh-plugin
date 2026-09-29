@@ -2,12 +2,13 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { errMsg } from '@dsh-plugins/shared'
+import { positiveTime } from './time'
 
-export const MODELS_DEV_URL = 'https://models.dev/api.json'
-export const NORMAL_CHECK_MS = 6 * 60 * 60 * 1000
-export const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
-export const MAX_CATALOG_BYTES = 16 * 1024 * 1024
-export const REQUEST_TIMEOUT_MS = 30_000
+const MODELS_DEV_URL = 'https://models.dev/api.json'
+const NORMAL_CHECK_MS = 6 * 60 * 60 * 1000
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
+const MAX_CATALOG_BYTES = 16 * 1024 * 1024
+const REQUEST_TIMEOUT_MS = 30_000
 
 interface PersistedMeta {
   sha256?: string
@@ -36,11 +37,6 @@ export interface CatalogMirrorOptions {
   url?: string
   onInfo?: (message: string) => void
   onWarn?: (message: string) => void
-}
-
-function validTime(value: unknown): number | null {
-  const n = Number(value)
-  return Number.isFinite(n) && n > 0 ? n : null
 }
 
 function bodyDigest(body: Buffer) {
@@ -134,8 +130,8 @@ export class CatalogMirror {
       this.state = {
         body,
         etag: normalizeEtag(typeof meta.etag === 'string' ? meta.etag : null, body),
-        checkedAt: validTime(meta.checkedAt),
-        updatedAt: validTime(meta.updatedAt),
+        checkedAt: positiveTime(meta.checkedAt),
+        updatedAt: positiveTime(meta.updatedAt),
         lastError: null,
       }
       this.onInfo(`已装载持久化 models.dev 快照（${body.byteLength} bytes）`)
