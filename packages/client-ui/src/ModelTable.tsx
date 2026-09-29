@@ -16,8 +16,6 @@ export interface ModelTableProps {
   rows: readonly ModelTableRowData[]
 }
 
-/** 只读模型清单表（无表头）：名称 + ID / ctx·out / 模态·推理 三列，
- *  单元格内两行堆叠，跨行按列对齐；无 hover 效果。 */
 export function ModelTable(props: ModelTableProps) {
   return (
     <table className={styles.modelTable}>

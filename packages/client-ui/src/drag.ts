@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DragEvent as ReactDragEvent } from 'react'
 
-/** 一次行拖拽的共享状态。 */
 interface RowDragState {
   from: number
   keys: readonly string[]

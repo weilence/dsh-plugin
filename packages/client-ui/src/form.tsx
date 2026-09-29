@@ -35,9 +35,9 @@ export function TextField(props: {
   autoFocus?: boolean
   /** 跨满网格整行（grid-column: 1 / -1）。 */
   wide?: boolean
-  /** 输入框右侧的联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
+  /** 联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
   addon?: { label: string; onClick(): void; disabled?: boolean }
-  /** 控件下方的单条校验错误（非空时渲染）。 */
+  /** 控件下方的单条校验错误。 */
   error?: string
   /** 联想候选：传入即渲染内置 datalist 并自动关联（优先于 list）。 */
   datalist?: readonly { value: string; label?: string }[]
@@ -61,35 +61,27 @@ export function TextField(props: {
   // datalist id 只在组件树内唯一即可，useId 免去调用方手工起名。
   const listId = useId()
   const listAttr = datalist !== undefined ? listId : list
+  const input = (
+    <Input
+      className={fieldInputCls(disabled)}
+      type={type}
+      value={value}
+      placeholder={placeholder}
+      list={listAttr}
+      inputMode={inputMode}
+      autoComplete={autoComplete}
+      disabled={disabled}
+      autoFocus={autoFocus}
+      onChange={(event) => onChange(event.target.value)}
+    />
+  )
   return (
     <Field label={label} wide={wide}>
       {addon === undefined ? (
-        <Input
-          className={fieldInputCls(disabled)}
-          type={type}
-          value={value}
-          placeholder={placeholder}
-          list={listAttr}
-          inputMode={inputMode}
-          autoComplete={autoComplete}
-          disabled={disabled}
-          autoFocus={autoFocus}
-          onChange={(event) => onChange(event.target.value)}
-        />
+        input
       ) : (
         <div className={styles.inputRow}>
-          <Input
-            className={fieldInputCls(disabled)}
-            type={type}
-            value={value}
-            placeholder={placeholder}
-            list={listAttr}
-            inputMode={inputMode}
-            autoComplete={autoComplete}
-            disabled={disabled}
-            autoFocus={autoFocus}
-            onChange={(event) => onChange(event.target.value)}
-          />
+          {input}
           <button
             type="button"
             className={styles.addonButton}
@@ -115,12 +107,12 @@ export function TextField(props: {
 }
 
 /** 下拉选择的字段行封装（官方无对应组件，保留自绘 .select）。 */
-export function SelectField(props: {
+export function SelectField<T extends string>(props: {
   label: string
-  value: string
-  options: readonly { value: string; label: string; disabled?: boolean }[]
+  value: T
+  options: readonly { value: T; label: string; disabled?: boolean }[]
   disabled?: boolean
-  onChange(value: string): void
+  onChange(value: T): void
 }) {
   const { label, value, options, disabled, onChange } = props
   return (
@@ -129,7 +121,8 @@ export function SelectField(props: {
         className={styles.select}
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
+        // option 的 value 都来自 T 类型的 options，DOM 只回传 string
+        onChange={(event) => onChange(event.target.value as T)}
       >
         {options.map((option) => (
           <option key={option.value} value={option.value} disabled={option.disabled}>
@@ -145,7 +138,6 @@ export function SelectField(props: {
 export function TextAreaField(props: {
   label: ReactNode
   value: string
-  /** 只读展示时可缺省。 */
   onChange?(value: string): void
   placeholder?: string
   /** 只读展示（配置原文等）。 */
