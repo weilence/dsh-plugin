@@ -10,8 +10,8 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BusyError, RemoteEngine, type EngineDeps } from '../src/engine'
 import type { ForwardHandle, SshResult } from '../src/ssh'
-import { emptyPatchDoc, parsePatchDoc, renderPatchDoc } from '../src/patchDoc'
-import { readStore } from '../src/connections'
+import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
+import { readStore, writeStore } from '../src/connections'
 import type { LocalPatchLayer } from '../src/localenv'
 import type { SaveRequest } from '../src/shared'
 
@@ -99,7 +99,6 @@ function makeDeps(options: FakeOptions = {}) {
       return layers
     },
     scanSkills: async () => options.skills ?? [],
-    tools: { ssh: true, tar: options.tar ?? true },
     localDshVersion: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
     localPluginVersion: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
     async packPlugin() {
@@ -630,7 +629,6 @@ describe('RemoteEngine', () => {
         return undefined
       },
     })
-    const { writeStore } = await import('../src/connections')
     await writeStore(home, {
       version: 1,
       connections: [
@@ -718,7 +716,6 @@ describe('RemoteEngine', () => {
 
   it('remote patch 渲染：upsert 后的文本可直接再解析', async () => {
     const doc = parsePatchDoc(REMOTE_PATCH)
-    const { upsertInsertRow } = await import('../src/patchDoc')
     upsertInsertRow(doc, {
       id: 'mcp-demo',
       name: '@deepseek-ai/dsh-mcp-client',

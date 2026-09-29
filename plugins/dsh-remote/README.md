@@ -6,30 +6,32 @@ DSH web 插件（远程开发）：设置页新增「远程开发」菜单——
 经你自备的 OpenSSH 别名（认证完全复用 `~/.ssh/config`，本插件不读写任何私钥
 材料）管理远端机上的完整 dsh web 实例：
 
-- **一键部署**：探针 node / npm / pnpm（缺失时尝试 `corepack enable`）→
-  `npm install -g @deepseek-ai/dsh`（版本对齐本机运行时；本机版本未知时装
-  latest）→ 安装本插件：先对比远端已装版本与 profile 登记，一致则跳过；
-  不一致才本地组装 tgz（npm tarball 布局）经 ssh 推到远端
-  `~/.dsh/dsh-remote/payload/` 并 `dsh plugin add <tgz>` 安装，装毕读回
+- **连接**（内含远端装配）：探针 node / npm / pnpm（缺失时尝试 `corepack enable`）→
+  `npm install -g @deepseek-ai/dsh`（版本对齐本机运行时；本机版本探测失败时
+  直接中止装配，不退装 npm latest）→ 安装本插件：先对比远端已装版本与
+  profile 登记，一致则跳过；不一致才本地组装 tgz（npm tarball 布局）经 ssh
+  推到远端 `~/.dsh/dsh-remote/payload/` 并 `dsh plugin add <tgz>` 安装，装毕读回
   node_modules 里的版本确认。裸包名 `dsh-remote` 在 npm 已被第三方包占用，
-  本插件走 `@weilence/*` scope 且不依赖 registry。远端默认只装本插件，其余
-  插件由「同步本地插件」按勾选安装。
-- **连接**：远端 `nohup dsh --profile web --no-open --port 0` 起实例
-  （profile 固定 web，不可配置），轮询日志里的 `dsh web: <url>` 就绪
-  信号解析端口与 token，本地 `ssh -N -L` 端口转发 + 健康检查后打开
-  `http://127.0.0.1:<local>/?token=…`——鉴权、loopback 栅栏对转发端口照常
-  工作。
+  本插件走 `@weilence/*` scope 且不依赖 registry。装配完成后续起实例：远端
+  `nohup dsh --profile web --no-open --port 0`（profile 固定 web，不可配置），
+  轮询日志里的 `dsh web: <url>` 就绪信号解析端口与 token，本地 `ssh -N -L`
+  端口转发 + 健康检查后打开 `http://127.0.0.1:<local>/?token=…`——鉴权、
+  loopback 栅栏对转发端口照常工作。已装齐时装配段秒过。
 - **断开**：杀本地转发 + 远端 SIGTERM（官方语义 = 优雅退出）。
-- **skills 同步**：两个用户级根（`~/.dsh/skills`、`~/.agents/skills`）tar 单向
-  推送；manifest 跟踪式删除——只清上次同步过、本次已消失的技能，远端手装技能
-  零接触。仅手动触发（卡片上的「同步 skills」按钮），连接路径不做任何同步。
-- **MCP 下发**：勾选的本机 MCP 服务器声明（含 env 凭据，面板明示）整块写进
-  远端 profile 的 `cordis.patch.yml`——cat→改→cat 原子往返，手写注释与无关行
-  原样保留；远端实例的 HMR 在线应用。
-- **插件同步**：逐插件版本对比后分流——本地路径安装（link / file）的插件永远
-  本地打包传输（未发布的开发版本也能同步到远端）；npm 依赖形态的插件按连接
-  的「非本地插件安装方式」选项选本地传输或远端自行下载（精确对齐本机版本）。
-  取消勾选则 `remove`；manifest 跟踪，远端手装插件不受影响。
+- **同步**（skills / MCP / 插件三类，均为声明式勾选）：运行态卡片上的
+  「同步 ▾」下拉选类别，弹窗列表 = 本机清单、默认勾选 = 远端已有（打开时
+  实时读取远端清单），确认后勾选项安装 / 升级，未勾选且远端已有的删除——
+  删除范围恒为本机清单 ∩ 远端清单，远端独有条目（本机没有的）零接触。
+  远端清单读取失败时禁用同步按钮：没有远端事实绝不执行删除。连接路径
+  不做任何同步；写入靠远端实例 HMR 在线生效。
+  - **skills**：两个用户级根（`~/.dsh/skills`、`~/.agents/skills`）按勾选 tar
+    单向推送。
+  - **MCP**：勾选的本机 MCP 服务器声明（含 env 凭据，面板明示）整块合并进
+    远端 profile 的 `cordis.patch.yml`（按 serverName 对齐）——cat→改→cat
+    原子往返，手写注释与无关行原样保留。
+  - **插件**：逐插件版本对比后分流——本地路径安装（link / file）的插件永远
+    本地打包传输（未发布的开发版本也能同步到远端）；npm 依赖形态的插件按
+    弹窗选项选本地传输或远端自行下载（精确对齐本机版本）。
 
 同步能力全部收敛在本插件面板里——dsh-skills / dsh-mcp 保持纯本地管理插件，
 不感知远端，功能各自独立。

@@ -1,13 +1,7 @@
 /**
- * dsh-remote host half：设置页「远程开发」面板的 HTTP 桥。
- *
- * 引擎（engine.ts）持有连接状态机并经 ssh 推进部署 / 连接 / 同步；本模块
- * 只做三件事：把引擎钉在路由上（GET /state 轮询、POST 点火）、栅栏守卫
- * （@dsh-plugins/shared/http 同源防线）、本机效应的生产接线（ssh 执行器、
- * 端口预占、健康检查、本机清单读取）。
- *
- * profileContext 经 ctx.get() 可选访问——缺席时本机 MCP / 插件清单降级为
- * 不可用，连接管理与部署不受影响。
+ * dsh-remote host half：把连接引擎钉在同源 HTTP 桥上（GET /state 轮询、
+ * POST 点火）+ 本机效应的生产接线（ssh 执行器、端口预占、健康检查、本机
+ * 清单读取、tgz 打包）。栅栏守卫来自 @dsh-plugins/shared/http。
  *
  * @module dsh-remote
  */
@@ -24,6 +18,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
+import { errMsg } from '@dsh-plugins/shared'
 import {
   composeLocalRows,
   profileContextOf,
@@ -36,6 +31,15 @@ import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engin
 import { ValidationError } from './connections'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
 import {
+  CONNECT_PATH,
+  DELETE_PATH,
+  DISCONNECT_PATH,
+  LOCAL_ROWS_PATH,
+  REMOTE_INVENTORY_PATH,
+  SAVE_PATH,
+  STATE_PATH,
+  SYNC_PATH,
+  TEST_PATH,
   type LocalRowsResponse,
   type LocalSkillRow,
   type OpRequest,
@@ -46,16 +50,6 @@ import {
 
 export const inject: string[] = ['webServer']
 
-export const STATE_PATH = '/dsh-remote/state'
-export const LOCAL_ROWS_PATH = '/dsh-remote/local-rows'
-export const SAVE_PATH = '/dsh-remote/save'
-export const DELETE_PATH = '/dsh-remote/delete'
-export const TEST_PATH = '/dsh-remote/test'
-export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
-export const CONNECT_PATH = '/dsh-remote/connect'
-export const DISCONNECT_PATH = '/dsh-remote/disconnect'
-export const SYNC_PATH = '/dsh-remote/sync'
-
 /** 本机工具探针（结果缓存到进程生命周期）。 */
 async function probeTool(command: string, args: string[]): Promise<boolean> {
   return new Promise((resolve) => {
@@ -65,13 +59,9 @@ async function probeTool(command: string, args: string[]): Promise<boolean> {
   })
 }
 
-/**
- * 本机 dsh 运行时版本（远端部署对齐目标）：官方 getDshRuntimeVersion 的同源
- * 事实——读运行中 app-boot 自身的 package.json。必须经宿主的运行时解析取包：
- * 静态目录探测在宿主形态下落空（平台包不经 node_modules 供给），曾致远端
- * 误装 npm latest（0.1.7-rc.2，落后于 next 标签的 0.2 线），触发 plugin add
- * 的 engines 版本闸门。解析不到回 null——连接部署段直接失败，不退装 latest。
- */
+// 本机 dsh 运行时版本（远端部署对齐目标）：必须经宿主运行时解析取包（平台
+// 包不经 node_modules 供给，静态目录探测落空）；取不到回 null，部署段据此
+// 中止——不退装 latest 的论证见 engine ensureDeployed。
 const localDshVersion: string | null = await import('@deepseek-ai/dsh-app-boot')
   .then((boot) => boot.getDshRuntimeVersion())
   .catch(() => null)
@@ -207,7 +197,6 @@ function makeEngine(ctx: Context): RemoteEngine {
         roots.push({ key: root.key, path: root.path, names: await scanSkillsNames(root) })
       return roots
     },
-    tools: { ssh: true, tar: true },
     localDshVersion,
     localPluginVersion: localPluginVersion(),
     packPlugin,
@@ -286,7 +275,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, 500, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, 500, { error: errMsg(error) })
           }
         },
       }),
@@ -320,7 +309,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             const response: LocalRowsResponse = { skillRows, mcpRows, pluginRows, available: true }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, 500, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, 500, { error: errMsg(error) })
           }
         },
       }),
@@ -339,7 +328,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             const response = await engine.save(body as unknown as SaveRequest)
             writeJson(res, 200, response)
           } catch (error) {
-            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, statusOf(error), { error: errMsg(error) })
           }
         },
       }),
@@ -358,7 +347,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             await engine.remove(id)
             writeJson(res, 200, { removed: true })
           } catch (error) {
-            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, statusOf(error), { error: errMsg(error) })
           }
         },
       }),
@@ -377,7 +366,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             const response = await engine.test(id)
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, statusOf(error), { error: errMsg(error) })
           }
         },
       }),
@@ -396,7 +385,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             const response = await engine.remoteInventory(id)
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, statusOf(error), { error: errMsg(error) })
           }
         },
       }),
@@ -420,7 +409,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
               writeJson(res, 200, { started: true, state: row?.state ?? null })
             } catch (error) {
               writeJson(res, statusOf(error), {
-                error: String(error instanceof Error ? error.message : error),
+                error: errMsg(error),
               })
             }
           },
@@ -454,7 +443,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             const row = engine.rows().find((candidate) => candidate.id === request.id)
             writeJson(res, 200, { started: true, state: row?.state ?? null })
           } catch (error) {
-            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, statusOf(error), { error: errMsg(error) })
           }
         },
       }),

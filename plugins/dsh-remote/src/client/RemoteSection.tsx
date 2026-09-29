@@ -1,12 +1,3 @@
-/**
- * 设置页「远程开发」面板：连接为可展开卡片（ExpandableCard）——状态 pill
- * （七相）+ 运行 url + 错误行；动作按钮按相渲染（idle：测试 / 连接——连接
- * 内含远端装配（原「部署」）；running：打开 / 断开，且仅运行态显示同步
- * 入口——同步写入靠远端实例 HMR 在线生效）；展开体是行内
- * 编辑表单（RemoteForm）+ 最近同步摘要 + 删除（ConfirmDialog）。新建连接
- * 卡片追加在列表末尾并滚动进视口（同 dsh-mcp 的行内新建模式）。
- */
-
 import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
@@ -74,6 +65,9 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
 
   const connections = state.list?.connections ?? []
   const env = state.list?.env
+  const { syncing, deleting } = state
+  const syncTarget = syncing === null ? undefined : connections.find((row) => row.id === syncing.id)
+  const deleteTarget = deleting === null ? undefined : connections.find((row) => row.id === deleting.id)
 
   return (
     <Panel title="远程开发">
@@ -145,38 +139,26 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
 
       {/* 弹窗挂在面板顶层：ExpandableCard 收起时不渲染 children，放卡片里
           会出现「点了菜单/删除却要展开行才弹窗」。 */}
-      {state.syncing !== null
-        ? (() => {
-            const target = connections.find((row) => row.id === state.syncing?.id)
-            if (target === undefined) return null
-            return (
-              <SyncDialog
-                row={target}
-                kind={state.syncing.kind}
-                store={store}
-                localRows={state.localRows}
-                busy={state.busyId === target.id || target.state.op !== null}
-                onClose={() => store.askSync(null)}
-              />
-            )
-          })()
-        : null}
-      {state.deleting !== null
-        ? (() => {
-            const target = connections.find((row) => row.id === state.deleting?.id)
-            if (target === undefined) return null
-            return (
-              <ConfirmDialog
-                title="删除连接"
-                body={`确认删除「${target.label}」（${target.sshAlias}）？远端产物（~/.dsh/dsh-remote/ 运行目录、已装插件与已下发配置）会保留。`}
-                confirmLabel="删除"
-                busy={state.busyId === target.id}
-                onCancel={() => store.askDelete(null)}
-                onConfirm={() => void store.remove(target.id)}
-              />
-            )
-          })()
-        : null}
+      {syncing !== null && syncTarget !== undefined ? (
+        <SyncDialog
+          row={syncTarget}
+          kind={syncing.kind}
+          store={store}
+          localRows={state.localRows}
+          busy={state.busyId === syncTarget.id || syncTarget.state.op !== null}
+          onClose={() => store.askSync(null)}
+        />
+      ) : null}
+      {deleteTarget !== undefined ? (
+        <ConfirmDialog
+          title="删除连接"
+          body={`确认删除「${deleteTarget.label}」（${deleteTarget.sshAlias}）？远端产物（~/.dsh/dsh-remote/ 运行目录、已装插件与已下发配置）会保留。`}
+          confirmLabel="删除"
+          busy={state.busyId === deleteTarget.id}
+          onCancel={() => store.askDelete(null)}
+          onConfirm={() => void store.remove(deleteTarget.id)}
+        />
+      ) : null}
     </Panel>
   )
 }
@@ -225,14 +207,13 @@ function connectionCard(
     <div>
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
-          上次 skills 同步：推送 {row.state.lastSync.skills.pushed} · 删除 {row.state.lastSync.skills.deleted}{' '}
-          · 空根 {row.state.lastSync.skills.skipped}（
-          {new Date(row.state.lastSync.skills.at).toLocaleString()}）
+          上次 skills 同步：推送 {row.state.lastSync.skills.pushed} · 删除 {row.state.lastSync.skills.deleted}
+          （{new Date(row.state.lastSync.skills.at).toLocaleString()}）
         </p>
       ) : null}
       {row.state.lastSync.mcp !== null ? (
         <p className={styles.rowWhen}>
-          上次 MCP 下发：{row.state.lastSync.mcp.installed.length} 行
+          上次 MCP 同步：{row.state.lastSync.mcp.installed.length} 行
           {row.state.lastSync.mcp.removed.length > 0
             ? ` · 移除 ${row.state.lastSync.mcp.removed.length} 行`
             : ''}

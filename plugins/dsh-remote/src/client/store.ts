@@ -1,9 +1,3 @@
-/**
- * 面板状态源：拉模式轮询（无 host 推送）——面板挂载即开始轮询，有操作
- * 在途时 1.2s 快档，空闲 6s 慢档，卸载停止。运行态到达时自动 window.open
- * 一次（浏览器可能拦截无激活轮询内的开窗，面板保留「打开」按钮兜底）。
- */
-
 import { errMsg } from '@dsh-plugins/shared'
 import { remoteApi } from './api'
 import type {

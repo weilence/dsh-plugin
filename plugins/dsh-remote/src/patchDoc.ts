@@ -1,12 +1,5 @@
-/**
- * cordis.patch.yml 的注释保留合并（host 专用）：dsh-remote 只做「按行 id
- * 整块替换 / 新增 / 移除插件拥有的行」，编辑面比 dsh-mcp 的 patchFile 小，
- * 但往返性质相同——解析容忍 `!!js` 自定义标签、写侧走 Document API、
- * 无关行与手写注释原样保留。
- *
- * 远端往返的落盘不经本模块（cat→改→cat 在 ssh 通道内原子完成），这里
- * 只负责文本 ↔ Document 的内存编辑。
- */
+// cordis.patch.yml 的注释保留合并（host 专用）：按行 id 整块替换 / 新增 /
+// 移除插件拥有的行；落盘不经本模块（cat→改→cat 在 ssh 通道内原子完成）。
 
 import { isMap, isSeq, parseDocument, type Document } from 'yaml'
 

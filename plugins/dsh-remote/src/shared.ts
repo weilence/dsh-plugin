@@ -1,22 +1,18 @@
-/**
- * dsh-remote 线协议与共享常量：host 桥与 client 面板共用的类型和规则。
- *
- * 一个「远程开发连接」描述一台远端机上的完整 dsh web 实例：经用户自备
- * 的 OpenSSH 别名（认证完全复用 ~/.ssh/config）部署、启动、端口转发与
- * 断开。三类同步能力（skills / MCP / 插件）全部由本插件拥有，dsh-skills
- * 与 dsh-mcp 保持纯本地管理插件、不感知远端。
- *
- * 远端默认只装 dsh-remote——其余插件（dsh-mcp、dsh-skills 等）由「同步插件」
- * 声明式同步：勾选=安装/升级、未勾选且远端已有=删除；删除范围恒为本机
- * 清单∩远端清单，远端独有条目（本机没有的）零接触。
- */
+// dsh-remote 线协议与共享常量：host 桥与 client 面板共用的类型和规则。
+// 同步为声明式语义：勾选=安装/升级、未勾选且远端已有=删除，删除范围恒为
+// 本机清单∩远端清单，远端独有条目零接触——本约束贯穿全部三类同步。
 
 /** 官方 MCP client 插件的模块名（远端 patch 下发行的 name 字段）。 */
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 
 /** 本插件包名（scoped，weilence.com 域名空间；裸名 dsh-remote 在 npm 已被第三方占用，
- *  远端安装因此不走 registry——部署时本地打包 tgz 推送，见 engine runDeploy）。 */
+ *  远端安装因此不走 registry——部署时本地打包 tgz 推送，见 engine ensureDeployed）。 */
 export const REMOTE_PLUGIN_NAME = '@weilence/dsh-remote'
+
+/** 是否本插件自身（scoped 包名或改名前的旧裸名行）：远端装配的基线，不进同步清单。 */
+export function isRemoteSelf(name: string): boolean {
+  return name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
+}
 
 /** 远端实例的 profile：固定 web（shipped 模板含 dsh-web-app，token 行 / 端口转发的
  *  前提），不可配置（面板无此输入）。headless 模板无 web-app——其参数解析器
@@ -29,15 +25,21 @@ export const SSH_ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 /** 连接 id 的合法性。 */
 export const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
-/** host 桥自定义头（client POST 携带，折进 CORS 预检）。 */
-export const BRIDGE_HEADER = 'x-dsh-remote'
+/** host 桥路由路径（client api.ts 复用，端点单源）。 */
+export const STATE_PATH = '/dsh-remote/state'
+export const LOCAL_ROWS_PATH = '/dsh-remote/local-rows'
+export const SAVE_PATH = '/dsh-remote/save'
+export const DELETE_PATH = '/dsh-remote/delete'
+export const TEST_PATH = '/dsh-remote/test'
+export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
+export const CONNECT_PATH = '/dsh-remote/connect'
+export const DISCONNECT_PATH = '/dsh-remote/disconnect'
+export const SYNC_PATH = '/dsh-remote/sync'
 
 /** 非本地（registry 形态）插件的远端安装方式：本地打包传输 / 远端自行 npm 下载。
  *  本地路径安装（link:/file:）的插件不受此选项影响——永远本地传输（开发中的
  *  未发布代码也只有这条路径能到达远端）。 */
 export type RegistryPluginInstall = 'push' | 'remote'
-
-// ---- 连接 profile（$DSH_HOME/dsh-remote.json 持久化） ----
 
 /** 一个远程开发连接的持久化声明（同步勾选不持久化——随 POST /sync 直传）。 */
 export interface RemoteConnection {
@@ -48,8 +50,6 @@ export interface RemoteConnection {
   createdAt: string
   updatedAt: string
 }
-
-// ---- 运行态快照（内存，不持久化） ----
 
 /** SSH 失败的错误分类（面板按类给修复指引）。 */
 export type SshErrorKind =
@@ -86,7 +86,7 @@ export interface ConnState {
   error: { message: string; kind: SshErrorKind } | null
   /** 最近一次各同步的结果摘要（面板展示用）。 */
   lastSync: {
-    skills: { at: string; pushed: number; deleted: number; skipped: number } | null
+    skills: { at: string; pushed: number; deleted: number } | null
     mcp: { at: string; installed: string[]; removed: string[] } | null
     plugins: { at: string; installed: string[]; removed: string[]; skipped: string[] } | null
   }
@@ -94,8 +94,6 @@ export interface ConnState {
 
 /** 面板一行：持久化声明 + 运行态快照。 */
 export type ConnRow = RemoteConnection & { state: ConnState }
-
-// ---- 本机环境与清单 ----
 
 /** 本机工具探针结果（ssh / tar 缺席时面板置顶告警并禁用操作）。 */
 export interface LocalEnv {
@@ -160,8 +158,6 @@ export interface RemoteInventoryResponse {
   plugins: string[]
 }
 
-// ---- wire 请求 / 响应 ----
-
 export interface SaveRequest {
   /** 编辑时的连接 id；缺省为新建。 */
   id?: string
@@ -169,21 +165,9 @@ export interface SaveRequest {
   sshAlias: string
 }
 
-export interface SaveResponse {
-  id: string
-}
-
-export interface DeleteRequest {
-  id: string
-}
-
 export interface StateResponse {
   env: LocalEnv
   connections: ConnRow[]
-}
-
-export interface TestRequest {
-  id: string
 }
 
 export interface TestResponse {

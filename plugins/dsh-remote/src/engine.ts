@@ -1,21 +1,10 @@
-/**
- * 连接引擎（host 专用）：每个连接一台内存状态机（相位 + 进行中操作 +
- * running 事实 + 最近同步摘要），互斥由「op 非空即拒绝」保证；长操作
- * （部署 / 连接 / 同步）由路由点火后在后台推进，面板轮询 GET /state 观察。
- *
- * 远端操作面（全部经 ssh，登录 shell 包装保证 PATH）：
- * - 连接（含原部署段）：node/npm/pnpm 探针 → npm i -g dsh（版本对齐本机）
- *   → 对比远端已装 @weilence/dsh-remote 版本，不一致才本地打包 tgz 推送并经
- *   `dsh plugin add <tgz>` 安装（包名被第三方占用，不走 registry）→
- *   nohup 起实例 → 轮询日志 token 行 → 本地端口转发 → 健康检查。
- * - 同步（声明式：勾选=安装/升级，未勾选且远端已有=删除，删除范围=
- *   本机清单∩远端清单，远端独有条目零接触）：skills tar 单向推送；MCP 行
- *   cat→改→cat 合并进远端 profile patch；插件逐个版本对比——本地路径安装
- *   恒 tgz 推送，registry 插件按连接选项推送或远端 npm 下载。
- */
+// 连接引擎（host 专用）：每连接一台内存状态机（相位 + 进行中操作 + running
+// 事实）；互斥由「op 非空即拒绝」保证，长操作由路由点火后后台推进，面板轮询
+// GET /state 观察。远端操作面全部经 ssh（登录 shell 包装保证 PATH）。
 
 import type { ForwardHandle, SshExec } from './ssh'
 import { SshFailure, shQuote } from './ssh'
+import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
 import { composeLocalRows, foldMcpRows, scanSkillsNames, skillsRoots, type LocalPatchLayer } from './localenv'
@@ -31,6 +20,7 @@ import {
   MCP_PLUGIN_NAME,
   REMOTE_PLUGIN_NAME,
   REMOTE_PROFILE,
+  isRemoteSelf,
   type ConnOp,
   type ConnRow,
   type ConnState,
@@ -69,7 +59,6 @@ export interface EngineDeps {
   packPlugin(): Promise<{ path: string; fileName: string }>
   /** 本地打包任意本机插件包根目录（插件同步传输用）；失败抛 SshFailure。 */
   packPackage(root: string): Promise<{ path: string; fileName: string }>
-  tools: { ssh: boolean; tar: boolean }
   homeDir: string
   now(): string
   delay(ms: number): Promise<void>
@@ -206,17 +195,12 @@ export class RemoteEngine {
     await this.persist()
   }
 
-  private assertTools(): void {
-    if (!this.deps.tools.ssh)
-      throw new SshFailure('local-tool-missing', '本机未找到 ssh 可执行文件，无法执行远端操作')
-  }
-
-  /** 同步预占操作位（互斥在事件循环同一 tick 内完成，双击不会双跑）。 */
+  /** 同步预占操作位（互斥在事件循环同一 tick 内完成，双击不会双跑）。
+   *  本机缺 ssh 的失败分类由 ssh 执行器在 spawn 时给出（local-tool-missing）。 */
   private beginOp(id: string, op: ConnOp, phase: ConnRuntime['phase']): RemoteConnection {
     const connection = this.connectionOf(id)
     const runtime = this.runtimeOf(id)
     if (runtime.op !== null) throw new BusyError()
-    this.assertTools()
     runtime.op = op
     runtime.error = null
     runtime.phase = phase
@@ -236,30 +220,27 @@ export class RemoteEngine {
     runtime.error =
       error instanceof SshFailure
         ? { message: error.message, kind: error.kind }
-        : { message: error instanceof Error ? error.message : String(error), kind: 'unknown' }
+        : { message: errMsg(error), kind: 'unknown' }
     runtime.running = null
   }
 
   private step(id: string, step: string, detail?: string): void {
     const runtime = this.runtimeOf(id)
     if (runtime.op === null) return
-    runtime.op = { ...runtime.op, step, ...(detail !== undefined ? { detail } : {}) }
+    runtime.op = { ...runtime.op, step, detail }
   }
 
   private restPhase(runtime: ConnRuntime): 'idle' | 'running' {
     return runtime.running !== null ? 'running' : 'idle'
   }
 
-  // ---- 探针（同步等待，结果随响应返回；失败不污染连接相位） ----
-
   async test(id: string): Promise<TestResponse> {
     await this.load()
-    const runtime = this.runtimeOf(id)
-    const restore: 'idle' | 'running' = runtime.running !== null ? 'running' : 'idle'
     const connection = this.beginOp(id, { kind: 'test', step: 'probe' }, 'probing')
+    const runtime = this.runtimeOf(id)
     const backTo = (response: TestResponse): TestResponse => {
       runtime.op = null
-      runtime.phase = restore
+      runtime.phase = this.restPhase(runtime)
       return response
     }
     try {
@@ -275,7 +256,7 @@ export class RemoteEngine {
         error: null,
       })
     } catch (error) {
-      const failure = error instanceof SshFailure ? error : new SshFailure('unknown', String(error))
+      const failure = error instanceof SshFailure ? error : new SshFailure('unknown', errMsg(error))
       if (failure.kind === 'remote-cmd-failed') {
         // 连接通但 node 缺失：算探针结果而非连接故障
         const node = await this.deps.exec(connection.sshAlias, 'node -v || true')
@@ -296,8 +277,6 @@ export class RemoteEngine {
       })
     }
   }
-
-  // ---- 连接 / 断开（连接先装配远端环境再起实例） ----
 
   startConnect(id: string): void {
     const connection = this.beginOp(id, { kind: 'connect', step: 'probe-node' }, 'deploying')
@@ -448,7 +427,7 @@ export class RemoteEngine {
 
       this.step(id, 'poll', '等待就绪信号')
       const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
-      let launch: RemoteLaunch | undefined = undefined
+      let launch: RemoteLaunch | undefined
       for (let attempt = 0; attempt < maxAttempts && launch === undefined; attempt += 1) {
         await this.deps.delay(CONNECT_POLL_INTERVAL_MS)
         const grep = await this.deps.exec(alias, `grep -m1 '^dsh web: ' ${log} || true`, {
@@ -538,8 +517,6 @@ export class RemoteEngine {
     }
   }
 
-  // ---- 远端清单（声明式同步的默认勾选与删除判定源） ----
-
   /** 远端 skills 两根的技能名：目录名即技能名，.md 单文件剥后缀；读取失败按空。 */
   private async remoteSkillNames(alias: string): Promise<Record<'user-dsh' | 'user-agents', string[]>> {
     const roots = { 'user-dsh': '~/.dsh/skills', 'user-agents': '~/.agents/skills' } as const
@@ -606,8 +583,6 @@ export class RemoteEngine {
     }
   }
 
-  // ---- 同步（勾选随调用直传，不在连接上持久化） ----
-
   /** 点火声明式同步：names 为勾选项（目标态），未勾选且远端已有的删除。 */
   startSync(
     id: string,
@@ -640,19 +615,14 @@ export class RemoteEngine {
     const next: Record<string, string[]> = {}
     let pushed = 0
     let deleted = 0
-    let skipped = 0
     for (const root of await this.deps.scanSkills()) {
       const remoteRoot = root.key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
       const chosen = root.names.filter((name) => selected.has(name))
       next[root.key] = chosen
       if (chosen.length > 0) {
         this.step(id, 'push', `${root.key} ${chosen.length} 项`)
-        if (!this.deps.tools.tar) {
-          skipped += chosen.length
-        } else {
-          await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot, chosen)
-          pushed += chosen.length
-        }
+        await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot, chosen)
+        pushed += chosen.length
       }
       // 未勾选且远端已有 → 删除（rm 幂等；远端独有名不在本机清单，不会出现在这里）
       const remote = new Set(remoteRoots[root.key])
@@ -673,60 +643,60 @@ export class RemoteEngine {
     }
     this.store.manifest[id] = { ...this.manifestOf(id), skills: next }
     await this.persist()
-    runtime.lastSync.skills = { at: this.deps.now(), pushed, deleted, skipped }
+    runtime.lastSync.skills = { at: this.deps.now(), pushed, deleted }
   }
 
   /** MCP 同步：本机两层 patch fold 出选中 serverName 的生效配置，整块写进远端 profile patch。 */
   private async doMcpSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
-    {
-      const connection = this.connectionOf(id)
-      const layers = await this.deps.readLocalLayers()
-      const rows: { id: string; name: string; config: Record<string, unknown>; disabled?: boolean }[] = []
-      for (const entry of foldMcpRows(layers)) {
-        const serverName = asServerName(entry.config)
-        if (serverName === undefined || !selected.has(serverName)) continue
+    const connection = this.connectionOf(id)
+    const layers = await this.deps.readLocalLayers()
+    const rows: { id: string; name: string; config: Record<string, unknown>; disabled?: boolean }[] = []
+    const localNames: string[] = []
+    for (const entry of foldMcpRows(layers)) {
+      const serverName = asServerName(entry.config)
+      if (serverName === undefined) continue
+      localNames.push(serverName)
+      if (selected.has(serverName)) {
         rows.push({
           id: entry.row.id,
           name: MCP_PLUGIN_NAME,
           config: entry.config,
-          ...(entry.disabled ? { disabled: true } : {}),
+          // 只写 true：显式 false 会渲染成 YAML 行（upsertInsertRow 对 undefined 不写）
+          disabled: entry.disabled || undefined,
         })
       }
-      const installed = rows.map((row) => row.id)
-
-      const remotePatch = `~/.dsh/profiles/${REMOTE_PROFILE}/cordis.patch.yml`
-      this.step(id, 'read-remote', remotePatch)
-      const current = await this.deps.exec(connection.sshAlias, `cat ${remotePatch} || true`)
-      const doc = current.stdout.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(current.stdout)
-
-      // 未勾选且远端已有（按 serverName 对齐，手写行 id 不必循命名约定）→ 移除
-      const remoteEntries = this.mcpEntriesOfDoc(doc)
-      const removed: string[] = []
-      for (const entry of foldMcpRows(layers)) {
-        const serverName = asServerName(entry.config)
-        if (serverName === undefined || selected.has(serverName)) continue
-        const rowId = remoteEntries.get(serverName)
-        if (rowId !== undefined) removed.push(rowId)
-      }
-      this.step(id, 'merge', `${installed.length} 行`)
-      for (const row of rows) upsertInsertRow(doc, row)
-      if (removed.length > 0) removeInsertRows(doc, new Set(removed))
-
-      this.step(id, 'write-remote')
-      await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
-      const write = await this.deps.exec(
-        connection.sshAlias,
-        `cat > ${remotePatch}.tmp-dsh-remote && mv ${remotePatch}.tmp-dsh-remote ${remotePatch}`,
-        { stdin: renderPatchDoc(doc) },
-      )
-      if (write.code !== 0)
-        throw new SshFailure('remote-cmd-failed', `远端 patch 写入失败：${write.stderr.trim()}`)
-
-      this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
-      await this.persist()
-      runtime.lastSync.mcp = { at: this.deps.now(), installed, removed }
     }
+    const installed = rows.map((row) => row.id)
+
+    const remotePatch = `~/.dsh/profiles/${REMOTE_PROFILE}/cordis.patch.yml`
+    this.step(id, 'read-remote', remotePatch)
+    const current = await this.deps.exec(connection.sshAlias, `cat ${remotePatch} || true`)
+    const doc = current.stdout.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(current.stdout)
+
+    // 未勾选且远端已有（按 serverName 对齐，手写行 id 不必循命名约定）→ 移除
+    const remoteEntries = this.mcpEntriesOfDoc(doc)
+    const removed = localNames
+      .filter((serverName) => !selected.has(serverName))
+      .map((serverName) => remoteEntries.get(serverName))
+      .filter((rowId): rowId is string => rowId !== undefined)
+    this.step(id, 'merge', `${installed.length} 行`)
+    for (const row of rows) upsertInsertRow(doc, row)
+    if (removed.length > 0) removeInsertRows(doc, new Set(removed))
+
+    this.step(id, 'write-remote')
+    await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
+    const write = await this.deps.exec(
+      connection.sshAlias,
+      `cat > ${remotePatch}.tmp-dsh-remote && mv ${remotePatch}.tmp-dsh-remote ${remotePatch}`,
+      { stdin: renderPatchDoc(doc) },
+    )
+    if (write.code !== 0)
+      throw new SshFailure('remote-cmd-failed', `远端 patch 写入失败：${write.stderr.trim()}`)
+
+    this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
+    await this.persist()
+    runtime.lastSync.mcp = { at: this.deps.now(), installed, removed }
   }
 
   /** 插件同步：本地路径安装的插件永远本地打包传输（未发布的开发代码也只有
@@ -738,75 +708,70 @@ export class RemoteEngine {
     registryInstall: RegistryPluginInstall,
   ): Promise<void> {
     const runtime = this.runtimeOf(id)
-    {
-      const connection = this.connectionOf(id)
-      const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
-      const byName = new Map(pluginRows.map((row) => [row.name, row]))
-      // 本插件自身是部署基线（tgz 推送安装），不参与插件同步；旧裸名在
-      // 本机改名重装前的过渡期一并排除。
-      const isSelf = (name: string): boolean => name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
-      const selected = [...selectedIn].filter((name) => !isSelf(name) && byName.has(name))
-      const skipped = [...selectedIn].filter((name) => !isSelf(name) && !byName.has(name))
-      // 未勾选且远端已激活（bundles）→ 移除
-      const remotePlugins = await this.remoteBundleNames(connection.sshAlias)
-      const toRemove = [...byName.keys()].filter(
-        (name) => !isSelf(name) && !selected.includes(name) && remotePlugins.has(name),
-      )
+    const connection = this.connectionOf(id)
+    const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
+    const byName = new Map(pluginRows.map((row) => [row.name, row]))
+    const selected = [...selectedIn].filter((name) => !isRemoteSelf(name) && byName.has(name))
+    const skipped = [...selectedIn].filter((name) => !isRemoteSelf(name) && !byName.has(name))
+    // 未勾选且远端已激活（bundles）→ 移除
+    const remotePlugins = await this.remoteBundleNames(connection.sshAlias)
+    const toRemove = [...byName.keys()].filter(
+      (name) => !isRemoteSelf(name) && !selected.includes(name) && remotePlugins.has(name),
+    )
 
-      const installed: string[] = []
-      for (const name of selected) {
-        const row = byName.get(name)
-        if (row === undefined) continue
-        // 版本对比：远端 node_modules 已装同版本 → 跳过
-        const remotePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${row.name}/package.json`
-        const current = await this.deps.exec(connection.sshAlias, `cat ${remotePkg} 2>/dev/null || true`)
-        let remoteVersion: string | null = null
-        try {
-          const parsed = JSON.parse(current.stdout) as { version?: unknown }
-          remoteVersion =
-            typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
-        } catch {
-          // cat 空（未装）：按未装处理
-        }
-        if (remoteVersion !== null && remoteVersion === row.version) continue
-
-        this.step(id, 'install', row.name)
-        const viaPush = row.install === 'local' || registryInstall === 'push'
-        const install = viaPush
-          ? await this.addViaPush(connection.sshAlias, row)
-          : await this.deps.exec(
-              connection.sshAlias,
-              `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${shQuote(row.version === null ? row.name : `${row.name}@${row.version}`)}`,
-              { timeoutMs: OP_TIMEOUT_MS },
-            )
-        if (install.code !== 0) {
-          throw new SshFailure(
-            'remote-cmd-failed',
-            `远端安装 ${row.name} 失败：${install.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
-          )
-        }
-        installed.push(row.name)
+    const installed: string[] = []
+    for (const name of selected) {
+      const row = byName.get(name)
+      if (row === undefined) continue
+      // 版本对比：远端 node_modules 已装同版本 → 跳过
+      const remotePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${row.name}/package.json`
+      const current = await this.deps.exec(connection.sshAlias, `cat ${remotePkg} 2>/dev/null || true`)
+      let remoteVersion: string | null = null
+      try {
+        const parsed = JSON.parse(current.stdout) as { version?: unknown }
+        remoteVersion =
+          typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
+      } catch {
+        // cat 空（未装）：按未装处理
       }
+      if (remoteVersion !== null && remoteVersion === row.version) continue
 
-      if (toRemove.length > 0) {
-        this.step(id, 'remove', toRemove.join(' '))
-        const remove = await this.deps.exec(
-          connection.sshAlias,
-          `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} remove ${toRemove.map((name) => shQuote(name)).join(' ')}`,
-          { timeoutMs: 300_000 },
+      this.step(id, 'install', row.name)
+      const viaPush = row.install === 'local' || registryInstall === 'push'
+      const install = viaPush
+        ? await this.addViaPush(connection.sshAlias, row)
+        : await this.deps.exec(
+            connection.sshAlias,
+            `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${shQuote(row.version === null ? row.name : `${row.name}@${row.version}`)}`,
+            { timeoutMs: OP_TIMEOUT_MS },
+          )
+      if (install.code !== 0) {
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端安装 ${row.name} 失败：${install.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
         )
-        if (remove.code !== 0) {
-          throw new SshFailure(
-            'remote-cmd-failed',
-            `远端插件移除失败：${remove.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
-          )
-        }
       }
-
-      this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
-      await this.persist()
-      runtime.lastSync.plugins = { at: this.deps.now(), installed, removed: toRemove, skipped }
+      installed.push(row.name)
     }
+
+    if (toRemove.length > 0) {
+      this.step(id, 'remove', toRemove.join(' '))
+      const remove = await this.deps.exec(
+        connection.sshAlias,
+        `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} remove ${toRemove.map((name) => shQuote(name)).join(' ')}`,
+        { timeoutMs: 300_000 },
+      )
+      if (remove.code !== 0) {
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端插件移除失败：${remove.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
+        )
+      }
+    }
+
+    this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
+    await this.persist()
+    runtime.lastSync.plugins = { at: this.deps.now(), installed, removed: toRemove, skipped }
   }
 
   /** 打包本机包根 → 推送 payload → 远端 add tgz（本地路径插件与选项 push 的 registry 插件共用）。 */

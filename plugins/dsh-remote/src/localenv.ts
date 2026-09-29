@@ -1,16 +1,14 @@
-/**
- * 本机侧的清单读取（host 专用）：skills 两个用户级根的条目扫描、两层
- * 用户 patch 的 MCP 行与插件行扫描。全部只读——本地写管理归 dsh-skills /
- * dsh-mcp，本插件只做同步源。
- */
+// 本机侧的清单读取（host 专用）：skills 两个用户级根 + 两层用户 patch 的
+// MCP 行与插件行——全部只读，本地写管理归 dsh-skills / dsh-mcp。
 
 import { readdir, readFile, stat } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   MCP_PLUGIN_NAME,
-  REMOTE_PLUGIN_NAME,
+  isRemoteSelf,
   type LocalMcpRow,
   type LocalPluginRow,
   type LocalSkillRow,
@@ -33,7 +31,7 @@ export function skillsRoots(env: Record<string, string | undefined> = process.en
 
 /** 官方发现深度的根扫描：顶层 `<name>/SKILL.md` 目录包与 `<name>.md` 单文件。 */
 export async function scanSkillsNames(root: SkillsRoot): Promise<string[]> {
-  let entries: import('node:fs').Dirent[]
+  let entries: Dirent[]
   try {
     entries = await readdir(root.path, { withFileTypes: true })
   } catch {
@@ -134,7 +132,7 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
     file,
     doc: text === null || text.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(text),
     deps,
-    ...(bundles !== undefined ? { bundles } : {}),
+    bundles,
   }
 }
 
@@ -280,13 +278,11 @@ export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Prom
 
   const pluginRows: LocalPluginRow[] = []
   const seen = new Set<string>()
-  const isSelf = (name: string): boolean => name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
   for (const layer of layers) {
     for (const insert of scanInserts(layer.doc)) {
       if (insert.name === MCP_PLUGIN_NAME) continue
-      // 本插件自身是远端默认基线，不进同步清单；旧裸名行在改名重装前的
-      // 过渡期一并排除，防止把自己当成业务插件同步出去。
-      if (isSelf(insert.name)) continue
+      // 本插件自身是远端装配基线（isRemoteSelf），不进同步清单
+      if (isRemoteSelf(insert.name)) continue
       if (seen.has(insert.name)) continue
       seen.add(insert.name)
       pluginRows.push({
@@ -299,7 +295,7 @@ export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Prom
     // bundles 激活清单是本机插件的主要登记处（link 安装无 patch 行）；
     // @deepseek-ai/* 是随 dsh 对齐安装的平台自带包，不进同步清单。
     for (const name of layer.bundles ?? []) {
-      if (isSelf(name) || name.startsWith('@deepseek-ai/') || seen.has(name)) continue
+      if (isRemoteSelf(name) || name.startsWith('@deepseek-ai/') || seen.has(name)) continue
       seen.add(name)
       pluginRows.push({
         id: name,

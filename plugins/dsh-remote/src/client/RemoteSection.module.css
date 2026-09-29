@@ -1,6 +1,3 @@
-/* RemoteSection 面板私有样式；共享行 / 表单 / 清单类见
- * @dsh-plugins/client-ui/styles（shared.module.css）。 */
-
 .creatingRow {
   padding: 12px;
   border: 1px solid var(--dsw-alias-border-secondary);

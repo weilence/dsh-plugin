@@ -1,8 +1,6 @@
-/**
- * host 桥：假 ctx/webServer 上的路由集成往返——守卫（Host / sec-fetch /
- * method）、state / local-rows 读取（临时目录两层 patch）、save 校验、
- * 操作点火的 404/409/400 语义。
- */
+// host 桥：假 ctx/webServer 上的路由集成往返——守卫（Host / sec-fetch /
+// method）、state / local-rows 读取（临时目录两层 patch）、save 校验、
+// 操作点火的 404/409/400 语义。
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -11,11 +9,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyWithEngine } from '../src/index'
 import { RemoteEngine } from '../src/engine'
-import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
-
-function plainReq(headers: Record<string, string | string[] | undefined>): IncomingMessage {
-  return { headers } as unknown as IncomingMessage
-}
 
 function postReq(body: unknown, headers: Record<string, string | string[] | undefined>): IncomingMessage {
   const payload = Buffer.from(JSON.stringify(body))
@@ -146,7 +139,6 @@ async function makeHarness(): Promise<Harness> {
     pushFile: async () => {},
     readLocalLayers: async () => [],
     scanSkills: async () => [],
-    tools: { ssh: true, tar: true },
     localDshVersion: '0.1.7-rc.2',
     localPluginVersion: '0.1.0',
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
@@ -175,15 +167,6 @@ async function makeHarness(): Promise<Harness> {
   }
   return { home: root, profileDir, homeDir, request }
 }
-
-describe('守卫函数（共享栅栏）', () => {
-  it('Host / sec-fetch 语义与 dsh-mcp 一致', () => {
-    expect(isExpectedHost(plainReq({ host: '127.0.0.1:8080' }), '127.0.0.1')).toBe(true)
-    expect(isExpectedHost(plainReq({ host: 'evil.example:8080' }), '127.0.0.1')).toBe(false)
-    expect(isTrustedFetch(plainReq({ 'sec-fetch-site': 'same-origin' }))).toBe(true)
-    expect(isTrustedFetch(plainReq({ 'sec-fetch-site': 'cross-site' }))).toBe(false)
-  })
-})
 
 describe('dsh-remote 桥路由', () => {
   let harness: Harness
@@ -229,7 +212,6 @@ describe('dsh-remote 桥路由', () => {
     const created = await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
       sshAlias: 'dev-box',
-      sync: { mcpServerNames: ['demo'], pluginNames: ['@weilence/dsh-mcp'] },
     })
     expect(created.status).toBe(200)
     expect(created.body).toEqual({ id: 'dev-box' })

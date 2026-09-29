@@ -1,9 +1,3 @@
-/**
- * 连接表单：新建 / 编辑共用，只编辑基本信息（label / sshAlias）。远端
- * profile 固定 web、远端 dsh 版本连接时对齐本机，均不暴露输入；同步勾选
- * 在 SyncDialog 里直传 POST /sync，不经本表单。
- */
-
 import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IssueList, TextField } from '@dsh-plugins/client-ui'
@@ -51,7 +45,7 @@ export function RemoteForm(props: {
     setTouched(true)
     if (issues.length > 0) return
     const request: SaveRequest = {
-      ...(props.mode === 'edit' && props.row !== undefined ? { id: props.row.id } : {}),
+      id: props.mode === 'edit' ? props.row?.id : undefined,
       label: draft.label.trim(),
       sshAlias: draft.sshAlias.trim(),
     }

@@ -1,18 +1,10 @@
-/**
- * SSH 命令执行器（host 专用，node:child_process 直 spawn）。
- *
- * 本插件与 dsh-skills 的 node:fs 直写同理：宿主侧受信代码、用户从设置页
- * 发起的操作，不经模型沙箱策略（ctx.subprocess），也不依赖本机执行世界
- * 的形态。认证完全复用用户 OpenSSH 配置（别名 / known_hosts / agent），
- * BatchMode 保证无交互——认证失败即刻报错而不是挂起。
- *
- * 远端命令统一经 `bash -lc` 包装：登录 shell 加载 nvm / profile，保证
- * `npm install -g` 之后的 `dsh` 出现在 PATH 上（非交互 ssh 命令默认不读
- * 用户 profile，这是 npm 全局 bin 不可见的常见根因）。
- */
+// SSH 命令执行器（host 专用，node:child_process 直 spawn）：宿主侧受信代码、
+// 用户从设置页发起的操作，不经模型沙箱策略；认证完全复用用户 OpenSSH 配置
+// （别名 / known_hosts / agent），BatchMode 保证无交互——认证失败即刻报错。
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Readable } from 'node:stream'
+import { errMsg } from '@dsh-plugins/shared'
 import type { SshErrorKind } from './shared'
 
 /** 一次远端命令的结果（非 0 退出码不抛异常，由调用方决定语义）。 */
@@ -37,7 +29,8 @@ export function shQuote(text: string): string {
   return `'${text.replace(/'/g, `'\\''`)}'`
 }
 
-/** 包装为登录 shell 命令。 */
+// 统一经 `bash -lc` 登录 shell 包装：非交互 ssh 不读用户 profile，nvm 装的
+// node / npm 全局 bin 会不在 PATH 上——这是 npm 全局 bin 不可见的常见根因。
 export function loginWrapped(command: string): string {
   return `bash -lc ${shQuote(command)}`
 }
@@ -197,7 +190,7 @@ export function tarOverSsh(
       clearTimeout(timer)
       if (error === undefined) resolve()
       else if (error instanceof SshFailure) reject(error)
-      else reject(new SshFailure('remote-cmd-failed', errMsgOf(error)))
+      else reject(new SshFailure('remote-cmd-failed', errMsg(error)))
     }
     const timer = setTimeout(() => {
       tar.kill()
@@ -231,8 +224,4 @@ export function tarOverSsh(
     })
     ;(tar.stdout as Readable).pipe(ssh.stdin!)
   })
-}
-
-function errMsgOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

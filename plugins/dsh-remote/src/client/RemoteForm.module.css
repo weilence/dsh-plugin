@@ -1,6 +1,3 @@
-/* RemoteForm 表单私有样式；字段网格 / 开关行 / 清单类见
- * @dsh-plugins/client-ui/styles（shared.module.css）。 */
-
 .formBody {
   display: flex;
   flex-direction: column;

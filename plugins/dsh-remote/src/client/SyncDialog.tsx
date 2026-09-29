@@ -1,23 +1,25 @@
-/**
- * 同步弹窗：从「同步」下拉菜单选定类别后打开，列表 = 本机该类清单，默认
- * 勾选 = 远端已有（打开时经 POST remote-inventory 实时读取；条目级差异
- * 对比的判定后续迭代）。确认即把勾选随 POST /sync 直传远端执行：勾选项
- * 安装/升级、未勾选且远端已有的删除——不落任何中间保存。
- */
-
 import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, SelectField } from '@dsh-plugins/client-ui'
 import { errMsg } from '@dsh-plugins/shared'
-import type { ConnRow, LocalRowsResponse, RegistryPluginInstall, RemoteInventoryResponse } from '../shared'
+import type {
+  ConnRow,
+  LocalRowsResponse,
+  RegistryPluginInstall,
+  RemoteInventoryResponse,
+  SyncKind,
+} from '../shared'
 import { remoteApi } from './api'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 
-/** 弹窗可编辑的类别（下拉菜单的三项）。 */
-export type DialogKind = 'skills' | 'mcp' | 'plugins'
-
-const KIND_TITLES: Record<DialogKind, string> = { skills: 'Skills', mcp: 'MCP', plugins: '插件' }
+const KIND_TITLES: Record<SyncKind, string> = { skills: 'Skills', mcp: 'MCP', plugins: '插件' }
+// 与卡片同步下拉菜单的三个入口同词，避免「同步 skills」点开变「同步Skills」
+const KIND_ACTION_LABELS: Record<SyncKind, string> = {
+  skills: '同步 skills',
+  mcp: '同步 MCP',
+  plugins: '同步插件',
+}
 
 interface DraftState {
   skillNames: Set<string>
@@ -37,7 +39,7 @@ function initialDraft(): DraftState {
 }
 
 /** 本机清单的勾选键（skills 用技能名、MCP 用 serverName、插件用包名）。 */
-function localKeysOf(kind: DialogKind, localRows: LocalRowsResponse): string[] {
+function localKeysOf(kind: SyncKind, localRows: LocalRowsResponse): string[] {
   if (kind === 'skills') return localRows.skillRows.map((skill) => skill.name)
   if (kind === 'mcp') return localRows.mcpRows.map((entry) => entry.serverName ?? entry.id)
   return localRows.pluginRows.map((plugin) => plugin.name)
@@ -45,7 +47,7 @@ function localKeysOf(kind: DialogKind, localRows: LocalRowsResponse): string[] {
 
 export function SyncDialog(props: {
   row: ConnRow
-  kind: DialogKind
+  kind: SyncKind
   store: RemoteStore
   localRows: LocalRowsResponse | null
   busy: boolean
@@ -134,7 +136,7 @@ export function SyncDialog(props: {
             disabled={props.busy || unavailable || inventoryState !== 'ready'}
             onClick={() => void submit()}
           >
-            {props.busy ? '同步中…' : `同步${KIND_TITLES[kind]}`}
+            {props.busy ? '同步中…' : KIND_ACTION_LABELS[kind]}
           </Button>
         </>
       }
@@ -217,7 +219,7 @@ export function SyncDialog(props: {
                   { value: 'remote', label: '远端下载（远端 npm 拉取，需已发布）' },
                   { value: 'push', label: '本地传输（打包本机实体推送，无需发布）' },
                 ]}
-                onChange={(value) => patch({ registryPluginInstall: value as RegistryPluginInstall })}
+                onChange={(registryPluginInstall) => patch({ registryPluginInstall })}
               />
               {localRows.pluginRows.length === 0 ? (
                 <p className={local.hint}>本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。</p>
