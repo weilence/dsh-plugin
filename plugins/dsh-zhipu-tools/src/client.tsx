@@ -71,7 +71,7 @@ function ZhipuQuotaChip(props: QuotaChipProps) {
   return <QuotaPill res={res} onForceRefresh={refresh} />
 }
 
-export const inject: string[] = ['slots', 'modelDirectories', 'remote.session']
+export const inject: string[] = ['slots', 'modelDirectories']
 
 export function apply(ctx: ClientContext) {
   ctx.slots.inject('conversation.input.right', () => {

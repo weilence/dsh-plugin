@@ -1,5 +1,3 @@
-// usage.ts 单测：parseQuota 纯解析 + createUsageService 缓存/去重（mock fetch）。
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createUsageService, parseQuota, type QuotaWireBody } from '../src/usage'
 

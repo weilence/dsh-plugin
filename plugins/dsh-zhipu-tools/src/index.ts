@@ -1,11 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import type { IncomingMessage } from 'node:http'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import type { StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import { errMsg } from '@dsh-plugins/shared'
-import { isLoopbackHostname, writeJson } from '@dsh-plugins/shared/http'
+import { isExpectedHost, writeJson } from '@dsh-plugins/shared/http'
 import { createUsageService } from './usage'
 
 export const inject: string[] = ['webServer', 'credentials', 'tools']
@@ -42,47 +41,30 @@ const MCP_CLIENT_PLUGIN = {
 // credentialRef() 构造需把 in-box 包拉进运行时 bundle，不值得）。
 const KEY_REFS = ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'] as const
 
-// IPv6 字面量带端口形如 [::1]:3080，先取 ] 前闭区间；其余按首个 : 切分。
-function hostnameOf(host: string) {
-  if (host.startsWith('[')) {
-    const end = host.indexOf(']')
-    return end === -1 ? host : host.slice(0, end + 1)
-  }
-  return host.split(':')[0]
-}
-
-// 只放行 loopback 同源请求，拒绝跨站读取用量。isLoopbackHostname 来自
-// @dsh-plugins/shared/http（构建期内联）；本插件的信任模型（Host 必须
-// loopback + origin 匹配）与 sec-fetch-site 模型并存，见共享包注释。
-export function isTrusted(req: IncomingMessage) {
-  const host = req.headers.host
-  if (!host) return false
-  const hostname = hostnameOf(host)
-  if (!isLoopbackHostname(hostname)) return false
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false
-  const origin = req.headers.origin
-  if (origin === undefined) return true
-  try {
-    return typeof origin === 'string' && new URL(origin).host === host
-  } catch {
-    return false
-  }
-}
-
-async function apply(ctx: Context) {
-  async function resolveKey() {
+export async function apply(ctx: Context) {
+  // 两个候选都缺席才是「未配置」；resolve 抛错是凭证服务故障，归并成
+  // 「未配置」会吞掉真实原因。
+  async function resolveKey(): Promise<{ key: string | null; failure: string | undefined }> {
+    const errors: string[] = []
     for (const name of KEY_REFS) {
       try {
         const resolved = await ctx.credentials.resolve(name as CredentialRef)
-        if (resolved) return resolved.value
-      } catch {}
+        if (resolved) return { key: resolved.value, failure: undefined }
+      } catch (error) {
+        errors.push(`${name}: ${errMsg(error)}`)
+      }
     }
-    return null
+    return {
+      key: null,
+      failure: errors.length > 0 ? `凭证解析失败（${errors.join('；')}）` : undefined,
+    }
   }
 
-  const apiKey: string | null = await resolveKey()
-  if (!apiKey) {
-    ctx.logger?.error?.('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱能力保持不可用')
+  const { key: apiKey, failure } = await resolveKey()
+  if (failure !== undefined) {
+    ctx.logger.error(`dsh-zhipu-tools: ${failure}，智谱能力保持不可用`)
+  } else if (apiKey === null) {
+    ctx.logger.error('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱能力保持不可用')
   }
 
   // 用编程式挂载（ctx.plugin）而非静态配置行：headers 需在 apply 时由
@@ -101,23 +83,24 @@ async function apply(ctx: Context) {
           failOnStartupError: false,
         }
         await ctx.plugin(MCP_CLIENT_PLUGIN, config)
-        ctx.logger?.info?.(`dsh-zhipu-tools: MCP ${server.serverName} 已挂载（in-box mcp-client）`)
+        ctx.logger.info(`dsh-zhipu-tools: MCP ${server.serverName} 已挂载（in-box mcp-client）`)
       } catch (error) {
-        ctx.logger?.error?.(
+        ctx.logger.error(
           `dsh-zhipu-tools: MCP ${server.serverName} 挂载失败（仅该服务器工具不可用）: ${errMsg(error)}`,
         )
       }
     }
   }
 
-  const usage = createUsageService(apiKey)
+  const usage = createUsageService(apiKey, failure)
   ctx.effect(
     () =>
       ctx.webServer.register({
         kind: 'exact',
         path: '/dsh-zhipu-tools/usage',
         handler: async (req, res) => {
-          if (!isTrusted(req)) {
+          // 与 dsh-remote/dsh-mcp 的读路由同款栅栏：Host 匹配绑定地址（loopback 拼写等价）且仅放行 GET。
+          if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
             writeJson(res, 403, { ok: false, error: 'forbidden' })
             return
           }
@@ -133,5 +116,3 @@ async function apply(ctx: Context) {
     'dsh-zhipu-tools: /dsh-zhipu-tools/usage route',
   )
 }
-
-export { apply }

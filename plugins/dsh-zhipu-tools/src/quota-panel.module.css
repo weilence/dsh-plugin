@@ -1,13 +1,4 @@
-/* dsh-zhipu-tools — 用量浮窗样式（CSS Modules）。
- * 只消费 --dsw-alias-* 语义令牌与 dsh 布局变量；类名经 lightningcss
- * [hash]_[local] 哈希；产物由构建内联，factory 执行时注入（幂等）。
- * ok/warn/err 语气类来自 @dsh-plugins/client-ui/tone（remTier 产出）。 */
-
-/* ── 用量浮窗 ──────────────────────────────────────────────────────────────
- * 面板自身只管布局与阴影；背景材质与圆角来自官方 MenuSurface primitive
- * （模型选择弹窗同款）：其 .material 子层画 --dsw-menu-surface-fill 并施加
- * --dsw-menu-backdrop-filter 毛玻璃，Windows 上填充本身只有 45%/58% 不透明度，
- * 不经 MenuSurface 直接上背景会透出下层内容。 */
+/* 背景材质与圆角交由官方 MenuSurface primitive（模型选择弹窗同款）：Windows 上其填充仅 45%/58% 不透明度、靠毛玻璃成立，绕过它会透出下层内容。 */
 .panel {
   position: fixed;
   z-index: 1100;
@@ -71,9 +62,7 @@
   text-align: right;
 }
 
-/* ── 各配额窗口：三列等宽，每列为 名称 / 剩余%·重置 / 进度条 ───────────────
- * 进度条填充为剩余占比，颜色走 ok/warn/err 语气类（currentColor 填充）；
- * 窗口超过 3 个时按最小列宽自动换行。 */
+/* 窗口超过 3 个时按最小列宽自动换行；进度条填充为剩余占比，颜色走 ok/warn/err 语气类。 */
 .windows {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
