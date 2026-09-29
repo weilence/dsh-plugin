@@ -1,14 +1,6 @@
-/**
- * host 半侧 HTTP 栅栏：设置页桥路由的公共防线，从各插件逐字提取。
- *
- * 两个信任模型在此并存：isExpectedHost 校验 Host 头（loopback 绑定不接受
- * DNS-rebinding 页面），isTrustedFetch 校验 sec-fetch-site（跨站请求不带
- * 可用同源标记）。纯函数 + node:http 类型，无运行时依赖。
- */
-
 import type { IncomingMessage, ServerResponse } from 'node:http'
 
-/** 携带 HTTP 状态的业务错误（readJsonBody 与路由共用）。 */
+/** 携带 HTTP 状态的业务错误。 */
 export class HttpError extends Error {
   constructor(
     readonly status: number,

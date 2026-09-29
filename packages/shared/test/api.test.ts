@@ -1,7 +1,5 @@
-/** client 桥封装：自定义头工厂、错误面与查询串拼接。 */
-
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createBridgeClient, withQuery, type ApiError } from '../src/api'
+import { createBridgeClient, withQuery } from '../src/api'
 
 interface FetchCall {
   path: string
@@ -44,10 +42,13 @@ describe('createBridgeClient', () => {
     })
   })
 
-  it('非 2xx 时抛 ApiError，优先取业务 error 字段', async () => {
+  it('非 2xx 时抛带 status 的 Error，优先取业务 error 字段', async () => {
     stubFetch([{ status: 409, body: '{"error":"已被占用"}' }])
     const client = createBridgeClient('x-dsh-test')
-    const error = (await client.request('/bridge/save').catch((e: unknown) => e)) as ApiError
+    const error = (await client.request('/bridge/save').catch((e: unknown) => e)) as {
+      status?: unknown
+      message?: unknown
+    }
     expect(error).toBeInstanceOf(Error)
     expect(error.status).toBe(409)
     expect(error.message).toBe('已被占用')
@@ -56,14 +57,20 @@ describe('createBridgeClient', () => {
   it('非 2xx 且无业务 error 字段时回退 HTTP <status>', async () => {
     stubFetch([{ status: 503, body: '{"other":1}' }])
     const client = createBridgeClient('x-dsh-test')
-    const error = (await client.request('/bridge/list').catch((e: unknown) => e)) as ApiError
+    const error = (await client.request('/bridge/list').catch((e: unknown) => e)) as {
+      status?: unknown
+      message?: unknown
+    }
     expect(error.message).toBe('HTTP 503')
   })
 
   it('响应体不是 JSON 时抛 HTTP <status>（即便 2xx）', async () => {
     stubFetch([{ status: 200, body: '<html>' }])
     const client = createBridgeClient('x-dsh-test')
-    const error = (await client.request('/bridge/list').catch((e: unknown) => e)) as ApiError
+    const error = (await client.request('/bridge/list').catch((e: unknown) => e)) as {
+      status?: unknown
+      message?: unknown
+    }
     expect(error.message).toBe('HTTP 200')
   })
 })

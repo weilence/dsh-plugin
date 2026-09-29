@@ -1,14 +1,10 @@
-/**
- * client 半侧的 HTTP 桥封装：与 host half 的桥端点一一对应，从 dsh-mcp /
- * dsh-skills 逐字提取、按插件自定义头名参数化。同源相对路径 fetch（web 与
- * dsh-app: 载体均适用）；POST 附带自定义头，让跨站简单请求折在 CORS 预检。
- */
-
-export interface ApiError extends Error {
+/** client 半侧的 HTTP 桥封装：与 host half 的桥端点一一对应；同源相对路径
+ *  fetch（web 与 dsh-app: 载体均适用）。 */
+interface ApiError extends Error {
   status: number
 }
 
-export interface BridgeClient {
+interface BridgeClient {
   request<T>(path: string, init?: RequestInit): Promise<T>
 }
 

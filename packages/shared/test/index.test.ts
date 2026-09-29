@@ -1,5 +1,3 @@
-/** errMsg：鸭子类型取 message 的行为契约。 */
-
 import { describe, expect, it } from 'vitest'
 import { errMsg } from '../src/index'
 
@@ -21,7 +19,7 @@ describe('errMsg', () => {
   })
 
   it('空 message 的 Error 退回 String(error)', () => {
-    // String(new Error('')) === 'Error'：与各插件提取前的多数派写法一致。
+    // String(new Error('')) === 'Error'
     expect(errMsg(new Error(''))).toBe('Error')
   })
 })

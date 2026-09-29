@@ -1,5 +1,3 @@
-/** host 栅栏：loopback 判定、Host 头守卫、sec-fetch-site 守卫、JSON 桥读写。 */
-
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import {
