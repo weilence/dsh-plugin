@@ -1,13 +1,9 @@
-// Git 安装记录的根级索引（host 专用）：每个可写技能根一个 <root>/.dsh-skills.json
-// （dotfile，扫描器只认 .md 与目录包，不会当成技能），记录源仓库、仓库内
-// 路径、安装时 HEAD 与内容哈希。读侧对损坏 / 缺失一律回空索引；陈旧条目
-// 在合并行时被忽略，下一次写入时自然清理。
-
+// Git 安装记录的根级索引；读侧损坏 / 缺失回空，陈旧条目下次写入时自然清理。
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { GitSkillRecord } from './shared'
 
-/** 索引文件名（相对技能根）。 */
+/** 索引文件名（相对技能根）；dotfile，扫描器只认 .md 与目录包，不会当成技能。 */
 export const GIT_INDEX_NAME = '.dsh-skills.json'
 
 /** 索引文件结构（version 预留演进）。 */

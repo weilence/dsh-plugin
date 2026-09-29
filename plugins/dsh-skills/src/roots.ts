@@ -1,7 +1,3 @@
-// 可写技能根的计算与路径归属（host 专用）。根集合与官方 skill-filesystem
-// provider 对齐：项目根 = 最近的含 .git 祖先，用户根 = DSH_HOME / ~/.agents
-// 下的 skills；customSkillDirs / bundledDir 是组合层目录，本插件不写入。
-
 import { realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'

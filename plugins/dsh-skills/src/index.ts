@@ -1,7 +1,3 @@
-// dsh-skills host half：设置页「Skills 管理」面板的 HTTP 桥。读侧以直接
-// 扫描四个标准技能根为主，全局注册表条目作只读补充；写侧 node:fs 直接
-// 落盘（宿主侧受信代码，不走模型沙箱）。@module dsh-skills
-
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'

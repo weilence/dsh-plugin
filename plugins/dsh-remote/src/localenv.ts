@@ -1,6 +1,4 @@
-// 本机侧的清单读取（host 专用）：skills 两个用户级根 + 两层用户 patch 的
-// MCP 行与插件行——全部只读，本地写管理归 dsh-skills / dsh-mcp。
-
+// 本机清单只读扫描；本地写管理归 dsh-skills / dsh-mcp。
 import { readdir, readFile, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'

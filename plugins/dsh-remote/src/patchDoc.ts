@@ -1,6 +1,4 @@
-// cordis.patch.yml 的注释保留合并（host 专用）：按行 id 整块替换 / 新增 /
-// 移除插件拥有的行；落盘不经本模块（cat→改→cat 在 ssh 通道内原子完成）。
-
+// 落盘不经本模块（cat→改→cat 在 ssh 通道内原子完成），只做文本 ↔ Document 的内存编辑。
 import { isMap, isSeq, parseDocument, type Document } from 'yaml'
 
 export type { Document }

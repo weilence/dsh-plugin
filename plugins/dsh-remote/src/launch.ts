@@ -1,10 +1,3 @@
-/**
- * 远端实例启动行解析：`dsh web: <url>` 是远端 stdout 上唯一机器可读的
- * 就绪信号（无文件 / env / JSON 通道），格式无版本契约——只宽容提取
- * host:port 与 token query，不假设路径形态。
- */
-
-/** 一次成功解析的启动事实。 */
 export interface RemoteLaunch {
   /** 实例实际监听的端口（--port 0 时由 OS 分配）。 */
   remotePort: number

@@ -1,7 +1,3 @@
-// SSH 命令执行器（host 专用，node:child_process 直 spawn）：宿主侧受信代码、
-// 用户从设置页发起的操作，不经模型沙箱策略；认证完全复用用户 OpenSSH 配置
-// （别名 / known_hosts / agent），BatchMode 保证无交互——认证失败即刻报错。
-
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { Readable } from 'node:stream'
 import { errMsg } from '@dsh-plugins/shared'
@@ -87,6 +83,7 @@ function classify(code: number | null, stderr: string, spawnError?: NodeJS.Errno
   )
 }
 
+// 宿主侧受信代码直 spawn（不经模型沙箱），认证完全复用用户 OpenSSH 配置。
 /** ssh 命令执行：连接级失败抛 SshFailure，命令级失败原样返回 code/stderr。 */
 export const sshExec: SshExec = (alias, command, options) =>
   new Promise<SshResult>((resolve, reject) => {

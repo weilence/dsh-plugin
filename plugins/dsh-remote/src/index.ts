@@ -1,11 +1,3 @@
-/**
- * dsh-remote host half：把连接引擎钉在同源 HTTP 桥上（GET /state 轮询、
- * POST 点火）+ 本机效应的生产接线（ssh 执行器、端口预占、健康检查、本机
- * 清单读取、tgz 打包）。栅栏守卫来自 @dsh-plugins/shared/http。
- *
- * @module dsh-remote
- */
-
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdtemp, readFile, realpath } from 'node:fs/promises'

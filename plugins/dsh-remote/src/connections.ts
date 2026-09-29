@@ -1,11 +1,3 @@
-/**
- * 连接库与同步 manifest 的持久化（host 专用）：`$DSH_HOME/dsh-remote.json`
- * 一个文件，损坏 / 缺失一律回空库（面板从空开始，不阻塞加载）。
- *
- * manifest 只是最近一次同步的记录展示（哪些名字上次同步过）；删除判定
- * 以「本机清单 ∩ 远端清单」实时计算，远端手装内容零接触。
- */
-
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'

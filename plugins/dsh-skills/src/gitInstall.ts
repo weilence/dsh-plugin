@@ -1,7 +1,3 @@
-// Git 仓库技能的克隆与发现、整目录安装（host 专用）。克隆走部分克隆 +
-// 稀疏检出（只物化技能相关目录）；发现对齐社区 marketplace.json / 标准技能
-// 目录的几种约定；安装复制后把来源登记进根索引，供更新跟踪回指。
-
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'

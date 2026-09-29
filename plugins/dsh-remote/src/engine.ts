@@ -1,7 +1,3 @@
-// 连接引擎（host 专用）：每连接一台内存状态机（相位 + 进行中操作 + running
-// 事实）；互斥由「op 非空即拒绝」保证，长操作由路由点火后后台推进，面板轮询
-// GET /state 观察。远端操作面全部经 ssh（登录 shell 包装保证 PATH）。
-
 import type { ForwardHandle, SshExec } from './ssh'
 import { SshFailure, shQuote } from './ssh'
 import { errMsg } from '@dsh-plugins/shared'

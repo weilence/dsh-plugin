@@ -1,7 +1,3 @@
-// 面板读写的对象是 raw user settings 层：Entry 类型从官方
-// @deepseek-ai/dsh-llm-pi-ai 的 Profile 派生（字段语义归官方），差异仅有
-// 三点——compat 保持不透明（面板从 schema envelope 内省选项，见
-// choices.ts）、集合改 readonly、索引签名允许未知字段原样往返。
 import type {
   PiAiModality,
   PiAiModelProfile,
@@ -26,6 +22,9 @@ const THINKING_LEVEL_FLAGS = {
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = Object.keys(THINKING_LEVEL_FLAGS) as ThinkingLevel[]
 
+// 从官方 Profile 派生的 raw user settings 层投影（字段语义归官方），差异仅：
+// compat 不透明（面板经 schema envelope 内省，见 choices.ts）、集合改
+// readonly、索引签名允许未知字段原样往返。
 export interface PiAiModelEntry extends Omit<PiAiModelProfile, 'input' | 'compat'> {
   input?: readonly PiAiModality[]
   compat?: Readonly<Record<string, unknown>>

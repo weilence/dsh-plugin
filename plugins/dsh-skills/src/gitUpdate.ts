@@ -1,8 +1,3 @@
-// Git 安装技能的更新跟踪（host 专用）：依据各根的 .dsh-skills.json 索引
-// （gitMeta）把已安装技能回指到源仓库，同一仓库只克隆一次。检查走 commit
-// 快路径（记录 HEAD 即当前 HEAD 直接判已最新），否则按目录内容哈希逐技能
-// 判定 update / local / removed；应用走 staging 复制 + 原子换名。
-
 import { rename, rm, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type {

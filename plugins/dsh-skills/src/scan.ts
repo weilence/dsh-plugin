@@ -1,7 +1,3 @@
-// 四个标准技能根的直接扫描（host 专用）：按官方 provider 同一套发现规则
-// （扁平 <name>.md / 目录包 <name>/SKILL.md / user-dsh 跳 .system），校验
-// 失败以 invalid 行呈现供面板修复，不从目录里消失。
-
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RootId, SkillFormat } from './shared'

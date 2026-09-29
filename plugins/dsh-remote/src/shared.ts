@@ -1,8 +1,3 @@
-// dsh-remote 线协议与共享常量：host 桥与 client 面板共用的类型和规则。
-// 同步为声明式语义：勾选=安装/升级、未勾选且远端已有=删除，删除范围恒为
-// 本机清单∩远端清单，远端独有条目零接触——本约束贯穿全部三类同步。
-
-/** 官方 MCP client 插件的模块名（远端 patch 下发行的 name 字段）。 */
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 
 /** 本插件包名（scoped，weilence.com 域名空间；裸名 dsh-remote 在 npm 已被第三方占用，

@@ -1,5 +1,3 @@
-/** client 半侧的 HTTP 桥封装：与 host half 的桥端点一一对应；同源相对路径
- *  fetch（web 与 dsh-app: 载体均适用）。 */
 interface ApiError extends Error {
   status: number
 }
@@ -8,7 +6,9 @@ interface BridgeClient {
   request<T>(path: string, init?: RequestInit): Promise<T>
 }
 
-/** header 为插件级自定义头名（如 'x-dsh-mcp'），POST 时随请求发送。 */
+/** client 半侧的 HTTP 桥封装：与 host half 的桥端点一一对应；同源相对路径
+ *  fetch（web 与 dsh-app: 载体均适用）。header 为插件级自定义头名（如
+ *  'x-dsh-mcp'），POST 时随请求发送。 */
 export function createBridgeClient(header: string): BridgeClient {
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const method = init?.method ?? 'GET'

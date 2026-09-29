@@ -1,7 +1,4 @@
-// dsh-skills 的 client ↔ host 桥共享契约。必须保持双端安全：不引入 node: /
-// 浏览器专属 API，两个 half 打包时都会内联本模块。
-
-/** host 桥路由路径（client api.ts 复用，端点单源）。 */
+// 双端内联模块：不得引入 node: / 浏览器专属 API。
 export const LIST_PATH = '/dsh-skills/list'
 export const FILE_PATH = '/dsh-skills/file'
 export const SAVE_PATH = '/dsh-skills/save'
