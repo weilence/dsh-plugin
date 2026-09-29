@@ -44,7 +44,7 @@
   ],
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.0-rc.1 <0.3.0"
+    "dsh": ">=0.2.0-rc.2 <0.3.0"
   },
   "publishConfig": {
     "access": "public"
@@ -59,8 +59,8 @@
   },
   "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-mcp#readme",
   "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.1 <0.3.0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.1 <0.3.0"
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2 <0.3.0"
   },
   "devDependencies": {
     "@dsh-plugins/client-ui": "workspace:*",

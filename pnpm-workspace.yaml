@@ -15,31 +15,31 @@ minimumReleaseAge: 0
 # 共享版本表：各包 devDependencies / peerDependencies 用 "catalog:" 引用，
 # 安装时由此解析。DSH 平台包必须同版本协同——升级平台时只改这一处。
 # 注意：package.json 的 peerDependencies 范围必须写字面 semver range
-# （如 ">=0.2.0-rc.1 <0.3.0"），不能用 "catalog:"——宿主兼容性预检
+# （如 ">=0.2.0-rc.2 <0.3.0"），不能用 "catalog:"——宿主兼容性预检
 # （app-boot evaluatePluginCompatibility）直接对字符串做 semver.satisfies，
 # 无效范围会被判定为不兼容而拒绝加载插件。
 catalog:
   '@deepseek-ai/cordis': ~4.0.4
-  '@deepseek-ai/dsh-api-remotes': 0.2.0-rc.1
-  '@deepseek-ai/dsh-api-session-controller': 0.2.0-rc.1
-  '@deepseek-ai/dsh-api-settings-controller': 0.2.0-rc.1
-  '@deepseek-ai/dsh-app-boot': 0.2.0-rc.1
-  '@deepseek-ai/dsh-authorization': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-primitives': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-renderer': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-session': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-settings': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-slots': 0.2.0-rc.1
-  '@deepseek-ai/dsh-client-ui-workspace': 0.2.0-rc.1
-  '@deepseek-ai/dsh-credentials': 0.2.0-rc.1
-  '@deepseek-ai/dsh-home-paths': 0.2.0-rc.1
-  '@deepseek-ai/dsh-host-webserver': 0.2.0-rc.1
-  '@deepseek-ai/dsh-llm': 0.2.0-rc.1
-  '@deepseek-ai/dsh-llm-pi-ai': 0.2.0-rc.1
-  '@deepseek-ai/dsh-mcp-client': 0.2.0-rc.1
-  '@deepseek-ai/dsh-session': 0.2.0-rc.1
-  '@deepseek-ai/dsh-skill': 0.2.0-rc.1
-  '@deepseek-ai/dsh-user-questions': 0.2.0-rc.1
+  '@deepseek-ai/dsh-api-remotes': 0.2.0-rc.2
+  '@deepseek-ai/dsh-api-session-controller': 0.2.0-rc.2
+  '@deepseek-ai/dsh-api-settings-controller': 0.2.0-rc.2
+  '@deepseek-ai/dsh-app-boot': 0.2.0-rc.2
+  '@deepseek-ai/dsh-authorization': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-primitives': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-renderer': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-session': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-settings': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-slots': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-ui-workspace': 0.2.0-rc.2
+  '@deepseek-ai/dsh-credentials': 0.2.0-rc.2
+  '@deepseek-ai/dsh-home-paths': 0.2.0-rc.2
+  '@deepseek-ai/dsh-host-webserver': 0.2.0-rc.2
+  '@deepseek-ai/dsh-llm': 0.2.0-rc.2
+  '@deepseek-ai/dsh-llm-pi-ai': 0.2.0-rc.2
+  '@deepseek-ai/dsh-mcp-client': 0.2.0-rc.2
+  '@deepseek-ai/dsh-session': 0.2.0-rc.2
+  '@deepseek-ai/dsh-skill': 0.2.0-rc.2
+  '@deepseek-ai/dsh-user-questions': 0.2.0-rc.2
   '@types/node': ^26.6.2
   '@types/react': ~18.3.31
   '@types/react-dom': ~18.3.7
