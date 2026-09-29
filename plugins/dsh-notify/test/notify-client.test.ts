@@ -3,7 +3,6 @@ import type { SessionPendingInteractionBase } from '@deepseek-ai/dsh-client-ui-s
 // 官方载荷类型：畸形 fixture 用 as unknown as 显式模拟「宿主运行时与编译时
 // 类型声明存在版本偏差」的场景——生产代码对这些输入保持防御性回退。
 import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions/types'
-// 纯函数层直测（detail.ts 独立成模块正是为了让单测不拖入面板展示依赖）。
 import { questionDetail, approvalDetail, interactionDetail } from '../src/detail'
 describe('questionDetail', () => {
   it('单题取问题文本并去除首尾空白', () => {

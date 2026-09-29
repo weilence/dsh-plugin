@@ -38,10 +38,6 @@ async function requestPermission(): Promise<PermissionState> {
 const isPageViewing = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
 
 function showNotification(title: string, body: string, onClick?: () => void): void {
-  console.info(
-    '[dsh-notify] show entry, permission=',
-    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
-  )
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
   // 不带 tag：Windows/Chromium 的同 tag 通知只原地更新不再弹横幅，表现为
   // 「再也没有通知」，去掉 tag 让每次通知都是全新 toast。
@@ -58,12 +54,6 @@ function showNotification(title: string, body: string, onClick?: () => void): vo
           () => {},
         )
       }
-    }
-    notification.onshow = () => {
-      console.info('[dsh-notify] shown:', title)
-    }
-    notification.onerror = (event) => {
-      console.info('[dsh-notify] onerror:', title, event)
     }
   } catch (error) {
     console.error('[dsh-notify] show notification failed', error)
@@ -89,7 +79,6 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
   // 未知会话不能证明是主代理；parentId 也可能只是普通分叉，须以子代理来源/地址判断。
   if (!session || session.origin === 'subagent' || ctx.sessions.subagentAddress(id)) return
   const viewing = isPageViewing()
-  console.info('[dsh-notify] event', kind, 'viewing=' + String(viewing))
   const fire = (): void => {
     const body =
       kind === 'question'
@@ -110,7 +99,6 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
   if (viewing) {
     window.setTimeout(() => {
       if (!notifyEnabled || isPageViewing()) return
-      console.info('[dsh-notify] deferred fire', kind)
       fire()
     }, 3000)
     return
@@ -154,7 +142,8 @@ function NotifyPanel() {
         系统级桌面通知，点击通知可聚焦回本页面。事件经宿主 Remote 通道实时
         转发，无轮询；需要本页面保持打开（关闭期间的事件无接收方、不会补发，
         仍在等待的提问/审批会在页面重开后补通知）。首次使用请先授予通知
-        权限。您正停留在本页（标签页可见且聚焦）时不弹通知，切走标签页或 最小化后自动恢复。
+        权限。您正停留在本页（标签页可见且聚焦）时不弹通知；事件发生时在 前台的，约 3
+        秒后复查一次，期间切走会补弹，仍在浏览则静默。
       </p>
       <div className={styles.row}>
         <span className={styles.title}>完成通知</span>
@@ -200,20 +189,13 @@ export function apply(ctx: ClientContext) {
 
   // 事件订阅归属插件 fiber，卸载时自动退订。
   ctx.effect(() => {
-    // 1) 回合完成：转发的 api-session/status（emit，订阅即收，无链式语义）。
-    //    转发事件 best-effort 不回放（页面关闭期间没有接收方），仍在等待的
-    //    waterfall 重连后会回放，页面重开时补通知一次。
+    // 回合完成走转发的 api-session/status：emit 语义订阅即收，不像 waterfall 监听器会阻塞到用户作答。
     const disposeStatus = ctx.remote.$on('api-session/status', (sessionId, running) => {
-      console.info('[dsh-notify] status', String(sessionId).slice(0, 8), String(running))
       if (running !== false) return
       notify(ctx, sessionId, 'turn')
     })
 
-    // 2) 提问 / 审批等待：diff sessionStatus 的 pendingInteraction——不直接
-    //    $on waterfall 事件：官方 UI 的监听器会阻塞到用户作答才返回，第三方
-    //    插件的监听器排在链尾、正常作答路径下永远不会被调用，sessionStatus
-    //    是这些事件的公开汇聚点且不受加载顺序影响；基线取订阅时刻快照
-    //    （加载前已存在的等待不回放通知），此后新增 key 即通知。
+    // 提问/审批不直接 $on waterfall 事件：官方 UI 的监听器阻塞到用户作答才返回、第三方排在链尾收不到，sessionStatus 才是公开汇聚点；基线取订阅时刻快照（已存在的等待不回放），此后新增 key 即通知。
     let baseline: SessionStatusSnapshot = ctx.uiSession.sessionStatus.getSnapshot()
     const disposePending = ctx.uiSession.sessionStatus.subscribe(() => {
       const next = ctx.uiSession.sessionStatus.getSnapshot()

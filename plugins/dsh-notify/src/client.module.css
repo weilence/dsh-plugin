@@ -1,5 +1,3 @@
-/* dsh-notify 设置页面板样式（构建期内联进 lib/client.js） */
-
 .panel {
   display: flex;
   flex-direction: column;
