@@ -24,6 +24,7 @@ catalog:
   '@deepseek-ai/dsh-api-session-controller': 0.2.0-rc.1
   '@deepseek-ai/dsh-api-settings-controller': 0.2.0-rc.1
   '@deepseek-ai/dsh-app-boot': 0.2.0-rc.1
+  '@deepseek-ai/dsh-authorization': 0.2.0-rc.1
   '@deepseek-ai/dsh-client-ui-primitives': 0.2.0-rc.1
   '@deepseek-ai/dsh-client-ui-renderer': 0.2.0-rc.1
   '@deepseek-ai/dsh-client-ui-session': 0.2.0-rc.1

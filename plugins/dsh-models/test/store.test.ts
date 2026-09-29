@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PanelStore, type ConfigFormLike, type StoreContext } from '../src/client/store'
 import { readChoices } from '../src/pi-ai/choices'
-import type { PiAiOperations, RouteDirectoryRow } from '../src/client/operations'
+import type { AuthDirectory, PiAiOperations, RouteDirectoryRow } from '../src/client/operations'
 
 /** 一个可控的 configForms 共享表单替身（镜像快照）。 */
 function scopeStub(initial: { user?: unknown; value?: unknown; revision?: number; writable?: boolean }) {
@@ -47,6 +47,11 @@ function operationsStub(overrides: Partial<PiAiOperations> = {}) {
     deleteProfile,
     describeCredential: async () => undefined,
     storeCredential: async () => undefined,
+    authDirectory: async () => null,
+    beginAuth: async () => {},
+    authEvents: async () => ({ events: [], running: false }),
+    answerAuth: async () => {},
+    cancelAuth: async () => {},
     ...overrides,
   }
   return { operations, writeProfile, deleteProfile }
@@ -278,6 +283,142 @@ describe('模型目录面板 store', () => {
       expect(calls).toBeGreaterThanOrEqual(2)
     } finally {
       globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('订阅登录状态', () => {
+  it('beginSignIn 后轮询折叠事件，authorized 收口并刷新登录目录', async () => {
+    vi.useFakeTimers()
+    try {
+      const scope = scopeStub({ user: {}, value: {} })
+      // 脚本化事件流：首轮给通知+问题，应答后给 outcome。
+      const beginAuth = vi.fn(async () => {})
+      type AuthEvents = PiAiOperations['authEvents']
+      type AuthDirectoryOf = PiAiOperations['authDirectory']
+      const authEvents = vi.fn<AuthEvents>(async () => ({
+        events: [
+          { seq: 1, kind: 'notice', message: '打开授权页' },
+          { seq: 2, kind: 'prompt', promptId: 2, prompt: { kind: 'text', message: '粘贴授权码' } },
+        ],
+        running: true,
+      }))
+      const authDirectory = vi.fn<AuthDirectoryOf>(async (): Promise<AuthDirectory | null> => {
+        const flows = { 'openai-codex': { label: 'OpenAI Codex', methods: [] } }
+        if (authEvents.mock.calls.length < 2) return { flows, records: {}, attempt: null }
+        return {
+          flows,
+          records: { 'openai-codex': { configured: true, kind: 'grant' } },
+          attempt: null,
+        }
+      })
+      const { operations } = operationsStub({ beginAuth, authEvents, authDirectory })
+      const { store } = storeOf({ scope, operations })
+      await store.refresh()
+
+      await store.beginSignIn('openai-codex')
+      expect(store.getSnapshot().auth.attempt?.running).toBe(true)
+      await vi.waitFor(() =>
+        expect(store.getSnapshot().auth.attempt?.events.map((event) => event.kind)).toEqual([
+          'notice',
+          'prompt',
+        ]),
+      )
+      let attempt = store.getSnapshot().auth.attempt
+
+      // 应答后下一次轮询拿到 outcome（authorized），收口并刷新记录状态。
+      authEvents.mockResolvedValueOnce({
+        events: [
+          { seq: 3, kind: 'answered', promptId: 2 },
+          { seq: 4, kind: 'outcome', status: 'authorized' },
+        ],
+        running: false,
+      })
+      await store.answerSignIn('paste-code')
+      await vi.advanceTimersByTimeAsync(700)
+      attempt = store.getSnapshot().auth.attempt
+      expect(attempt?.running).toBe(false)
+      expect(attempt?.events.at(-1)).toMatchObject({ kind: 'outcome', status: 'authorized' })
+      expect(store.getSnapshot().notice).toBe('账号登录成功')
+      expect(store.getSnapshot().auth.records['openai-codex']).toEqual({ configured: true, kind: 'grant' })
+      // 收口后循环退出：不再发起新轮询。
+      const callsAfterSettle = authEvents.mock.calls.length
+      await vi.advanceTimersByTimeAsync(3_000)
+      expect(authEvents.mock.calls.length).toBe(callsAfterSettle)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('已有登录进行中时拒绝再次发起；outcome failed 把原因放进错误区', async () => {
+    vi.useFakeTimers()
+    try {
+      const scope = scopeStub({ user: {}, value: {} })
+      const authEvents = vi.fn<PiAiOperations['authEvents']>(async () => ({
+        events: [{ seq: 1, kind: 'notice', message: '等待浏览器' }],
+        running: true,
+      }))
+      const { operations } = operationsStub({ authEvents })
+      const { store } = storeOf({ scope, operations })
+      await store.refresh()
+      await store.beginSignIn('openai-codex')
+      await store.beginSignIn('openai-codex')
+      expect(store.getSnapshot().error).toBe('已有登录进行中；请先完成或取消')
+
+      authEvents.mockResolvedValue({
+        events: [{ seq: 2, kind: 'outcome', status: 'failed', error: '令牌交换失败' }],
+        running: false,
+      })
+      await vi.advanceTimersByTimeAsync(700)
+      expect(store.getSnapshot().auth.attempt?.running).toBe(false)
+      expect(store.getSnapshot().error).toBe('令牌交换失败')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('刷新时 Host 报告进行中的登录则重挂事件流（页面刷新场景）', async () => {
+    const scope = scopeStub({ user: {}, value: {} })
+    const authDirectory = vi.fn<PiAiOperations['authDirectory']>(async () => ({
+      flows: { 'openai-codex': { label: 'OpenAI Codex', methods: [] } },
+      records: {},
+      attempt: { provider: 'openai-codex' },
+    }))
+    const authEvents = vi.fn<PiAiOperations['authEvents']>(async () => ({
+      events: [{ seq: 1, kind: 'notice', message: '等待设备码确认' }],
+      running: true,
+    }))
+    const { operations } = operationsStub({ authDirectory, authEvents })
+    const { store } = storeOf({ scope, operations })
+    await store.refresh()
+    // load 采纳 Host 的 attempt 并立即拉一次事件（不等轮询间隔）。
+    await vi.waitFor(() =>
+      expect(store.getSnapshot().auth.attempt?.events.map((event) => event.kind)).toEqual(['notice']),
+    )
+    expect(store.getSnapshot().auth.attempt?.provider).toBe('openai-codex')
+    const stop = store.start()
+    stop()
+  })
+
+  it('已结束的尝试在下次刷新时丢弃，不沉淀成持久 UI 态', async () => {
+    vi.useFakeTimers()
+    try {
+      const scope = scopeStub({ user: {}, value: {} })
+      const authEvents = vi.fn<PiAiOperations['authEvents']>(async () => ({
+        events: [{ seq: 1, kind: 'outcome', status: 'cancelled' }],
+        running: false,
+      }))
+      const { operations } = operationsStub({ authEvents })
+      const { store } = storeOf({ scope, operations })
+      await store.refresh()
+      await store.beginSignIn('openai-codex')
+      await vi.advanceTimersByTimeAsync(700)
+      expect(store.getSnapshot().auth.attempt?.running).toBe(false)
+      // 刷新（Host 也不再报告进行中尝试）后回看态清空。
+      await store.refresh()
+      expect(store.getSnapshot().auth.attempt).toBeNull()
+    } finally {
+      vi.useRealTimers()
     }
   })
 })

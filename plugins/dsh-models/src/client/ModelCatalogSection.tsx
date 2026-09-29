@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -6,6 +6,7 @@ import type { PiAiOperations } from './operations'
 import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
 import { CreateProviderForm } from './CreateProviderForm'
+import { SignInCard, type SignInView } from './SignInCard'
 import {
   CardList,
   ConfirmDialog,
@@ -72,6 +73,32 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
 
   const writable = state.writable
   const busyProvider = state.busy
+
+  // 账号登录视图：flows 只含带 oauth 方法的 Provider（Host 已过滤，api-key
+  // 型的「登录」等价于 API Key 字段，不进此面）；replacesApiKey 依据 flow
+  // 是否还提供 api-key 方法——双形态 Provider 卡与 Key 字段并排。
+  const signInView = useCallback(
+    (provider: string): SignInView | null => {
+      const flow = state.auth.flows[provider]
+      if (flow === undefined) return null
+      return {
+        card: (
+          <SignInCard
+            provider={provider}
+            flow={flow}
+            auth={state.auth}
+            replacesApiKey={!flow.methods.some((method) => method.id === 'api-key')}
+            onBegin={(target) => void props.store.beginSignIn(target)}
+            onAnswer={(value) => void props.store.answerSignIn(value)}
+            onDecline={() => void props.store.declineSignIn()}
+            onCancel={() => void props.store.cancelSignIn()}
+          />
+        ),
+        replacesApiKey: !flow.methods.some((method) => method.id === 'api-key'),
+      }
+    },
+    [state.auth, props.store],
+  )
 
   const requestEdit = (next?: string) => {
     if (busyProvider !== null || editing === next) return
@@ -194,6 +221,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                 modelsDevError={state.modelsDevError}
                 routes={routes}
                 protocols={state.choices.protocols}
+                signInView={signInView}
                 onCancel={() => setCreating(false)}
                 onLoadCatalog={() => void props.store.ensureModelsDev()}
                 onCreate={(provider, profile, apiKey) =>
@@ -243,6 +271,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                   busy={busyProvider === route.provider}
                   error={state.error}
                   modelsDev={state.modelsDev}
+                  signInView={signInView}
                   onLoadModelsDev={() => props.store.ensureModelsDev()}
                   onDirtyChange={setEditingDirty}
                   onCancel={() => requestEdit(undefined)}

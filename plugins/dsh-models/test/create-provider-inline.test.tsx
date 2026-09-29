@@ -2,6 +2,7 @@ import { createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { CreateProviderForm } from '../src/client/CreateProviderForm'
+import type { SignInView } from '../src/client/SignInCard'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
@@ -18,7 +19,10 @@ vi.mock('../src/client/ModelsDevImport', () => ({
   ModelsDevImport: () => <div>自定义 Provider 字段</div>,
 }))
 
-function renderForm(dormantProviders: readonly string[]) {
+function renderForm(
+  dormantProviders: readonly string[],
+  signInView?: (provider: string) => SignInView | null,
+) {
   return renderToStaticMarkup(
     createElement(CreateProviderForm, {
       busy: false,
@@ -29,6 +33,7 @@ function renderForm(dormantProviders: readonly string[]) {
       modelsDevError: null,
       routes: [],
       protocols: ['openai-completions'],
+      signInView,
       onCancel: () => {},
       onLoadCatalog: () => {},
       onCreate: async () => true,
@@ -57,5 +62,21 @@ describe('Provider 行内新建', () => {
     expect(html).toContain('取消')
     expect(html).toContain('创建')
     expect(html).not.toContain('内置 Provider</div>')
+  })
+
+  it('oauth-only 内置 Provider 渲染登录卡并隐藏 API Key 字段', () => {
+    const html = renderForm(['openai-codex'], (provider) =>
+      provider === 'openai-codex' ? { card: <div>登录卡</div>, replacesApiKey: true } : null,
+    )
+    expect(html).toContain('登录卡')
+    expect(html).not.toContain('API Key')
+  })
+
+  it('双形态 Provider 登录卡与 API Key 字段并排', () => {
+    const html = renderForm(['openrouter'], (provider) =>
+      provider === 'openrouter' ? { card: <div>登录卡</div>, replacesApiKey: false } : null,
+    )
+    expect(html).toContain('登录卡')
+    expect(html).toContain('API Key')
   })
 })

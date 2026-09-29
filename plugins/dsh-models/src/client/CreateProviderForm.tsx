@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelsDevCatalog } from '../catalog/types'
 import type { PanelRoute } from '../pi-ai/view'
 import { validateApiKey } from './operations'
 import { ModelsDevImport, type ModelsDevImportHandle, type ModelsDevImportProps } from './ModelsDevImport'
+import type { SignInView } from './SignInCard'
 import { IssueList, SelectField, TextField } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './CreateProviderForm.module.css'
@@ -21,6 +22,11 @@ export function CreateProviderForm(props: {
   /** 已配置的 route（自定义 Provider 只能新建，命中即拒绝；内置模式据此查重）。 */
   routes: readonly PanelRoute[]
   protocols: readonly string[]
+  /**
+   * 账号登录视图：选中的内置 Provider 带 oauth 登录时返回登录卡；
+   * replacesApiKey 时隐藏 API Key 字段（oauth-only），双形态则并排。
+   */
+  signInView?: (provider: string) => SignInView | null
   onCancel(): void
   onLoadCatalog(): void
   onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): Promise<boolean>
@@ -36,6 +42,9 @@ export function CreateProviderForm(props: {
   const [key, setKey] = useState('')
   const [touched, setTouched] = useState(false)
   const importRef = useRef<ModelsDevImportHandle | null>(null)
+  // 账号登录型 Provider（带 oauth flow）经登录卡授权；replacesApiKey 时
+  // API Key 字段不参与。
+  const signIn = builtinId.length > 0 ? (props.signInView?.(builtinId) ?? null) : null
 
   const issues: string[] = []
   if (mode === 'builtin') {
@@ -120,8 +129,11 @@ export function CreateProviderForm(props: {
               onChange={setBuiltinId}
             />
             <TextField label="显示名（可选）" value={displayName} onChange={setDisplayName} />
-            <TextField label="API Key" type="password" autoComplete="off" value={key} onChange={setKey} />
+            {signIn?.replacesApiKey !== true ? (
+              <TextField label="API Key" type="password" autoComplete="off" value={key} onChange={setKey} />
+            ) : null}
           </div>
+          {signIn?.card}
         </>
       )}
       <div className={styles.formActions}>

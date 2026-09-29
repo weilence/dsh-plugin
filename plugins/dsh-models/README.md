@@ -20,6 +20,11 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立菜单 **模型**（�
   「自定义 Provider」填 Provider ID / 显示名 / API Key，Endpoint 可从 models.dev 的 Provider 里选择
   （自动带上协议），也可手动填写自定义地址；「获取模型」用 API Key 询问 Endpoint 的模型清单，
   并按 models.dev 元数据补全每个模型的能力。模型清单默认为空，不获取也可以直接创建。
+- **订阅账号登录（如 OpenAI Codex / ChatGPT Plus/Pro）**：带 OAuth 登录的内置 Provider（`openai-codex`
+  等）在新建与编辑表单里显示「账号登录」卡——发起登录后按事件流完成浏览器 / 设备码授权（授权链接与
+  设备码可选中复制），令牌由宿主凭据层持久化并自动刷新；`credentials/record-updated` 后「已授权」状态
+  即时更新。纯订阅型（无 API Key 形态）登录卡替换 API Key 字段；双形态 Provider（如 `openrouter`）
+  登录卡与 API Key 字段并排。普通 API Key 型 Provider（`openai` / `anthropic` 等）不受影响，仍走 Key 表单。
 - **宽版弹窗**：进入本分区时自动放宽宿主设置弹窗（官方把面板钉在 800×800 且无尺寸 API），
   切到其他分区即还原，不影响其余设置页。
 
@@ -27,6 +32,13 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立菜单 **模型**（�
 
 面板内可直接设置：密钥经 `credentials.set` **只写**存储，`settings.yaml` 里只记录引用
 （沿用 profile 已有的 `apiKeyEnv`，没有则派生 `<ROUTE>_API_KEY`）。面板不读取、缓存或回显密钥。
+
+**订阅登录**
+
+官方 GUI 没有任何触发 `ctx.authorization` 登录流（`dsh-llm-pi-ai` 已为 `openai-codex` 等订阅型
+Provider 注册）的入口；本插件的 Host half 把该 seam 桥接为同源 HTTP 面（目录 / 发起 / 事件轮询 /
+应答 / 取消），Client half 用登录卡驱动。凭据形态与 API Key 不同：订阅授权是凭据记录
+（`kind: 'grant'`），route 不写 `apiKeyEnv`，请求时由宿主用存储的授权发令牌。
 
 ## 安装
 
@@ -36,6 +48,7 @@ DeepSeek Harness Web 插件：在 Settings 里新增独立菜单 **模型**（�
 宿主还需要挂载标准的：
 
 - `@deepseek-ai/dsh-llm-pi-ai`（本插件配置的 namespace 提供方）
+- `@deepseek-ai/dsh-authorization`、`@deepseek-ai/dsh-credentials`（订阅登录桥消费的 seam，缺席时登录入口不显示）
 - `@deepseek-ai/dsh-client-ui-settings`（settings section 底座）
 - `@deepseek-ai/dsh-api-remotes`、`@deepseek-ai/dsh-client-ui-slots`
 

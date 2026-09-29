@@ -5,6 +5,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { IncomingMessage } from 'node:http'
 import { errMsg } from '@dsh-plugins/shared'
 import { isExpectedHost, writeJson } from '@dsh-plugins/shared/http'
+import { applyAuthBridge } from './auth'
 import { effectiveModelsFor } from './effective'
 import { CatalogMirror } from './mirror'
 
@@ -126,6 +127,12 @@ function apply(ctx: Context) {
         }),
       'dsh-models: effective-models bridge',
     ),
+  )
+
+  // 订阅登录桥同样是可选面：authorization 服务缺席（无登录型 provider 的
+  // 组合）时目录桥照常，面板不显示任何登录入口。
+  ctx.inject(['authorization'], (authCtx) =>
+    authCtx.effect(() => applyAuthBridge(authCtx), 'dsh-models: auth bridge'),
   )
 }
 

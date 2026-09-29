@@ -7,8 +7,34 @@ import { providersRecordOf, type DiscoveredModelFacts } from '../pi-ai/profile'
 import { jsonEqual, type WriteOutcome } from '../pi-ai/ops'
 import type { PiAiProviderEntry } from '../pi-ai/types'
 import { buildRoutes, type PanelRoute } from '../pi-ai/view'
-import { deriveKeyRef, type EffectiveModelFacts, type PiAiOperations } from './operations'
+import {
+  deriveKeyRef,
+  type AuthDirectory,
+  type AuthFlow,
+  type AuthRecord,
+  type AuthSequencedEvent,
+  type EffectiveModelFacts,
+  type PiAiOperations,
+} from './operations'
 import { errMsg } from '@dsh-plugins/shared'
+
+export interface AuthAttemptState {
+  provider: string
+  events: readonly AuthSequencedEvent[]
+  running: boolean
+}
+
+/** 订阅登录面：flow 目录 + 凭据记录现状 + 本面板驱动的登录尝试。 */
+export interface AuthState {
+  flows: Record<string, AuthFlow>
+  records: Record<string, AuthRecord>
+  attempt: AuthAttemptState | null
+}
+
+const EMPTY_AUTH: AuthState = { flows: {}, records: {}, attempt: null }
+
+/** 登录事件轮询间隔：人要开浏览器、输设备码，秒级延迟无感。 */
+const AUTH_POLL_INTERVAL_MS = 700
 
 export interface PanelState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -23,6 +49,7 @@ export interface PanelState {
   modelsDevLoading: boolean
   modelsDevError: string | null
   busy: string | null
+  auth: AuthState
 }
 
 const INITIAL: PanelState = {
@@ -37,6 +64,7 @@ const INITIAL: PanelState = {
   modelsDevLoading: false,
   modelsDevError: null,
   busy: null,
+  auth: EMPTY_AUTH,
 }
 
 /** configForms 快照的最小消费面（官方 ConfigForm 的读侧）。 */
@@ -68,6 +96,9 @@ export class PanelStore {
   private refreshDirty = false
   /** 凭据 describe 结果缓存（按引用键）；凭据事件或本面板写入时失效。 */
   private readonly credentialCache = new Map<string, boolean>()
+  /** 登录事件轮询循环活跃标记（同一时刻至多一个循环）。 */
+  private authPolling = false
+  private disposed = false
 
   constructor(options: {
     ctx: StoreContext
@@ -106,12 +137,16 @@ export class PanelStore {
           void this.refresh()
         }),
       )
+      // OAuth 授权记录（grant）的写入 / 刷新 / 删除走 record 事件：登录成功
+      // 或令牌轮换后立即更新「已授权」状态。
+      disposers.push(this.ctx.remote.$on('credentials/record-updated', () => void this.refreshAuth()))
     }
     const onReset = () => void this.refresh()
     this.ctx.on('connection/reset', onReset)
     disposers.push(() => this.ctx.off('connection/reset', onReset))
     void this.refresh()
     return () => {
+      this.disposed = true
       for (const dispose of disposers) dispose()
       this.listeners.clear()
     }
@@ -144,7 +179,10 @@ export class PanelStore {
   private async load() {
     if (this.snapshot.status === 'idle') this.set({ status: 'loading' })
     try {
-      const directory = await this.operations.loadDirectory()
+      const [directory, authDirectory] = await Promise.all([
+        this.operations.loadDirectory(),
+        this.operations.authDirectory(),
+      ])
       const settings = this.scope.getSnapshot()
       // 只为「已配置」的 route 读安装目录：官方会把全部内置 provider 声明进
       // 可配置目录（几十个），休眠 provider 的模型清单面板从不展示，逐个
@@ -175,6 +213,8 @@ export class PanelStore {
         catalogs,
         effective,
       )
+      const previousAttempt = this.snapshot.auth.attempt
+      const auth = this.authStateOf(authDirectory)
       this.set({
         status: 'ready',
         error: null,
@@ -182,9 +222,125 @@ export class PanelStore {
         revision: settings.revision,
         routes,
         choices: this.getChoices(),
+        auth,
       })
+      // 采纳 Host 报告的进行中登录（页面刷新 / 双开重挂）时启动轮询——必须
+      // 在 set 之后：循环读的是新快照；本地已在跑或尝试已结束时都不启动。
+      if (auth.attempt?.running === true && auth.attempt !== previousAttempt) this.startAuthPoll()
     } catch (error) {
       this.set({ status: 'error', error: errMsg(error) })
+    }
+  }
+
+  // 登录目录与本地尝试态的合成：flow/records 以 Host 为准；attempt 归轮询
+  // 循环所有——本地仍在跑就保留，Host 报告仍有进行中的登录而本地没有（页面
+  // 刷新 / 双开）则给出待重挂的尝试态（由 load 在 set 后启动轮询）。已结束
+  // 的本地尝试是纯回看反馈，刷新时丢弃，不沉淀成持久 UI 态。
+  private authStateOf(directory: AuthDirectory | null): AuthState {
+    const flows = directory?.flows ?? {}
+    const records = directory?.records ?? {}
+    if (this.snapshot.auth.attempt?.running) {
+      return { flows, records, attempt: this.snapshot.auth.attempt }
+    }
+    if (directory?.attempt !== undefined && directory.attempt !== null) {
+      return { flows, records, attempt: { provider: directory.attempt.provider, events: [], running: true } }
+    }
+    return { flows, records, attempt: null }
+  }
+
+  /** 只刷新登录目录的 flow / records，不打断本地登录尝试态。 */
+  private async refreshAuth(): Promise<void> {
+    const directory = await this.operations.authDirectory()
+    if (directory === null) return
+    this.set({
+      auth: { flows: directory.flows, records: directory.records, attempt: this.snapshot.auth.attempt },
+    })
+  }
+
+  /** 发起订阅登录；成功后事件轮询接管面板状态。 */
+  async beginSignIn(provider: string): Promise<void> {
+    if (this.snapshot.auth.attempt?.running) {
+      this.fail('已有登录进行中；请先完成或取消')
+      return
+    }
+    try {
+      await this.operations.beginAuth(provider)
+    } catch (error) {
+      this.fail(errMsg(error))
+      return
+    }
+    this.set({ auth: { ...this.snapshot.auth, attempt: { provider, events: [], running: true } } })
+    this.startAuthPoll()
+  }
+
+  async answerSignIn(value: string): Promise<void> {
+    try {
+      await this.operations.answerAuth({ value })
+    } catch (error) {
+      this.fail(errMsg(error))
+    }
+  }
+
+  async declineSignIn(): Promise<void> {
+    try {
+      await this.operations.answerAuth({ declined: true })
+    } catch (error) {
+      this.fail(errMsg(error))
+    }
+  }
+
+  async cancelSignIn(): Promise<void> {
+    try {
+      await this.operations.cancelAuth()
+    } catch (error) {
+      this.fail(errMsg(error))
+    }
+  }
+
+  // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，running 翻 false
+  // 即尝试结束（authorized 给提示并刷新记录状态，failed 的原因进错误区）。
+  private startAuthPoll() {
+    if (this.authPolling) return
+    this.authPolling = true
+    void (async () => {
+      try {
+        while (!this.disposed) {
+          const attempt = this.snapshot.auth.attempt
+          if (attempt === null || !attempt.running) break
+          const after = attempt.events.length === 0 ? 0 : (attempt.events.at(-1) as AuthSequencedEvent).seq
+          const outcome = await this.operations.authEvents(after).catch(() => null)
+          if (this.disposed) break
+          if (outcome !== null && outcome.events.length > 0) {
+            this.set({
+              auth: {
+                ...this.snapshot.auth,
+                attempt: { ...attempt, events: [...attempt.events, ...outcome.events] },
+              },
+            })
+          }
+          if (outcome !== null && !outcome.running) {
+            this.finishAuthAttempt()
+            break
+          }
+          await new Promise((resolve) => setTimeout(resolve, AUTH_POLL_INTERVAL_MS))
+        }
+      } finally {
+        this.authPolling = false
+      }
+    })()
+  }
+
+  private finishAuthAttempt() {
+    const attempt = this.snapshot.auth.attempt
+    if (attempt === null || !attempt.running) return
+    this.set({ auth: { ...this.snapshot.auth, attempt: { ...attempt, running: false } } })
+    const outcome = attempt.events.at(-1)
+    if (outcome === undefined || outcome.kind !== 'outcome') return
+    if (outcome.status === 'authorized') {
+      this.set({ notice: '账号登录成功', error: null })
+      void this.refreshAuth()
+    } else if (outcome.status === 'failed') {
+      this.set({ error: outcome.error ?? '登录失败' })
     }
   }
 

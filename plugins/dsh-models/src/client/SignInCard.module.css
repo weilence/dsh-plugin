@@ -1,0 +1,41 @@
+/* 账号登录卡的尝试容器：把事件流、问题、收口按钮收进同一块有边界的面板，
+   避免与表单其它字段的松散堆叠混在一起。 */
+.attempt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 9px;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.promptBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.promptLabel {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 问题行：输入/选择自适应占满，提交与拒绝按钮固定宽贴右侧。 */
+.promptRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.promptControl {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.attemptActions {
+  display: flex;
+  gap: 8px;
+}

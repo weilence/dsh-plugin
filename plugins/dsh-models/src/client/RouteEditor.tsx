@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { discoveredToCatalogEntry } from '../catalog/matching'
 import type { ModelsDevCatalog } from '../catalog/types'
@@ -20,6 +20,7 @@ import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { validateProviderReasoning } from '../pi-ai/validate'
 import { effortsLabel, reasoningLabel, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
+import type { SignInView } from './SignInCard'
 import { ModelForm } from './ModelForm'
 import {
   CardList,
@@ -48,6 +49,11 @@ export interface RouteEditorProps {
   busy: boolean
   error: string | null
   modelsDev: ModelsDevCatalog | null
+  /**
+   * 账号登录视图：route 的 Provider 带 oauth 登录且未显式配置 apiKeyEnv 时
+   * 返回登录卡；replacesApiKey 时隐藏 API Key 字段（oauth-only）。
+   */
+  signInView?: (provider: string) => SignInView | null
   onLoadModelsDev(): Promise<ModelsDevCatalog | null>
   onDirtyChange(dirty: boolean): void
   onCancel(): void
@@ -122,6 +128,9 @@ export function RouteEditor(props: RouteEditorProps) {
   const formAppliedIdRef = useRef<string | undefined>(undefined)
   /** 模型卡片列（.modelCards）：「新增中」卡片打开时把它滚进可视区。 */
   const modelListRef = useRef<HTMLDivElement | null>(null)
+  // 账号登录卡：只在带 oauth flow 且用户未显式配置 apiKeyEnv 时参与（已显式
+  // 指键的 route 保持原编辑形态）；replacesApiKey 时替换 Key 字段，双形态并排。
+  const signIn = route.apiKeyEnv === undefined ? (props.signInView?.(route.provider) ?? null) : null
 
   const switchModelEdit = (next: ModelEdit | undefined) => {
     formAppliedIdRef.current = undefined
@@ -458,30 +467,32 @@ export function RouteEditor(props: RouteEditorProps) {
       <div className={styles.editorMain}>
         <section className={styles.section}>
           <div className={styles.grid}>
-            <TextField
-              label={
-                <>
-                  新的 API Key
-                  {props.keyConfigured !== undefined ? (
-                    <>
-                      {' '}
-                      <StateDot
-                        className={styles.inlineDot}
-                        state={props.keyConfigured ? 'done' : 'warning'}
-                      />
-                      {props.keyConfigured ? '已配置' : '未配置'}
-                    </>
-                  ) : null}
-                </>
-              }
-              type="password"
-              autoComplete="off"
-              placeholder="留空则不修改"
-              value={key}
-              disabled={props.busy}
-              error={keyError}
-              onChange={setKey}
-            />
+            {signIn?.replacesApiKey !== true ? (
+              <TextField
+                label={
+                  <>
+                    新的 API Key
+                    {props.keyConfigured !== undefined ? (
+                      <>
+                        {' '}
+                        <StateDot
+                          className={styles.inlineDot}
+                          state={props.keyConfigured ? 'done' : 'warning'}
+                        />
+                        {props.keyConfigured ? '已配置' : '未配置'}
+                      </>
+                    ) : null}
+                  </>
+                }
+                type="password"
+                autoComplete="off"
+                placeholder="留空则不修改"
+                value={key}
+                disabled={props.busy}
+                error={keyError}
+                onChange={setKey}
+              />
+            ) : null}
             <TextField
               label="显示名"
               value={providerDraft.displayName}
@@ -531,6 +542,7 @@ export function RouteEditor(props: RouteEditorProps) {
               onChange={(value) => setProviderDraft({ ...providerDraft, reasoning: value })}
             />
           </div>
+          {signIn?.card}
         </section>
 
         {useBuiltin ? (

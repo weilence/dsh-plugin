@@ -4,11 +4,19 @@ import type {} from '@deepseek-ai/dsh-api-settings-controller/remote'
 import type { ClientRemote, CredentialInfo, LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SettingsDescribeFace } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { classifyWrite, type WriteOutcome } from '../pi-ai/ops'
+import type {
+  AuthDirectoryWire,
+  AuthEventWire,
+  AuthFlowWire,
+  AuthRecordWire,
+  AuthSequencedEvent,
+} from '../auth'
 import type { EffectiveModelFacts as EffectiveModelFactsWire } from '../effective'
 import { errMsg } from '@dsh-plugins/shared'
 
 export const PI_AI_NS = 'llm-pi-ai'
 export const EFFECTIVE_PATH = '/dsh-models/effective-models'
+export const AUTH_PATH = '/dsh-models/auth'
 const MODEL_DISCOVERY_TIMEOUT_MS = 5_000
 
 export interface RouteDirectoryRow {
@@ -22,6 +30,13 @@ export interface RouteDirectoryRow {
 
 /** 一个模型通过 Host 解析出的当前生效能力（只读桥的 wire 契约）。 */
 export type EffectiveModelFacts = EffectiveModelFactsWire
+
+/** 订阅登录面（host half auth 桥的 wire 契约）。 */
+export type AuthFlow = AuthFlowWire
+export type AuthRecord = AuthRecordWire
+export type AuthEvent = AuthEventWire
+export type AuthDirectory = AuthDirectoryWire
+export type { AuthSequencedEvent }
 
 export type EffectiveOutcome =
   { kind: 'found'; models: readonly EffectiveModelFacts[] } | { kind: 'unavailable'; message: string }
@@ -54,10 +69,49 @@ export interface PiAiOperations {
   describeCredential(ref: string): Promise<CredentialInfo | undefined>
   /** 只写存储一个凭据；返回失败信息或 undefined。 */
   storeCredential(ref: string, value: string): Promise<string | undefined>
+  /**
+   * 读订阅登录目录（哪些 Provider 带登录 flow、凭据记录现状、是否有进行
+   * 中的登录）。桥缺席（authorization 服务未挂）或不可达时返回 null——
+   * 面板只是不显示登录入口，主功能不受影响。
+   */
+  authDirectory(): Promise<AuthDirectory | null>
+  /** 发起一次订阅登录；失败抛携带 Host 原因的错误。 */
+  beginAuth(provider: string): Promise<void>
+  /** 拉取 after 之后的新登录事件与进行状态。 */
+  authEvents(after: number): Promise<{ events: readonly AuthSequencedEvent[]; running: boolean }>
+  /** 应答当前登录问题（文本 / 选项 id）或明确拒绝。 */
+  answerAuth(answer: { value: string } | { declined: true }): Promise<void>
+  /** 取消进行中的登录。 */
+  cancelAuth(): Promise<void>
 }
 
 function remoteMessage(error: { message?: string } | undefined, fallback: string) {
   return error?.message || fallback
+}
+
+// 登录桥的 JSON 往返：非 2xx 时抛出服务端携带的原因。只有目录 GET 把 404
+// 归为「桥缺席」（返回 null）；POST 的 404 是业务拒绝（如无登录方式），必须
+// 带原因抛出。
+async function authJson(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  const response = await fetch(path, { headers: { Accept: 'application/json' }, ...init })
+  const text = await response.text()
+  let body: Record<string, unknown>
+  try {
+    body = JSON.parse(text) as Record<string, unknown>
+  } catch {
+    throw new Error(`登录桥返回了无效 JSON（HTTP ${response.status}）`)
+  }
+  if (!response.ok) {
+    if (response.status === 404 && init === undefined) return { absent: true }
+    throw new Error(
+      typeof body['error'] === 'string' ? body['error'] : `登录请求失败（HTTP ${response.status}）`,
+    )
+  }
+  return body
+}
+
+function authRequestBody(body: Record<string, unknown>): RequestInit {
+  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
 
 // 刻意用结构化类型而不是 extends Context：继承官方 module augmentation 的
@@ -179,6 +233,61 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
     async storeCredential(ref, value) {
       const response = await ctx.remote.credentials.set(ref, value)
       return response.ok ? undefined : remoteMessage(response.error, '保存 API Key 失败')
+    },
+
+    async authDirectory() {
+      try {
+        const body = await authJson(AUTH_PATH)
+        if ('absent' in body) return null
+        const flows = body['flows']
+        const records = body['records']
+        if (typeof flows !== 'object' || flows === null || typeof records !== 'object' || records === null) {
+          return null
+        }
+        const attemptRow = body['attempt']
+        return {
+          flows: flows as Record<string, AuthFlow>,
+          records: records as Record<string, AuthRecord>,
+          attempt:
+            typeof attemptRow === 'object' &&
+            attemptRow !== null &&
+            typeof (attemptRow as { provider?: unknown }).provider === 'string'
+              ? { provider: (attemptRow as { provider: string }).provider }
+              : null,
+        }
+      } catch {
+        // 可选面：桥不可达等同无登录特性，不进面板错误区。
+        return null
+      }
+    },
+
+    async beginAuth(provider) {
+      await authJson(`${AUTH_PATH}/begin`, authRequestBody({ provider }))
+    },
+
+    async authEvents(after) {
+      const body = await authJson(`${AUTH_PATH}/events?after=${encodeURIComponent(after)}`)
+      const events = Array.isArray(body['events']) ? body['events'] : []
+      return {
+        events: events.filter(
+          (event): event is AuthSequencedEvent =>
+            typeof event === 'object' &&
+            event !== null &&
+            typeof (event as { seq?: unknown }).seq === 'number',
+        ),
+        running: body['running'] === true,
+      }
+    },
+
+    async answerAuth(answer) {
+      await authJson(
+        `${AUTH_PATH}/answer`,
+        authRequestBody('declined' in answer ? { declined: true } : { value: answer.value }),
+      )
+    },
+
+    async cancelAuth() {
+      await authJson(`${AUTH_PATH}/cancel`, authRequestBody({}))
     },
   }
 }
