@@ -1,6 +1,7 @@
 /**
- * 连接引擎：fake ssh / 转发 / 扫描依赖上的全链集成——save/test/deploy/
- * connect/disconnect/mcp 下发合并/插件同步增删/skills 跟踪删除/互斥。
+ * 连接引擎：fake ssh / 转发 / 扫描依赖上的全链集成——save/test/connect
+ * （含部署段：环境装配 / tgz 推送 / 版本对比）/disconnect/mcp 下发合并/
+ * 插件同步增删/skills 跟踪删除/互斥。
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -22,6 +23,19 @@ interface Recorded {
 
 const OK: SshResult = { code: 0, stdout: '', stderr: '' }
 
+/** 部署段直通脚本：远端已装齐且版本一致（与 makeDeps 缺省版本对齐）——
+ *  连接测试不关心装配细节时前置它，让流程直达启动段。 */
+function deployReady(command: string): SshResult | undefined {
+  if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
+  if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
+  if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
+  if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
+  if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
+    return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
+  if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
+  return undefined
+}
+
 interface FakeOptions {
   /** 按命令文本返回结果；未命中回 OK。抛异常则原样传播。 */
   respond?: (command: string) => SshResult | Promise<SshResult> | undefined
@@ -29,7 +43,7 @@ interface FakeOptions {
   homePatch?: string
   /** 层 package.json 的 dependencies（install 形态判定依据）。 */
   profileDeps?: Record<string, string>
-  skills?: { key: string; path: string; names: string[] }[]
+  skills?: { key: 'user-dsh' | 'user-agents'; path: string; names: string[] }[]
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
   localDshVersion?: string | null
@@ -124,7 +138,6 @@ function saveRequest(overrides: Partial<SaveRequest> = {}): SaveRequest {
   return {
     label: '开发机',
     sshAlias: 'dev-box',
-    sync: { mcpServerNames: [], pluginNames: [] },
     ...overrides,
   }
 }
@@ -174,7 +187,7 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').phase).toBe('idle')
   })
 
-  it('deploy：未装 → 打包推送 tgz 并安装（web profile），verify 读回版本', async () => {
+  it('connect 部署段：未装 → 打包推送 tgz 并安装（web profile），verify 读回版本', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
@@ -186,14 +199,19 @@ describe('RemoteEngine', () => {
         // verify 读回：装上了 0.1.0
         if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
           return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
         return undefined
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
-    await waitFor(() => engine.stateOf('dev-box').op === null)
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
     const state = engine.stateOf('dev-box')
-    expect(state.phase).toBe('idle')
+    expect(state.running).not.toBeNull()
     expect(state.error).toBeNull()
     const commands = fake.calls.map((call) => call.command)
     expect(commands).toContain(
@@ -211,30 +229,29 @@ describe('RemoteEngine', () => {
     expect(commands.some((command) => command.includes('npm install -g'))).toBe(false)
   })
 
-  it('deploy：远端已装同版本且 profile 已登记 → 跳过打包与安装', async () => {
+  it('connect 部署段：远端已装同版本且 profile 已登记 → 跳过打包与安装', async () => {
     makeEngine({
       respond: (command) => {
-        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-        if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
-        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
-          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
-        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
         return undefined
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
-    await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(engine.stateOf('dev-box').phase).toBe('idle')
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
     expect(fake.packCount()).toBe(0)
     expect(fake.filePushes).toEqual([])
     expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
     expect(engine.stateOf('dev-box').op).toBeNull()
   })
 
-  it('deploy：add 成功但读不回版本 → error（假阳性防线）', async () => {
+  it('connect 部署段：add 成功但读不回版本 → error（假阳性防线）', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
@@ -245,7 +262,7 @@ describe('RemoteEngine', () => {
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
+    engine.startConnect('dev-box')
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const state = engine.stateOf('dev-box')
     expect(state.phase).toBe('error')
@@ -253,7 +270,7 @@ describe('RemoteEngine', () => {
     expect(state.error?.message).toContain('读不回')
   })
 
-  it('deploy：远端 dsh 版本与本机不一致 → npm 装对齐版本', async () => {
+  it('connect 部署段：远端 dsh 版本与本机不一致 → npm 装对齐版本', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
@@ -263,47 +280,43 @@ describe('RemoteEngine', () => {
         if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
           return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
         if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
         return undefined
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
-    await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(engine.stateOf('dev-box').phase).toBe('idle')
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
     expect(fake.calls.some((call) => call.command === "npm install -g '@deepseek-ai/dsh@0.1.7-rc.2'")).toBe(
       true,
     )
   })
 
-  it('deploy：本机版本未知（null）→ 远端装 latest', async () => {
-    let dshProbeCount = 0
+  it('connect 部署段：本机版本探测失败（null）→ 直接失败，不退装 latest', async () => {
     makeEngine({
       localDshVersion: null,
       respond: (command) => {
         if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
         if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
         if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-        // 第一次 dsh -V（安装前检查）失败；npm install 后的验证探针成功
-        if (command === 'dsh -V') {
-          dshProbeCount += 1
-          return dshProbeCount === 1
-            ? { code: 1, stdout: '', stderr: 'not found' }
-            : { code: 0, stdout: '0.2.0\n', stderr: '' }
-        }
-        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
-          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
-        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
         return undefined
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
+    engine.startConnect('dev-box')
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(engine.stateOf('dev-box').phase).toBe('idle')
-    expect(fake.calls.some((call) => call.command === "npm install -g '@deepseek-ai/dsh'")).toBe(true)
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('error')
+    expect(state.error?.message).toContain('探测失败')
+    // 不得出现任何 npm install（不退装 latest）
+    expect(fake.calls.some((call) => call.command.includes('npm install -g'))).toBe(false)
   })
 
-  it('deploy：远端缺 node → error 相位（remote-cmd-failed）', async () => {
+  it('connect 部署段：远端缺 node → error 相位（remote-cmd-failed）', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 127, stdout: '', stderr: 'bash: node: command not found' }
@@ -311,7 +324,7 @@ describe('RemoteEngine', () => {
       },
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
+    engine.startConnect('dev-box')
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const state = engine.stateOf('dev-box')
     expect(state.phase).toBe('error')
@@ -329,9 +342,11 @@ describe('RemoteEngine', () => {
         command: npx
 `
 
-  it('connect：start → poll token → forward → health → running（不做顺带同步）', async () => {
+  it('connect：部署段直通 → start → poll token → forward → health → running（不做顺带同步）', async () => {
     makeEngine({
       respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
         if (command.includes("grep -m1 '^dsh web: '")) {
           return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
         }
@@ -360,6 +375,8 @@ describe('RemoteEngine', () => {
   it('connect：远端实例仍存活时复用（不叠加新 nohup 实例）', async () => {
     makeEngine({
       respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
         if (command.includes('kill -0')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
         if (command.includes("grep -m1 '^dsh web: '")) {
           return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
@@ -379,12 +396,14 @@ describe('RemoteEngine', () => {
   it('connect：token 行迟迟不出现 → timeout 错误并附日志尾部', async () => {
     makeEngine({
       respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
         if (command.includes("grep -m1 '^dsh web: '")) return OK
         if (command.includes('tail -n 20')) return { code: 0, stdout: 'boom\nboom\n', stderr: '' }
         return undefined
       },
     })
-    await engine.save(saveRequest({ sync: { mcpServerNames: [], pluginNames: [] } }))
+    await engine.save(saveRequest())
     engine.startConnect('dev-box')
     await waitFor(() => engine.stateOf('dev-box').phase === 'error')
     const state = engine.stateOf('dev-box')
@@ -395,6 +414,8 @@ describe('RemoteEngine', () => {
   it('disconnect：杀本地转发 + 远端 kill + 回 idle', async () => {
     makeEngine({
       respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
         if (command.includes("grep -m1 '^dsh web: '")) {
           return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
         }
@@ -402,7 +423,7 @@ describe('RemoteEngine', () => {
       },
       skills: [],
     })
-    await engine.save(saveRequest({ sync: { mcpServerNames: [], pluginNames: [] } }))
+    await engine.save(saveRequest())
     engine.startConnect('dev-box')
     await waitFor(
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
@@ -412,6 +433,35 @@ describe('RemoteEngine', () => {
     expect(fake.forwardCount()).toBe(1)
     expect(fake.calls.some((call) => call.command.includes('kill "$pid"'))).toBe(true)
     expect(engine.stateOf('dev-box').running).toBeNull()
+  })
+
+  it('save：运行中改基本信息被拒（同步勾选不经 save，直传 startSync）', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
+        return undefined
+      },
+      skills: [],
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    // save 只管基本信息：运行中修改（转发进程锚在旧别名上）一律拒绝
+    // （save 是 async，BusyError 经 promise rejection 抛出）
+    await expect(engine.save(saveRequest({ id: 'dev-box', label: '改名' }))).rejects.toThrow(BusyError)
+    await expect(engine.save(saveRequest({ id: 'dev-box', sshAlias: 'other-box' }))).rejects.toThrow(
+      BusyError,
+    )
+    // 同步勾选随 startSync 直传，不受运行态限制
+    engine.startSync('dev-box', 'skills', ['alpha'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box').phase).toBe('running')
   })
 
   it('sync mcp：合并下发（注释保留）+ 取消勾选后跟踪移除', async () => {
@@ -431,8 +481,8 @@ describe('RemoteEngine', () => {
         return undefined
       },
     })
-    await engine.save(saveRequest({ sync: { mcpServerNames: ['demo'], pluginNames: [] } }))
-    engine.startSync('dev-box', 'mcp')
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'mcp', ['demo'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const write = fake.calls.find((call) =>
       call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml'),
@@ -443,9 +493,9 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['mcp-demo'], removed: [] })
     expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo'])
 
-    // 取消勾选：manifest 里的行被移除
-    await engine.save(saveRequest({ id: 'dev-box', sync: { mcpServerNames: [], pluginNames: [] } }))
-    engine.startSync('dev-box', 'mcp')
+    // 取消勾选：远端已有但未勾选的行被移除
+    await engine.save(saveRequest({ id: 'dev-box' }))
+    engine.startSync('dev-box', 'mcp', [])
     await waitFor(
       () => engine.stateOf('dev-box').op === null && engine.stateOf('dev-box').lastSync.mcp !== null,
     )
@@ -472,13 +522,21 @@ describe('RemoteEngine', () => {
         '@weilence/dsh-mcp': 'link:D:/Code/dsh-plugins/plugins/dsh-mcp',
         '@weilence/dsh-skills': '^1.0.0',
       },
+      respond: (command) => {
+        // 远端 profile 已激活 dsh-skills（含 base / 自身）：取消勾选的移除判定源
+        if (command.includes('cat ~/.dsh/profiles/web/package.json')) {
+          return {
+            code: 0,
+            stdout:
+              '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-remote","@weilence/dsh-skills"]}}}\n',
+            stderr: '',
+          }
+        }
+        return undefined
+      },
     })
-    await engine.save(
-      saveRequest({
-        sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp', '@weilence/dsh-skills'] },
-      }),
-    )
-    engine.startSync('dev-box', 'plugins')
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp', '@weilence/dsh-skills'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const commands = fake.calls.map((call) => call.command)
     // 本地插件：pack + push + add tgz
@@ -494,11 +552,9 @@ describe('RemoteEngine', () => {
       removed: [],
     })
 
-    await engine.save(
-      saveRequest({ id: 'dev-box', sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp'] } }),
-    )
+    await engine.save(saveRequest({ id: 'dev-box' }))
     fake.calls.length = 0
-    engine.startSync('dev-box', 'plugins')
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(
       fake.calls.some((call) =>
@@ -522,16 +578,8 @@ describe('RemoteEngine', () => {
       profilePatch: PLUGIN_PATCH,
       profileDeps: { '@weilence/dsh-skills': '^1.0.0' },
     })
-    await engine.save(
-      saveRequest({
-        sync: {
-          mcpServerNames: [],
-          pluginNames: ['@weilence/dsh-skills'],
-          registryPluginInstall: 'push',
-        },
-      }),
-    )
-    engine.startSync('dev-box', 'plugins')
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-skills'], 'push')
     await waitFor(() => engine.stateOf('dev-box').op === null)
     // registry 的包实体定位在层内 node_modules（fixture 假路径下不存在 → 报错可证分流）
     const state = engine.stateOf('dev-box')
@@ -558,8 +606,8 @@ describe('RemoteEngine', () => {
         return undefined
       },
     })
-    await engine.save(saveRequest({ sync: { mcpServerNames: [], pluginNames: ['@weilence/dsh-mcp'] } }))
-    engine.startSync('dev-box', 'plugins')
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(engine.stateOf('dev-box').phase).toBe('idle')
     expect(fake.packedRoots()).toEqual([])
@@ -571,8 +619,17 @@ describe('RemoteEngine', () => {
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync skills：按勾选推送（tar 只打包勾选名），取消勾选的按 manifest 跟踪删除', async () => {
-    makeEngine({ skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['kept', 'other'] }] })
+  it('sync skills：按勾选推送；未勾选且远端已有 → 删除；远端独有零接触', async () => {
+    makeEngine({
+      skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['kept', 'other'] }],
+      respond: (command) => {
+        // 远端有 kept / other（本机同名）与 gone（远端独有，不在本机清单）
+        if (command.startsWith('ls -1 ~/.dsh/skills')) {
+          return { code: 0, stdout: 'kept\nother\ngone\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
     const { writeStore } = await import('../src/connections')
     await writeStore(home, {
       version: 1,
@@ -581,67 +638,63 @@ describe('RemoteEngine', () => {
           id: 'dev-box',
           label: '开发机',
           sshAlias: 'dev-box',
-          sync: {
-            skillNames: ['kept'],
-            mcpServerNames: [],
-            pluginNames: [],
-            registryPluginInstall: 'remote',
-          },
           createdAt: '2027-01-01T00:00:00.000Z',
           updatedAt: '2027-01-01T00:00:00.000Z',
         },
       ],
-      manifest: { 'dev-box': { skills: { 'user-dsh': ['kept', 'gone'] }, mcp: [], plugins: [] } },
+      manifest: {},
     })
     await engine.load()
-    engine.startSync('dev-box', 'skills')
+    engine.startSync('dev-box', 'skills', ['kept'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     // 只打包勾选名：other 不推
     expect(fake.tarPushes).toEqual([
       { alias: 'dev-box', localRoot: 'C:/skills', remoteRoot: '~/.dsh/skills', names: ['kept'] },
     ])
+    // 未勾选的本机名 other 在远端存在 → 删除；kept（勾选）与 gone（远端独有）不动
     const remove = fake.calls.find((call) => call.command.startsWith('rm -rf'))
-    expect(remove?.command).toContain("~/.dsh/skills/'gone'")
+    expect(remove?.command).toContain("~/.dsh/skills/'other'")
     expect(remove?.command).not.toContain('kept')
-    expect(remove?.command).not.toContain('other')
+    expect(remove?.command).not.toContain('gone')
     expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, deleted: 1 })
   })
 
-  it('sync all：一次串行完成三类同步（skills → MCP → 插件）', async () => {
+  it('remoteInventory：三类远端清单（skills 剥 .md / MCP 按 serverName / 插件取 bundles）', async () => {
     makeEngine({
-      skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['alpha'] }],
-      profilePatch: [
-        '- insert:',
-        '    - id: mcp-demo',
-        "      name: '@deepseek-ai/dsh-mcp-client'",
-        '      config: { transport: stdio, serverName: demo, command: npx }',
-      ].join('\n'),
       respond: (command) => {
-        if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
-          return { code: 0, stdout: '', stderr: '' }
+        if (command.startsWith('ls -1 ~/.dsh/skills'))
+          return { code: 0, stdout: 'alpha\nbeta.md\n', stderr: '' }
+        if (command.startsWith('ls -1 ~/.agents/skills')) return { code: 0, stdout: 'gamma\n', stderr: '' }
+        if (command.includes('cordis.patch.yml')) return { code: 0, stdout: REMOTE_PATCH, stderr: '' }
+        if (command.includes('profiles/web/package.json'))
+          return {
+            code: 0,
+            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-remote"]}}}\n',
+            stderr: '',
+          }
         return undefined
       },
     })
-    await engine.save(
-      saveRequest({
-        sync: {
-          skillNames: ['alpha'],
-          mcpServerNames: ['demo'],
-          pluginNames: [],
-          registryPluginInstall: 'remote',
-        },
-      }),
-    )
-    engine.startSync('dev-box', 'all')
-    await waitFor(() => engine.stateOf('dev-box').op === null)
-    const state = engine.stateOf('dev-box')
-    expect(state.phase).toBe('idle')
-    expect(state.op).toBeNull()
-    // 三类各留下执行痕迹
-    expect(fake.tarPushes.length).toBe(1)
-    expect(state.lastSync.skills).toMatchObject({ pushed: 1 })
-    expect(state.lastSync.mcp).toMatchObject({ installed: ['mcp-demo'] })
-    expect(state.lastSync.plugins).not.toBeNull()
+    await engine.save(saveRequest())
+    expect(await engine.remoteInventory('dev-box')).toEqual({
+      skills: ['alpha', 'beta', 'gamma'],
+      mcp: ['demo'],
+      plugins: ['@deepseek-ai/dsh-base', '@weilence/dsh-remote'],
+    })
+  })
+
+  it('remoteInventory：远端 patch 语法坏 → mcp 按空清单降级，不失败', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('cordis.patch.yml')) {
+          return { code: 0, stdout: '- insert: [broken\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    const inventory = await engine.remoteInventory('dev-box')
+    expect(inventory).toEqual({ skills: [], mcp: [], plugins: [] })
   })
 
   it('互斥：操作在途时第二个操作被拒（409 语义）', async () => {
@@ -656,9 +709,9 @@ describe('RemoteEngine', () => {
         }),
     })
     await engine.save(saveRequest())
-    engine.startDeploy('dev-box')
+    engine.startConnect('dev-box')
     await waitFor(() => engine.stateOf('dev-box').op !== null)
-    expect(() => engine.startConnect('dev-box')).toThrow(BusyError)
+    expect(() => engine.startSync('dev-box', 'skills', [])).toThrow(BusyError)
     release?.()
     await waitFor(() => engine.stateOf('dev-box').op === null)
   })

@@ -2,20 +2,14 @@
  * 连接库与同步 manifest 的持久化（host 专用）：`$DSH_HOME/dsh-remote.json`
  * 一个文件，损坏 / 缺失一律回空库（面板从空开始，不阻塞加载）。
  *
- * manifest 是跟踪式删除的依据：只记录「本插件在远端装过什么」，清单外
- * 的远端手装内容零接触。
+ * manifest 只是最近一次同步的记录展示（哪些名字上次同步过）；删除判定
+ * 以「本机清单 ∩ 远端清单」实时计算，远端手装内容零接触。
  */
 
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import {
-  ID_PATTERN,
-  SSH_ALIAS_PATTERN,
-  type RegistryPluginInstall,
-  type RemoteConnection,
-  type SaveRequest,
-} from './shared'
+import { ID_PATTERN, SSH_ALIAS_PATTERN, type RemoteConnection, type SaveRequest } from './shared'
 
 /** 存储文件名（相对 DSH_HOME）。 */
 export const STORE_NAME = 'dsh-remote.json'
@@ -54,16 +48,14 @@ export async function readStore(homeDir: string): Promise<StoreFile> {
     const connections = Array.isArray(record.connections)
       ? record.connections
           .filter((item): item is RemoteConnection => isConnection(item))
-          // 旧库补齐后加字段：skillNames（更早库无）、registryPluginInstall
+          // 读入即归一到已知字段：旧库残字段（如已删除的 sync 勾选）剥离，
+          // 下次写盘落净形态
           .map((item) => ({
-            ...item,
-            sync: {
-              ...item.sync,
-              skillNames: Array.isArray(item.sync.skillNames)
-                ? item.sync.skillNames.filter((name): name is string => typeof name === 'string')
-                : [],
-              registryPluginInstall: registryInstallOf(item.sync.registryPluginInstall),
-            },
+            id: item.id,
+            label: item.label,
+            sshAlias: item.sshAlias,
+            createdAt: item.createdAt,
+            updatedAt: item.updatedAt,
           }))
       : []
     const manifest: Record<string, SyncManifest> = {}
@@ -97,10 +89,6 @@ function isConnection(value: unknown): value is RemoteConnection {
     typeof record.id === 'string' &&
     typeof record.label === 'string' &&
     typeof record.sshAlias === 'string' &&
-    typeof record.sync === 'object' &&
-    record.sync !== null &&
-    Array.isArray((record.sync as Record<string, unknown>).mcpServerNames) &&
-    Array.isArray((record.sync as Record<string, unknown>).pluginNames) &&
     typeof record.createdAt === 'string' &&
     typeof record.updatedAt === 'string'
   )
@@ -124,20 +112,8 @@ function isManifest(value: unknown): value is SyncManifest {
 /** 校验错误（路由转 400）。 */
 export class ValidationError extends Error {}
 
-function strArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value)) throw new ValidationError(`${field} 必须是字符串数组`)
-  for (const item of value) {
-    if (typeof item !== 'string' || item.length === 0) throw new ValidationError(`${field} 必须是字符串数组`)
-  }
-  return [...value]
-}
-
-/** 未知 / 缺失值归一为默认 'remote'（读库与保存共用）。 */
-function registryInstallOf(value: unknown): RegistryPluginInstall {
-  return value === 'push' ? 'push' : 'remote'
-}
-
-/** 校验并归一一个保存请求；id 缺省时从 sshAlias 派生（冲突时加随机后缀）。 */
+/** 校验并归一一个保存请求（连接只有基本信息——同步勾选随 POST /sync 直传，
+ *  不在连接上持久化）；id 缺省时从 sshAlias 派生（冲突时加随机后缀）。 */
 export function normalizeConnection(
   request: SaveRequest,
   existingIds: ReadonlySet<string>,
@@ -150,10 +126,6 @@ export function normalizeConnection(
   if (!SSH_ALIAS_PATTERN.test(sshAlias)) {
     throw new ValidationError('sshAlias 必须是 ~/.ssh/config 里的主机别名（字母数字开头，可含 . _ -）')
   }
-  const install = request.sync.registryPluginInstall
-  if (install !== undefined && install !== 'push' && install !== 'remote') {
-    throw new ValidationError('sync.registryPluginInstall 必须是 push / remote')
-  }
   let id = previous?.id
   if (id === undefined) {
     const base =
@@ -164,18 +136,11 @@ export function normalizeConnection(
     id = ID_PATTERN.test(base) ? base : 'remote'
     while (existingIds.has(id)) id = `${id}-${randomBytes(2).toString('hex')}`
   }
-  const connection: RemoteConnection = {
+  return {
     id,
     label,
     sshAlias,
-    sync: {
-      skillNames: strArray(request.sync.skillNames ?? [], 'sync.skillNames'),
-      mcpServerNames: strArray(request.sync.mcpServerNames, 'sync.mcpServerNames'),
-      pluginNames: strArray(request.sync.pluginNames, 'sync.pluginNames'),
-      registryPluginInstall: registryInstallOf(install),
-    },
     createdAt: previous?.createdAt ?? now,
     updatedAt: now,
   }
-  return connection
 }

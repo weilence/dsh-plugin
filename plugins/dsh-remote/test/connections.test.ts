@@ -13,7 +13,6 @@ function request(overrides: Partial<SaveRequest> = {}): SaveRequest {
   return {
     label: '开发机',
     sshAlias: 'dev-box',
-    sync: { mcpServerNames: [], pluginNames: [] },
     ...overrides,
   }
 }
@@ -22,31 +21,9 @@ describe('normalizeConnection', () => {
   it('最小请求归一（id 从别名派生）', () => {
     const connection = normalizeConnection(request(), new Set(), NOW)
     expect(connection.id).toBe('dev-box')
-    expect(connection.sync).toEqual({
-      skillNames: [],
-      mcpServerNames: [],
-      pluginNames: [],
-      registryPluginInstall: 'remote',
-    })
+    expect(connection.label).toBe('开发机')
+    expect(connection.sshAlias).toBe('dev-box')
     expect(connection.createdAt).toBe(NOW)
-  })
-
-  it('registryPluginInstall：push 保留、缺省归一 remote、非法值拒绝', () => {
-    const pushed = normalizeConnection(
-      request({ sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'push' } }),
-      new Set(),
-      NOW,
-    )
-    expect(pushed.sync.registryPluginInstall).toBe('push')
-    expect(() =>
-      normalizeConnection(
-        request({
-          sync: { mcpServerNames: [], pluginNames: [], registryPluginInstall: 'both' as never },
-        }),
-        new Set(),
-        NOW,
-      ),
-    ).toThrow(ValidationError)
   })
 
   it('id 冲突时加随机后缀；大写与特殊字符被压成 kebab', () => {
@@ -59,7 +36,6 @@ describe('normalizeConnection', () => {
       id: 'fixed-id',
       label: '旧名',
       sshAlias: 'dev-box',
-      sync: { skillNames: [], mcpServerNames: [], pluginNames: [], registryPluginInstall: 'remote' },
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     }
@@ -69,17 +45,10 @@ describe('normalizeConnection', () => {
     expect(connection.createdAt).toBe('2026-01-01T00:00:00.000Z')
   })
 
-  it('非法输入：空 label / 坏别名 / 坏清单', () => {
+  it('非法输入：空 label / 坏别名', () => {
     expect(() => normalizeConnection(request({ label: '  ' }), new Set(), NOW)).toThrow(ValidationError)
     expect(() => normalizeConnection(request({ sshAlias: 'a b' }), new Set(), NOW)).toThrow(ValidationError)
     expect(() => normalizeConnection(request({ sshAlias: '-lead' }), new Set(), NOW)).toThrow(ValidationError)
-    expect(() =>
-      normalizeConnection(
-        request({ sync: { mcpServerNames: [1] as unknown as string[], pluginNames: [] } }),
-        new Set(),
-        NOW,
-      ),
-    ).toThrow(ValidationError)
   })
 })
 
@@ -94,7 +63,7 @@ describe('store 持久化', () => {
     await rm(home, { recursive: true, force: true })
   })
 
-  it('写入后读回一致（manifest 含跟踪清单）', async () => {
+  it('写入后读回一致（manifest 只是记录）', async () => {
     const connection = normalizeConnection(request(), new Set(), NOW)
     await writeStore(home, {
       version: 1,
@@ -120,7 +89,7 @@ describe('store 持久化', () => {
     expect((await readStore(home)).connections).toEqual([])
   })
 
-  it('旧库无 registryPluginInstall：读入归一为 remote', async () => {
+  it('旧库带 sync 字段：读入容忍（额外字段忽略，不再是连接的一部分）', async () => {
     await writeFile(
       join(home, 'dsh-remote.json'),
       JSON.stringify({
@@ -139,11 +108,13 @@ describe('store 持久化', () => {
       'utf8',
     )
     const store = await readStore(home)
-    expect(store.connections[0]?.sync).toEqual({
-      skillNames: [],
-      mcpServerNames: [],
-      pluginNames: [],
-      registryPluginInstall: 'remote',
+    expect(store.connections[0]).toEqual({
+      id: 'dev-box',
+      label: '开发机',
+      sshAlias: 'dev-box',
+      createdAt: NOW,
+      updatedAt: NOW,
+      // 旧 sync 字段被剥离：勾选已随 POST /sync 直传，不在连接上持久化
     })
   })
 

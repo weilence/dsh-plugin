@@ -1,13 +1,14 @@
 /**
  * 设置页「远程开发」面板：连接为可展开卡片（ExpandableCard）——状态 pill
- * （七相）+ 运行 url + 错误行；动作按钮按相渲染（idle：测试 / 部署 / 连接；
- * running：打开 / 复制 / 断开）；三类同步在任意非忙相位可用。展开体是行内
+ * （七相）+ 运行 url + 错误行；动作按钮按相渲染（idle：测试 / 连接——连接
+ * 内含远端装配（原「部署」）；running：打开 / 断开，且仅运行态显示同步
+ * 入口——同步写入靠远端实例 HMR 在线生效）；展开体是行内
  * 编辑表单（RemoteForm）+ 最近同步摘要 + 删除（ConfirmDialog）。新建连接
  * 卡片追加在列表末尾并滚动进视口（同 dsh-mcp 的行内新建模式）。
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-import { Button, Toast, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
+import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
@@ -44,13 +45,11 @@ const PHASE_PILLS: Record<ConnRow['state']['phase'], PillData> = {
 
 const OP_LABELS: Record<string, string> = {
   test: '测试连接',
-  deploy: '部署',
   connect: '连接',
   disconnect: '断开',
   'sync-skills': '同步 skills',
-  'sync-mcp': '下发 MCP',
+  'sync-mcp': '同步 MCP',
   'sync-plugins': '同步插件',
-  'sync-all': '同步',
 }
 
 export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps) {
@@ -153,7 +152,7 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
             return (
               <SyncDialog
                 row={target}
-                kind={state.syncing.kind === 'all' ? 'plugins' : state.syncing.kind}
+                kind={state.syncing.kind}
                 store={store}
                 localRows={state.localRows}
                 busy={state.busyId === target.id || target.state.op !== null}
@@ -216,12 +215,10 @@ function connectionCard(
     row.state.phase === 'running' && running !== null
       ? [
           action('打开', () => window.open(running.url, '_blank'), { variant: 'primary' }),
-          <CopyUrlButton key="copy" url={running.url} disabled={busy || opBusy} />,
           action('断开', () => void store.disconnect(row.id)),
         ]
       : [
           action('测试', () => void store.test(row.id)),
-          action('部署', () => void store.deploy(row.id)),
           action('连接', () => void store.connect(row.id), { variant: 'primary' }),
         ]
   const children = (
@@ -285,18 +282,21 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        <MenuButton
-          label="同步 ▾"
-          disabled={busy || opBusy}
-          items={[
-            { id: 'skills', label: '同步 skills…' },
-            { id: 'mcp', label: '下发 MCP…' },
-            { id: 'plugins', label: '同步插件…' },
-          ]}
-          onSelect={(id) => {
-            if (id === 'skills' || id === 'mcp' || id === 'plugins') store.askSync({ id: row.id, kind: id })
-          }}
-        />
+        {/* 同步写入远端后靠实例 HMR 在线生效，未连接不显示同步入口 */}
+        {running !== null ? (
+          <MenuButton
+            label="同步 ▾"
+            disabled={busy || opBusy}
+            items={[
+              { id: 'skills', label: '同步 skills' },
+              { id: 'mcp', label: '同步 MCP' },
+              { id: 'plugins', label: '同步插件' },
+            ]}
+            onSelect={(id) => {
+              if (id === 'skills' || id === 'mcp' || id === 'plugins') store.askSync({ id: row.id, kind: id })
+            }}
+          />
+        ) : null}
         <Button
           size="sm"
           variant="ghost"
@@ -311,24 +311,4 @@ function connectionCard(
     ),
     children,
   }
-}
-
-function CopyUrlButton(props: { url: string; disabled: boolean }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={props.disabled}
-      onClick={() => {
-        void writeClipboard(props.url).then((ok) => {
-          if (!ok) return
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1000)
-        })
-      }}
-    >
-      {copied ? '已复制' : '复制 URL'}
-    </Button>
-  )
 }

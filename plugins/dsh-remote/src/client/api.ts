@@ -1,7 +1,15 @@
 /** 面板用到的桥操作（host 半侧路由一一对应）。 */
 
 import { createBridgeClient } from '@dsh-plugins/shared/api'
-import type { LocalRowsResponse, SaveRequest, StateResponse, SyncKind, TestResponse } from '../shared'
+import type {
+  LocalRowsResponse,
+  RegistryPluginInstall,
+  RemoteInventoryResponse,
+  SaveRequest,
+  StateResponse,
+  SyncKind,
+  TestResponse,
+} from '../shared'
 
 const { request } = createBridgeClient('x-dsh-remote')
 
@@ -21,8 +29,8 @@ export const remoteApi = {
   test(id: string): Promise<TestResponse> {
     return request('/dsh-remote/test', { method: 'POST', body: JSON.stringify({ id }) })
   },
-  deploy(id: string): Promise<{ started: boolean }> {
-    return request('/dsh-remote/deploy', { method: 'POST', body: JSON.stringify({ id }) })
+  remoteInventory(id: string): Promise<RemoteInventoryResponse> {
+    return request('/dsh-remote/remote-inventory', { method: 'POST', body: JSON.stringify({ id }) })
   },
   connect(id: string): Promise<{ started: boolean }> {
     return request('/dsh-remote/connect', { method: 'POST', body: JSON.stringify({ id }) })
@@ -30,7 +38,16 @@ export const remoteApi = {
   disconnect(id: string): Promise<{ started: boolean }> {
     return request('/dsh-remote/disconnect', { method: 'POST', body: JSON.stringify({ id }) })
   },
-  sync(id: string, kind: SyncKind): Promise<{ started: boolean }> {
-    return request('/dsh-remote/sync', { method: 'POST', body: JSON.stringify({ id, kind }) })
+  /** 勾选清单随请求直传（声明式同步的目标态）。 */
+  sync(
+    id: string,
+    kind: SyncKind,
+    names: string[],
+    registryInstall?: RegistryPluginInstall,
+  ): Promise<{ started: boolean }> {
+    return request('/dsh-remote/sync', {
+      method: 'POST',
+      body: JSON.stringify({ id, kind, names, registryPluginInstall: registryInstall }),
+    })
   },
 }

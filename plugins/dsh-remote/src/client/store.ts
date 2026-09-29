@@ -9,6 +9,7 @@ import { remoteApi } from './api'
 import type {
   ConnRow,
   LocalRowsResponse,
+  RegistryPluginInstall,
   SaveRequest,
   StateResponse,
   SyncKind,
@@ -90,12 +91,7 @@ export class RemoteStore {
         const url = row.state.running.url
         if (!this.openedUrls.has(url)) {
           this.openedUrls.add(url)
-          try {
-            window.open(url, '_blank')
-            this.set({ notice: `远端已就绪，已在浏览器打开（被拦截时用卡片上的「打开」按钮）` })
-          } catch {
-            this.set({ notice: '远端已就绪：点击卡片上的「打开」按钮进入远端 GUI' })
-          }
+          window.open(url, '_blank')
         }
       }
     }
@@ -241,10 +237,6 @@ export class RemoteStore {
     }
   }
 
-  deploy(id: string): Promise<void> {
-    return this.run(id, () => remoteApi.deploy(id))
-  }
-
   connect(id: string): Promise<void> {
     return this.run(id, () => remoteApi.connect(id))
   }
@@ -253,7 +245,7 @@ export class RemoteStore {
     return this.run(id, () => remoteApi.disconnect(id))
   }
 
-  sync(id: string, kind: SyncKind): Promise<void> {
-    return this.run(id, () => remoteApi.sync(id, kind))
+  sync(id: string, kind: SyncKind, names: string[], registryInstall?: RegistryPluginInstall): Promise<void> {
+    return this.run(id, () => remoteApi.sync(id, kind, names, registryInstall))
   }
 }

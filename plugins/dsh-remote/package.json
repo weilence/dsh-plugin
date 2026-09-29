@@ -59,6 +59,7 @@
   },
   "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-remote#readme",
   "peerDependencies": {
+    "@deepseek-ai/dsh-app-boot": ">=0.2.0-rc.1 <0.3.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.1 <0.3.0",
     "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.1 <0.3.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.1 <0.3.0"
@@ -68,6 +69,7 @@
     "@dsh-plugins/shared": "workspace:*",
     "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-app-boot": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",

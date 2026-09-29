@@ -1,20 +1,23 @@
 /**
- * 同步弹窗：从「同步」下拉菜单选定类别后打开，只编辑该类别的勾选清单
- * （保存时写回 connection.sync），确认后同步该类。skills 按勾选推送、
- * MCP 声明整块写入远端 patch、插件按安装形态分流（选项随插件弹窗编辑）。
+ * 同步弹窗：从「同步」下拉菜单选定类别后打开，列表 = 本机该类清单，默认
+ * 勾选 = 远端已有（打开时经 POST remote-inventory 实时读取；条目级差异
+ * 对比的判定后续迭代）。确认即把勾选随 POST /sync 直传远端执行：勾选项
+ * 安装/升级、未勾选且远端已有的删除——不落任何中间保存。
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, SelectField } from '@dsh-plugins/client-ui'
-import type { ConnRow, LocalRowsResponse, RegistryPluginInstall, SaveRequest } from '../shared'
+import { errMsg } from '@dsh-plugins/shared'
+import type { ConnRow, LocalRowsResponse, RegistryPluginInstall, RemoteInventoryResponse } from '../shared'
+import { remoteApi } from './api'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 
-/** 弹窗可编辑的类别（下拉菜单的三项；all 走按钮直发不经弹窗）。 */
+/** 弹窗可编辑的类别（下拉菜单的三项）。 */
 export type DialogKind = 'skills' | 'mcp' | 'plugins'
 
-const KIND_TITLES: Record<DialogKind, string> = { skills: 'Skills', mcp: 'MCP 下发', plugins: '插件' }
+const KIND_TITLES: Record<DialogKind, string> = { skills: 'Skills', mcp: 'MCP', plugins: '插件' }
 
 interface DraftState {
   skillNames: Set<string>
@@ -23,13 +26,21 @@ interface DraftState {
   registryPluginInstall: RegistryPluginInstall
 }
 
-function initialDraft(row: ConnRow): DraftState {
+/** 勾选不持久化：初始空集，远端清单就绪后填默认（本机 ∩ 远端）。 */
+function initialDraft(): DraftState {
   return {
-    skillNames: new Set(row.sync.skillNames),
-    mcpServerNames: new Set(row.sync.mcpServerNames),
-    pluginNames: new Set(row.sync.pluginNames),
-    registryPluginInstall: row.sync.registryPluginInstall,
+    skillNames: new Set(),
+    mcpServerNames: new Set(),
+    pluginNames: new Set(),
+    registryPluginInstall: 'remote',
   }
+}
+
+/** 本机清单的勾选键（skills 用技能名、MCP 用 serverName、插件用包名）。 */
+function localKeysOf(kind: DialogKind, localRows: LocalRowsResponse): string[] {
+  if (kind === 'skills') return localRows.skillRows.map((skill) => skill.name)
+  if (kind === 'mcp') return localRows.mcpRows.map((entry) => entry.serverName ?? entry.id)
+  return localRows.pluginRows.map((plugin) => plugin.name)
 }
 
 export function SyncDialog(props: {
@@ -41,29 +52,63 @@ export function SyncDialog(props: {
   onClose(): void
 }) {
   const { row, kind, localRows } = props
-  const [draft, setDraft] = useState<DraftState>(() => initialDraft(row))
-  const [error, setError] = useState<string | null>(null)
+  const [draft, setDraft] = useState<DraftState>(initialDraft)
+  // 远端清单：默认勾选源。读取期间不渲染列表（提交禁用）；读取失败同样禁用
+  // 提交——声明式语义下「未勾选且远端已有=删除」，没有远端事实绝不执行。
+  const [inventory, setInventory] = useState<RemoteInventoryResponse | null>(null)
+  const [inventoryState, setInventoryState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [inventoryError, setInventoryError] = useState<string | null>(null)
   const patch = (partial: Partial<DraftState>): void => setDraft((previous) => ({ ...previous, ...partial }))
 
   const unavailable = localRows === null || !localRows.available
-  const submit = async (): Promise<void> => {
-    const request: SaveRequest = {
-      id: row.id,
-      label: row.label,
-      sshAlias: row.sshAlias,
-      sync: {
-        skillNames: [...draft.skillNames],
-        mcpServerNames: [...draft.mcpServerNames],
-        pluginNames: [...draft.pluginNames],
-        registryPluginInstall: draft.registryPluginInstall,
+
+  useEffect(() => {
+    let alive = true
+    setInventory(null)
+    setInventoryError(null)
+    setInventoryState('loading')
+    remoteApi.remoteInventory(row.id).then(
+      (data) => {
+        if (!alive) return
+        setInventory(data)
+        setInventoryState('ready')
       },
+      (reason: unknown) => {
+        if (!alive) return
+        setInventoryError(errMsg(reason))
+        setInventoryState('error')
+      },
+    )
+    return () => {
+      alive = false
     }
-    // 先保存勾选清单，成功后同步本弹窗选定的类别
-    if (!(await props.store.save(request))) {
-      setError('保存同步清单失败，未开始同步')
-      return
-    }
-    await props.store.sync(row.id, kind)
+  }, [row.id])
+
+  // 清单就绪后把本类默认勾选替换为「本机 ∩ 远端」
+  useEffect(() => {
+    if (inventoryState !== 'ready' || inventory === null || unavailable || localRows === null) return
+    const remote = new Set(
+      kind === 'skills' ? inventory.skills : kind === 'mcp' ? inventory.mcp : inventory.plugins,
+    )
+    const picked = new Set(localKeysOf(kind, localRows).filter((key) => remote.has(key)))
+    setDraft((previous) =>
+      kind === 'skills'
+        ? { ...previous, skillNames: picked }
+        : kind === 'mcp'
+          ? { ...previous, mcpServerNames: picked }
+          : { ...previous, pluginNames: picked },
+    )
+  }, [inventoryState, inventory, kind, localRows, unavailable])
+
+  const submit = async (): Promise<void> => {
+    const names =
+      kind === 'skills'
+        ? [...draft.skillNames]
+        : kind === 'mcp'
+          ? [...draft.mcpServerNames]
+          : [...draft.pluginNames]
+    // 勾选随请求直传引擎执行（失败面板错误行可见），不落中间保存
+    await props.store.sync(row.id, kind, names, kind === 'plugins' ? draft.registryPluginInstall : undefined)
     props.onClose()
   }
 
@@ -72,10 +117,10 @@ export function SyncDialog(props: {
       title={`同步到「${row.label}」：${KIND_TITLES[kind]}`}
       description={
         kind === 'skills'
-          ? '勾选要推送的技能——按勾选打包推送，取消勾选的会在远端删除。'
+          ? '列表为本机两个用户级根的技能，默认勾选远端已有的——确认后推送勾选项、删除远端已有但未勾选的。'
           : kind === 'mcp'
-            ? '勾选要下发的 MCP 服务器声明（含 env 凭据），整块写入远端 profile 的 cordis.patch.yml。'
-            : '勾选要同步的插件——本地路径安装恒本地打包传输，npm 依赖形态按下方选项分流。'
+            ? '列表为本机两层 patch 的 MCP 声明，默认勾选远端已有的——确认后写入勾选项、移除远端已有但未勾选的。'
+            : '列表为本机已装插件，默认勾选远端已有的——确认后安装/升级勾选项、移除远端已有但未勾选的。'
       }
       onClose={props.onClose}
       size="lg"
@@ -84,7 +129,11 @@ export function SyncDialog(props: {
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>
             取消
           </Button>
-          <Button variant="primary" disabled={props.busy || unavailable} onClick={() => void submit()}>
+          <Button
+            variant="primary"
+            disabled={props.busy || unavailable || inventoryState !== 'ready'}
+            onClick={() => void submit()}
+          >
             {props.busy ? '同步中…' : `同步${KIND_TITLES[kind]}`}
           </Button>
         </>
@@ -92,8 +141,20 @@ export function SyncDialog(props: {
     >
       {unavailable ? (
         <p className={local.hint}>本机清单不可用（当前宿主未提供 profileContext），无法选择同步内容。</p>
+      ) : inventoryState === 'loading' ? (
+        /* 远端清单就绪前不渲染列表：避免先闪现上次保存的勾选、就绪后再跳变 */
+        <p className={local.hint}>正在读取远端清单并与本机对比（默认勾选 = 远端已有）…</p>
       ) : (
         <div className={local.formBody}>
+          {inventoryState === 'error' ? (
+            <IssueList
+              issues={[
+                {
+                  message: `远端清单读取失败（${inventoryError ?? '未知原因'}；宿主为旧版时重启宿主可解）：为防误删已禁用同步，请关闭弹窗重试。`,
+                },
+              ]}
+            />
+          ) : null}
           {kind === 'skills' ? (
             <section className={local.section}>
               {localRows.skillRows.length === 0 ? (
@@ -123,7 +184,7 @@ export function SyncDialog(props: {
           {kind === 'mcp' ? (
             <section className={local.section}>
               {localRows.mcpRows.length === 0 ? (
-                <p className={local.hint}>本机没有可下发的 MCP 声明。</p>
+                <p className={local.hint}>本机没有可同步的 MCP 声明。</p>
               ) : (
                 <PickList
                   items={localRows.mcpRows.map((entry) => ({
@@ -159,7 +220,7 @@ export function SyncDialog(props: {
                 onChange={(value) => patch({ registryPluginInstall: value as RegistryPluginInstall })}
               />
               {localRows.pluginRows.length === 0 ? (
-                <p className={local.hint}>本机没有可同步的插件（两层用户 patch 里没有插件 insert 行）。</p>
+                <p className={local.hint}>本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。</p>
               ) : (
                 <PickList
                   items={localRows.pluginRows.map((plugin) => ({
@@ -180,8 +241,6 @@ export function SyncDialog(props: {
               )}
             </section>
           ) : null}
-
-          {error !== null ? <IssueList issues={[{ message: error }]} /> : null}
         </div>
       )}
     </Dialog>

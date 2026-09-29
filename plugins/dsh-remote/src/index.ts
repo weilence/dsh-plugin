@@ -16,7 +16,6 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { cp, mkdtemp, readFile, realpath } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createRequire } from 'node:module'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
@@ -52,7 +51,7 @@ export const LOCAL_ROWS_PATH = '/dsh-remote/local-rows'
 export const SAVE_PATH = '/dsh-remote/save'
 export const DELETE_PATH = '/dsh-remote/delete'
 export const TEST_PATH = '/dsh-remote/test'
-export const DEPLOY_PATH = '/dsh-remote/deploy'
+export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
 export const CONNECT_PATH = '/dsh-remote/connect'
 export const DISCONNECT_PATH = '/dsh-remote/disconnect'
 export const SYNC_PATH = '/dsh-remote/sync'
@@ -67,24 +66,15 @@ async function probeTool(command: string, args: string[]): Promise<boolean> {
 }
 
 /**
- * 本机 dsh 运行时版本：沿 Node 的 node_modules 查找序探测
- * `@deepseek-ai/dsh-app-boot/package.json`（官方 getDshRuntimeVersion 的同源
- * 事实）。软探测——本仓开发态等解析不到的场合回 null，远端退装 latest。
+ * 本机 dsh 运行时版本（远端部署对齐目标）：官方 getDshRuntimeVersion 的同源
+ * 事实——读运行中 app-boot 自身的 package.json。必须经宿主的运行时解析取包：
+ * 静态目录探测在宿主形态下落空（平台包不经 node_modules 供给），曾致远端
+ * 误装 npm latest（0.1.7-rc.2，落后于 next 标签的 0.2 线），触发 plugin add
+ * 的 engines 版本闸门。解析不到回 null——连接部署段直接失败，不退装 latest。
  */
-function localDshVersion(): string | null {
-  try {
-    const require = createRequire(import.meta.url)
-    for (const searchPath of require.resolve.paths('@deepseek-ai/dsh-app-boot') ?? []) {
-      const manifest = join(searchPath, '@deepseek-ai/dsh-app-boot', 'package.json')
-      if (!existsSync(manifest)) continue
-      const version = (JSON.parse(readFileSync(manifest, 'utf8')) as { version?: unknown }).version
-      return typeof version === 'string' && version.length > 0 ? version : null
-    }
-  } catch {
-    // 软探测：任何失败都按未知处理
-  }
-  return null
-}
+const localDshVersion: string | null = await import('@deepseek-ai/dsh-app-boot')
+  .then((boot) => boot.getDshRuntimeVersion())
+  .catch(() => null)
 
 /** 构建产物 lib/index.js 所在包根（lib 的上一级）。 */
 function pluginPackageRoot(): string {
@@ -218,7 +208,7 @@ function makeEngine(ctx: Context): RemoteEngine {
       return roots
     },
     tools: { ssh: true, tar: true },
-    localDshVersion: localDshVersion(),
+    localDshVersion,
     localPluginVersion: localPluginVersion(),
     packPlugin,
     packPackage,
@@ -394,6 +384,25 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
     'dsh-remote: test bridge',
   )
 
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: REMOTE_INVENTORY_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!guard(req, res, 'POST')) return
+            const id = await connIdOf(req)
+            const response = await engine.remoteInventory(id)
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            writeJson(res, statusOf(error), { error: String(error instanceof Error ? error.message : error) })
+          }
+        },
+      }),
+    'dsh-remote: remote-inventory bridge',
+  )
+
   const fire = (path: string, ignite: (id: string) => void, label: string): void => {
     ctx.effect(
       () =>
@@ -420,7 +429,6 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
     )
   }
 
-  fire(DEPLOY_PATH, (id) => engine.startDeploy(id), 'dsh-remote: deploy bridge')
   fire(CONNECT_PATH, (id) => engine.startConnect(id), 'dsh-remote: connect bridge')
   fire(DISCONNECT_PATH, (id) => engine.startDisconnect(id), 'dsh-remote: disconnect bridge')
 
@@ -434,17 +442,15 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             if (!guard(req, res, 'POST')) return
             const body = await readJsonBody(req)
             const request = body as unknown as SyncRequest
-            if (
-              request.kind !== 'skills' &&
-              request.kind !== 'mcp' &&
-              request.kind !== 'plugins' &&
-              request.kind !== 'all'
-            ) {
-              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins / all')
+            if (request.kind !== 'skills' && request.kind !== 'mcp' && request.kind !== 'plugins') {
+              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins')
+            }
+            if (!Array.isArray(request.names) || request.names.some((name) => typeof name !== 'string')) {
+              throw new HttpError(400, 'names 必须是字符串数组（勾选清单随请求直传）')
             }
             await engine.load()
             engine.connectionOf(request.id)
-            engine.startSync(request.id, request.kind)
+            engine.startSync(request.id, request.kind, request.names, request.registryPluginInstall)
             const row = engine.rows().find((candidate) => candidate.id === request.id)
             writeJson(res, 200, { started: true, state: row?.state ?? null })
           } catch (error) {

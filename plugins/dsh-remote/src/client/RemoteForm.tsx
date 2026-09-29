@@ -1,7 +1,7 @@
 /**
  * 连接表单：新建 / 编辑共用，只编辑基本信息（label / sshAlias）。远端
- * profile 固定 web、远端 dsh 版本部署时对齐本机，均不暴露输入；三类同步
- * 的勾选清单与插件安装方式在 SyncDialog（同步弹窗）里编辑——同步即保存。
+ * profile 固定 web、远端 dsh 版本连接时对齐本机，均不暴露输入；同步勾选
+ * 在 SyncDialog 里直传 POST /sync，不经本表单。
  */
 
 import { useState } from 'react'
@@ -54,10 +54,6 @@ export function RemoteForm(props: {
       ...(props.mode === 'edit' && props.row !== undefined ? { id: props.row.id } : {}),
       label: draft.label.trim(),
       sshAlias: draft.sshAlias.trim(),
-      // 三类同步清单是 SyncDialog 的职责；编辑基本信息时原样带回
-      ...(props.row !== undefined
-        ? { sync: { ...props.row.sync } }
-        : { sync: { skillNames: [], mcpServerNames: [], pluginNames: [] } }),
     }
     if (await props.store.save(request)) props.onDone()
   }

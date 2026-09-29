@@ -111,6 +111,9 @@ async function makeHarness(): Promise<Harness> {
         '@weilence/dsh-mcp': `link:${linkedRoot.replaceAll('\\', '/')}`,
         'some-registry-plugin': '^1.4.0',
       },
+      // bundles 激活清单是本机插件的主要登记处（@deepseek-ai/* 平台包应被过滤；
+      // 与 patch 行同名的按 patch 行去重）
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@weilence/dsh-mcp', 'extra-bundle-plugin'] } },
     }),
     'utf8',
   )
@@ -210,10 +213,16 @@ describe('dsh-remote 桥路由', () => {
       pluginRows: { id: string; name: string; install: string; version: string | null }[]
     }
     expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
-    expect(rows.pluginRows.map((row) => row.name)).toEqual(['@weilence/dsh-mcp', 'some-registry-plugin'])
+    expect(rows.pluginRows.map((row) => row.name)).toEqual([
+      '@weilence/dsh-mcp',
+      'extra-bundle-plugin',
+      'some-registry-plugin',
+    ])
     // link spec → 本地（root 为 spec 目标）；semver spec → registry（root 为层内 node_modules）
     expect(rows.pluginRows[0]).toMatchObject({ install: 'local', version: '2.0.0' })
-    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: '1.4.2' })
+    // bundles 补充行：无实体 → registry 形态、version null
+    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null })
+    expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
   })
 
   it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {
@@ -228,7 +237,6 @@ describe('dsh-remote 桥路由', () => {
     const invalid = await harness.request('POST', '/dsh-remote/save', {
       label: '',
       sshAlias: 'x',
-      sync: { mcpServerNames: [], pluginNames: [] },
     })
     expect(invalid.status).toBe(400)
   })
@@ -237,15 +245,29 @@ describe('dsh-remote 桥路由', () => {
     await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
       sshAlias: 'dev-box',
-      sync: { mcpServerNames: [], pluginNames: [] },
     })
 
-    expect((await harness.request('POST', '/dsh-remote/deploy', { id: 'nope' })).status).toBe(404)
-    expect((await harness.request('POST', '/dsh-remote/deploy', {})).status).toBe(400)
+    expect((await harness.request('POST', '/dsh-remote/connect', { id: 'nope' })).status).toBe(404)
+    expect((await harness.request('POST', '/dsh-remote/connect', {})).status).toBe(400)
+    const inventory = await harness.request('POST', '/dsh-remote/remote-inventory', { id: 'dev-box' })
+    expect(inventory.status).toBe(200)
+    expect(inventory.body).toEqual({ skills: [], mcp: [], plugins: [] })
     expect((await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'other' })).status).toBe(
       400,
     )
-    const fired = await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'skills' })
+    // 勾选清单随请求直传：缺 names / 非字符串数组拒绝
+    expect(
+      (await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'skills' })).status,
+    ).toBe(400)
+    expect(
+      (await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'skills', names: [1] }))
+        .status,
+    ).toBe(400)
+    const fired = await harness.request('POST', '/dsh-remote/sync', {
+      id: 'dev-box',
+      kind: 'skills',
+      names: [],
+    })
     expect(fired.status).toBe(200)
     expect(fired.body).toMatchObject({ started: true })
   })

@@ -92,6 +92,9 @@ export interface LocalPatchLayer {
   doc: Document
   /** 同目录 package.json 的 dependencies（spec 形态判定本地/registry 的依据）。 */
   deps: Record<string, string>
+  /** 同目录 package.json 的 dsh.profile.bundles——本机插件的主要登记处（link 安装
+   *  等多数插件不走 patch insert 行，只有 bundles + dependencies）。 */
+  bundles?: string[]
 }
 
 async function readLayer(source: 'profile' | 'home', file: string): Promise<LocalPatchLayer> {
@@ -103,9 +106,11 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
     else throw error
   }
   let deps: Record<string, string> = {}
+  let bundles: string[] | undefined
   try {
     const pkg = JSON.parse(await readFile(join(dirname(file), 'package.json'), 'utf8')) as {
       dependencies?: unknown
+      dsh?: { profile?: { bundles?: unknown } } | undefined
     }
     if (
       typeof pkg.dependencies === 'object' &&
@@ -116,6 +121,11 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
         Object.entries(pkg.dependencies).filter(([, spec]) => typeof spec === 'string'),
       )
     }
+    if (Array.isArray(pkg.dsh?.profile?.bundles)) {
+      bundles = (pkg.dsh?.profile?.bundles as unknown[]).filter(
+        (name): name is string => typeof name === 'string' && name.length > 0,
+      )
+    }
   } catch {
     // 层无 package.json（如 home 层未初始化）：按无 spec 处理
   }
@@ -124,6 +134,7 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
     file,
     doc: text === null || text.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(text),
     deps,
+    ...(bundles !== undefined ? { bundles } : {}),
   }
 }
 
@@ -269,20 +280,32 @@ export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Prom
 
   const pluginRows: LocalPluginRow[] = []
   const seen = new Set<string>()
+  const isSelf = (name: string): boolean => name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
   for (const layer of layers) {
     for (const insert of scanInserts(layer.doc)) {
       if (insert.name === MCP_PLUGIN_NAME) continue
       // 本插件自身是远端默认基线，不进同步清单；旧裸名行在改名重装前的
       // 过渡期一并排除，防止把自己当成业务插件同步出去。
-      if (insert.name === REMOTE_PLUGIN_NAME || insert.name === 'dsh-remote') continue
-      const dedupe = insert.name
-      if (seen.has(dedupe)) continue
-      seen.add(dedupe)
+      if (isSelf(insert.name)) continue
+      if (seen.has(insert.name)) continue
+      seen.add(insert.name)
       pluginRows.push({
         id: insert.id,
         name: insert.name,
         source: layer.source,
         ...(await pluginRowMeta(layer, insert.name)),
+      })
+    }
+    // bundles 激活清单是本机插件的主要登记处（link 安装无 patch 行）；
+    // @deepseek-ai/* 是随 dsh 对齐安装的平台自带包，不进同步清单。
+    for (const name of layer.bundles ?? []) {
+      if (isSelf(name) || name.startsWith('@deepseek-ai/') || seen.has(name)) continue
+      seen.add(name)
+      pluginRows.push({
+        id: name,
+        name,
+        source: layer.source,
+        ...(await pluginRowMeta(layer, name)),
       })
     }
   }

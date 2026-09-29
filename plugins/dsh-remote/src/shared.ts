@@ -6,9 +6,9 @@
  * 断开。三类同步能力（skills / MCP / 插件）全部由本插件拥有，dsh-skills
  * 与 dsh-mcp 保持纯本地管理插件、不感知远端。
  *
- * 远端默认只装 dsh-remote——其余插件（dsh-mcp、dsh-skills 等）由
- * 「同步本地插件」按勾选经远端 `dsh plugin add` 安装、manifest 跟踪式
- * 移除，远端手装插件零接触。
+ * 远端默认只装 dsh-remote——其余插件（dsh-mcp、dsh-skills 等）由「同步插件」
+ * 声明式同步：勾选=安装/升级、未勾选且远端已有=删除；删除范围恒为本机
+ * 清单∩远端清单，远端独有条目（本机没有的）零接触。
  */
 
 /** 官方 MCP client 插件的模块名（远端 patch 下发行的 name 字段）。 */
@@ -39,22 +39,12 @@ export type RegistryPluginInstall = 'push' | 'remote'
 
 // ---- 连接 profile（$DSH_HOME/dsh-remote.json 持久化） ----
 
-/** 一个远程开发连接的持久化声明。 */
+/** 一个远程开发连接的持久化声明（同步勾选不持久化——随 POST /sync 直传）。 */
 export interface RemoteConnection {
   id: string
   label: string
   /** OpenSSH 主机别名——唯一凭据来源，本插件不读写任何私钥材料。 */
   sshAlias: string
-  sync: {
-    /** 勾选同步到远端的技能名清单（跨两个用户级根，manifest 跟踪式删除）。 */
-    skillNames: string[]
-    /** 标记「跑在远端」的本机 MCP serverName 清单。 */
-    mcpServerNames: string[]
-    /** 同步到远端的本地插件名清单（manifest 跟踪式安装 / 移除）。 */
-    pluginNames: string[]
-    /** 非本地插件的安装方式（本地插件恒本地传输，不受此选项影响）。 */
-    registryPluginInstall: RegistryPluginInstall
-  }
   createdAt: string
   updatedAt: string
 }
@@ -70,9 +60,8 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。 */
 export interface ConnOp {
-  kind:
-    'test' | 'deploy' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-all'
-  /** 当前步进（deploy 的 node/npm/install-dsh…，连接的 start/poll/forward…）。 */
+  kind: 'test' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins'
+  /** 当前步进（连接的部署段 probe-node/install-dsh…、启动段 start/poll/forward…）。 */
   step?: string
   /** 步进的补充说明（版本号、插件名等）。 */
   detail?: string
@@ -160,6 +149,17 @@ export interface LocalRowsResponse {
   available: boolean
 }
 
+/** POST /remote-inventory 的响应：远端三类清单（同步弹窗的默认勾选源——
+ *  远端已有即默认勾选；条目级差异对比的判定后续迭代）。 */
+export interface RemoteInventoryResponse {
+  /** 远端两个 skills 根下的技能名（.md 单文件已剥后缀）。 */
+  skills: string[]
+  /** 远端 profile patch 内 MCP 行的 serverName。 */
+  mcp: string[]
+  /** 远端 profile dsh.profile.bundles 的包名（含 shipped base，消费侧按本机清单交集）。 */
+  plugins: string[]
+}
+
 // ---- wire 请求 / 响应 ----
 
 export interface SaveRequest {
@@ -167,13 +167,6 @@ export interface SaveRequest {
   id?: string
   label: string
   sshAlias: string
-  sync: {
-    skillNames?: string[]
-    mcpServerNames: string[]
-    pluginNames: string[]
-    /** 非本地插件安装方式；缺省 'remote'（远端自行下载）。 */
-    registryPluginInstall?: RegistryPluginInstall
-  }
 }
 
 export interface SaveResponse {
@@ -205,14 +198,15 @@ export interface OpRequest {
   id: string
 }
 
-export type SyncKind = 'skills' | 'mcp' | 'plugins' | 'all'
+export type SyncKind = 'skills' | 'mcp' | 'plugins'
 
+/** POST /sync：勾选清单随请求直传（声明式同步的目标态——勾选=安装/升级，
+ *  未勾选且远端已有=删除）。 */
 export interface SyncRequest {
   id: string
   kind: SyncKind
-}
-
-/** serverName → 稳定 patch 行 id（与 dsh-mcp 同口径）。 */
-export function mcpRowIdOf(serverName: string): string {
-  return `mcp-${serverName}`
+  /** 勾选项（skills 技能名 / MCP serverName / 插件包名）。 */
+  names: string[]
+  /** 非本地插件安装方式（仅 plugins 类别；缺省 'remote'）。 */
+  registryPluginInstall?: RegistryPluginInstall
 }
