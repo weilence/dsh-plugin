@@ -1,6 +1,3 @@
-// cordis.patch.yml 的注释保留编辑（insert 行 + 裸覆盖行，后行覆盖前行）；
-// 全部编辑走 YAML Document API，手写注释与无关行原样保留。
-
 import { randomBytes } from 'node:crypto'
 import { rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
@@ -74,6 +71,7 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
  * insert 行无论声明的目标 group 是谁都计入（`patch.insert[*]`）；裸行
  * 只要有 id 就计入，是否命中 mcp 行由调用方按 id 关联。
  */
+/** 扫描文档里的 insert 行与裸覆盖行（fold 序：后行整值覆盖前行）。 */
 export function scanPatchDoc(document: Document): { inserts: InsertRow[]; overrides: OverrideRow[] } {
   const inserts: InsertRow[] = []
   const overrides: OverrideRow[] = []

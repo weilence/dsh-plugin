@@ -1,14 +1,6 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import {
-  IssueList,
-  MetaItem,
-  PickList,
-  SelectField,
-  TextAreaField,
-  TextField,
-  type PickItem,
-} from '@dsh-plugins/client-ui'
+import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
 import type {
   McpConfigDraft,
   McpEffectiveConfig,
@@ -22,6 +14,7 @@ import { errMsg } from '@dsh-plugins/shared'
 import { SERVER_NAME_PATTERN } from '../shared'
 import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
 import type { McpStore } from './store'
+import { mcpApi } from './api'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './McpSection.module.css'
 
@@ -33,7 +26,7 @@ export interface McpServerFormProps {
   store: McpStore
   busy: boolean
   error: string | null
-  /** 保存 / 导入成功后回调（父级收起卡片）。 */
+  /** 保存成功后回调（父级收起卡片）。 */
   onDone(): void
   /** 取消编辑（父级收起卡片，未保存的草稿丢弃）。 */
   onCancel(): void
@@ -63,15 +56,17 @@ export function McpServerForm(props: McpServerFormProps) {
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props))
   const [touched, setTouched] = useState(false)
 
-  // 两种输入视图共享同一份草稿：新建的 JSON 粘贴走批量导入（jsonText /
-  // parsed / picked），编辑的 JSON 直接回填草稿（jsonEdited）。
+  // 两种输入视图共享同一份草稿：新建的 JSON 粘贴在保存时整批解析落盘
+  // （jsonText），编辑的 JSON 直接回填草稿（jsonEdited）。
   const [inputMode, setInputMode] = useState<'form' | 'json'>('form')
   const [jsonText, setJsonText] = useState('')
-  const [parsed, setParsed] = useState<McpJsonParseResult | null>(null)
-  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
-  const [jsonError, setJsonError] = useState<string | null>(null)
   const [jsonEdited, setJsonEdited] = useState<string | null>(null)
   const [jsonEditError, setJsonEditError] = useState<string | null>(null)
+  // 保存动作的结论（解析问题 / 连接检查失败）；checkBypassed 标记「上次
+  // 检查失败后用户再次点击」，此时跳过检查直接写入。
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [checkBypassed, setCheckBypassed] = useState(false)
+  const [checking, setChecking] = useState(false)
 
   const knownServerNames = useMemo(
     () =>
@@ -95,9 +90,21 @@ export function McpServerForm(props: McpServerFormProps) {
     }
   }
 
+  /** 任何输入变动都让上一次检查结论失效，保存按钮回到「先检查」语义。 */
+  const clearOutcome = (): void => {
+    setActionError(null)
+    setCheckBypassed(false)
+  }
+
+  const updateDraft: Dispatch<SetStateAction<DraftState>> = (action) => {
+    clearOutcome()
+    setDraft(action)
+  }
+
   /** 编辑的 JSON 文本回填：解析成功即应用到草稿；serverName 由外层键给出，
    *  回填时以当前行为准（名称改动 = 删除后新建，不走编辑）。 */
   const applyJsonEdit = (text: string): void => {
+    clearOutcome()
     setJsonEdited(text)
     setJsonEditError(null)
     if (text.trim().length === 0) return
@@ -116,30 +123,71 @@ export function McpServerForm(props: McpServerFormProps) {
     }
   }
 
-  const parseJson = (): void => {
-    setJsonError(null)
-    setParsed(null)
+  /** 保存前的连接检查：逐台做 initialize 握手探测；上次失败后本次点击即显式跳过。 */
+  const runCheck = async (targets: { name: string; config: McpConfigDraft }[]): Promise<boolean> => {
+    if (checkBypassed) return true
+    setChecking(true)
     try {
-      const result = parseMcpJsonText(jsonText)
-      setParsed(result)
-      setPicked(new Set(result.entries.map((entry) => entry.serverName)))
+      for (const target of targets) {
+        const outcome = await mcpApi.check({ config: target.config })
+        if (!outcome.ok) {
+          setActionError(
+            `服务器「${target.name}」连接检查未通过：${outcome.error ?? '未知原因'}。修正后重试，或再点一次「保存」跳过检查直接写入。`,
+          )
+          setCheckBypassed(true)
+          return false
+        }
+      }
+      return true
     } catch (error) {
-      setJsonError(errMsg(error))
+      setActionError(`连接检查请求失败：${errMsg(error)}`)
+      return false
+    } finally {
+      setChecking(false)
     }
   }
 
-  const togglePick = (name: string): void => {
-    setPicked((previous) => {
-      const next = new Set(previous)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
+  const submit = async (): Promise<void> => {
+    setTouched(true)
+    if (issues.length > 0) return
+    const config = configOf(draft)
+    if (!(await runCheck([{ name: config.serverName, config }]))) return
+    const request: SaveRequest = {
+      scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
+      id: mode === 'edit' ? row?.id : undefined,
+      config,
+    }
+    if (await store.save(request)) props.onDone()
   }
 
-  const importSelected = async (): Promise<void> => {
-    if (parsed === null) return
-    for (const entry of parsed.entries.filter((candidate) => picked.has(candidate.serverName))) {
+  /** 新建 JSON 粘贴的保存：解析 → 本地预检（问题 / 重名）→ 逐台连接检查 → 整批落盘。 */
+  const submitJson = async (): Promise<void> => {
+    let result: McpJsonParseResult
+    try {
+      result = parseMcpJsonText(jsonText)
+    } catch (error) {
+      setActionError(errMsg(error))
+      return
+    }
+    if (result.problems.length > 0) {
+      setActionError(
+        result.problems
+          .map((problem) => `${problem.name.length > 0 ? problem.name : '（未命名）'}：${problem.message}`)
+          .join('；'),
+      )
+      return
+    }
+    const seen = new Set(knownServerNames)
+    for (const entry of result.entries) {
+      if (seen.has(entry.serverName)) {
+        setActionError(`serverName「${entry.serverName}」已存在（或与本批重名）`)
+        return
+      }
+      seen.add(entry.serverName)
+    }
+    if (!(await runCheck(result.entries.map((entry) => ({ name: entry.serverName, config: entry.draft })))))
+      return
+    for (const entry of result.entries) {
       const ok = await store.save({
         scope: draft.scope,
         config: entry.draft,
@@ -148,17 +196,6 @@ export function McpServerForm(props: McpServerFormProps) {
       if (!ok) return
     }
     props.onDone()
-  }
-
-  const submit = async (): Promise<void> => {
-    setTouched(true)
-    if (issues.length > 0) return
-    const request: SaveRequest = {
-      scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
-      id: mode === 'edit' ? row?.id : undefined,
-      config: configOf(draft),
-    }
-    if (await store.save(request)) props.onDone()
   }
 
   return (
@@ -182,15 +219,15 @@ export function McpServerForm(props: McpServerFormProps) {
       {mode === 'create' && inputMode === 'json' ? (
         <JsonBody
           jsonText={jsonText}
-          onText={setJsonText}
-          onParse={parseJson}
-          parsed={parsed}
-          picked={picked}
-          onTogglePick={togglePick}
+          onText={(text) => {
+            clearOutcome()
+            setJsonText(text)
+          }}
           scope={draft.scope}
-          onScope={(scope) => setDraft((previous) => ({ ...previous, scope }))}
-          jsonError={jsonError}
-          busy={busy}
+          onScope={(scope) => {
+            clearOutcome()
+            setDraft((previous) => ({ ...previous, scope }))
+          }}
         />
       ) : inputMode === 'json' ? (
         <div className={styles.section}>
@@ -210,30 +247,29 @@ export function McpServerForm(props: McpServerFormProps) {
       ) : (
         <EditBody
           draft={draft}
-          setDraft={setDraft}
+          setDraft={updateDraft}
           mode={mode}
           issues={issues}
           touched={touched}
           error={props.error}
         />
       )}
+      {actionError !== null ? (
+        <div className={styles.error} role="alert">
+          {actionError}
+        </div>
+      ) : null}
       <div className={styles.formActions}>
-        <Button variant="outline" disabled={busy} onClick={props.onCancel}>
+        <Button variant="outline" disabled={busy || checking} onClick={props.onCancel}>
           取消
         </Button>
-        {mode === 'create' && inputMode === 'json' ? (
-          <Button
-            variant="primary"
-            disabled={busy || parsed === null || picked.size === 0}
-            onClick={() => void importSelected()}
-          >
-            {busy ? '导入中…' : `导入选中（${picked.size}）`}
-          </Button>
-        ) : (
-          <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-            {busy ? '保存中…' : '保存'}
-          </Button>
-        )}
+        <Button
+          variant="primary"
+          disabled={busy || checking}
+          onClick={() => void (mode === 'create' && inputMode === 'json' ? submitJson() : submit())}
+        >
+          {checking ? '检查中…' : busy ? '保存中…' : '保存'}
+        </Button>
       </div>
     </div>
   )
@@ -287,20 +323,13 @@ export function McpServerView(props: { row: McpRow }) {
   )
 }
 
-/** 新建模式的 JSON 粘贴页：解析三种方言 → 勾选导入。 */
+/** 新建模式的 JSON 粘贴页：方言解析与写入都在「保存」时一次完成。 */
 function JsonBody(props: {
   jsonText: string
   onText(text: string): void
-  onParse(): void
-  parsed: McpJsonParseResult | null
-  picked: ReadonlySet<string>
-  onTogglePick(name: string): void
   scope: McpScope
   onScope(scope: McpScope): void
-  jsonError: string | null
-  busy: boolean
 }) {
-  const { parsed } = props
   return (
     <div className={styles.section}>
       <div className={styles.grid}>
@@ -322,46 +351,8 @@ function JsonBody(props: {
         }
         onChange={props.onText}
       />
-      <div className={styles.parseRow}>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={props.busy || props.jsonText.trim().length === 0}
-          onClick={props.onParse}
-        >
-          解析
-        </Button>
-      </div>
-      {props.jsonError ? (
-        <div className={styles.error} role="alert">
-          {props.jsonError}
-        </div>
-      ) : null}
-      <PickList items={pickItemsOf(parsed)} picked={props.picked} onToggle={props.onTogglePick} />
-      {parsed !== null && parsed.problems.length > 0 ? (
-        <IssueList
-          issues={parsed.problems.map((problem) => ({
-            message: `${problem.name.length > 0 ? problem.name : '（未命名）'}：${problem.message}`,
-          }))}
-        />
-      ) : null}
     </div>
   )
-}
-
-/** 解析结果 → 勾选清单行。 */
-function pickItemsOf(parsed: McpJsonParseResult | null): PickItem[] {
-  return (parsed?.entries ?? []).map((entry) => ({
-    key: entry.serverName,
-    title: entry.serverName,
-    lines: [
-      `${entry.draft.transport} · ${endpointOf(entry.draft) || '（缺端点）'}`,
-      ...(Object.keys(entry.extras).length > 0
-        ? [`透传高级键：${Object.keys(entry.extras).join(', ')}`]
-        : []),
-    ],
-    notes: entry.notes,
-  }))
 }
 
 function EditBody(props: {

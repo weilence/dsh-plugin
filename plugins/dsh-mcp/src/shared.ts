@@ -1,7 +1,3 @@
-// dsh-mcp 线协议与共享常量：host 桥与 client 面板共用。读写都落在两层
-// 用户 patch（profile 层 → home 层，同名 id 后层覆盖前层）；bundle 声明或
-// `--patch` 覆盖引入的服务器行只读展示。
-
 import type { Config, StdioConfig, StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import type { FiberStatus } from './live'
 
@@ -11,13 +7,15 @@ export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 /** host 桥路由路径（client api.ts 复用，端点单源）。 */
 export const LIST_PATH = '/dsh-mcp/list'
 export const SAVE_PATH = '/dsh-mcp/save'
+export const CHECK_PATH = '/dsh-mcp/check'
 export const SET_ENABLED_PATH = '/dsh-mcp/set-enabled'
 export const DELETE_PATH = '/dsh-mcp/delete'
 
 /** 官方 mcp-client 对 serverName 的约束（保持模型侧工具名预算）。 */
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
-/** 面板可编辑的两层 patch 作用域。 */
+/** 面板可编辑的两层用户 patch 作用域：profile 层先应用，home 层同名 id
+ *  后层覆盖前层；bundle / `--patch` 覆盖引入的行只读展示。 */
 export type McpScope = 'profile' | 'home'
 
 export type McpReadOnlySource = 'bundle' | 'overlay'
@@ -94,6 +92,18 @@ export interface SaveRequest {
 export interface SaveResponse {
   id: string
   scope: McpScope
+}
+
+/** 保存前的连接检查请求：对单个服务器配置做 initialize 握手探测。 */
+export interface CheckRequest {
+  config: McpConfigDraft
+}
+
+/** 探测结论（失败是结果不是异常，走 200 应答由前端决定去留）。 */
+export interface CheckResponse {
+  ok: boolean
+  /** ok=false 时的失败原因（带实际错误内容）。 */
+  error?: string
 }
 
 export interface SetEnabledRequest {

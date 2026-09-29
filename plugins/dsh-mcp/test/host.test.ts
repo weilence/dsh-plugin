@@ -1,4 +1,4 @@
-/** host 桥：守卫函数 + 假 ctx/webServer 上的四路由集成往返（临时目录落盘）。 */
+/** host 桥：守卫函数 + 假 ctx/webServer 上的五路由集成往返（临时目录落盘）。 */
 
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -8,6 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { apply } from '../src/index'
 import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
 import { parsePatchDoc, scanPatchDoc } from '../src/patchFile'
+import { STUB_INITIALIZER } from './stub'
 
 function req(headers: Record<string, string | string[] | undefined>): IncomingMessage {
   return { headers } as unknown as IncomingMessage
@@ -321,6 +322,52 @@ describe('save 桥', () => {
         })
       ).status,
     ).toBe(404)
+  })
+})
+
+describe('check 桥', () => {
+  it('坏配置 400', async () => {
+    const response = await harness.request('POST', '/dsh-mcp/check', {
+      config: { transport: 'stdio', serverName: 'x y', command: 'n' },
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('stdio 握手成功 ok:true', async () => {
+    const response = await harness.request('POST', '/dsh-mcp/check', {
+      config: {
+        transport: 'stdio',
+        serverName: 'stub',
+        command: process.execPath,
+        args: ['-e', STUB_INITIALIZER],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(response.body).toEqual({ ok: true })
+  })
+
+  it('握手失败 ok:false 带原因', async () => {
+    const response = await harness.request('POST', '/dsh-mcp/check', {
+      config: {
+        transport: 'stdio',
+        serverName: 'stub',
+        command: process.execPath,
+        args: ['-e', 'process.exit(1)'],
+      },
+    })
+    expect(response.status).toBe(200)
+    expect(response.body.ok).toBe(false)
+    expect(response.body.error).toContain('提前退出')
+  })
+
+  it('跨站 POST 403', async () => {
+    const response = await harness.request(
+      'POST',
+      '/dsh-mcp/check',
+      { config: { transport: 'stdio', serverName: 'x', command: 'n' } },
+      { 'sec-fetch-site': 'cross-site' },
+    )
+    expect(response.status).toBe(403)
   })
 })
 

@@ -5,11 +5,6 @@
   padding-bottom: 4px;
 }
 
-.parseRow {
-  display: flex;
-  justify-content: flex-start;
-}
-
 .toolList {
   margin: 0;
   padding: 8px 10px 8px 28px;
@@ -23,7 +18,7 @@
   overflow: auto;
 }
 
-/* 展开卡片内表单底部的按钮行（取消 / 保存 / 导入选中）。 */
+/* 展开卡片内表单底部的按钮行（取消 / 保存）。 */
 .formActions {
   display: flex;
   justify-content: flex-end;

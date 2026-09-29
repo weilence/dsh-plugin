@@ -1,8 +1,3 @@
-// 运行态内省：从宿主 Loader 条目树与工具注册表读出每个 mcp-client 实例
-// 的 fiber 状态与已注册的模型侧工具；loader / tools 缺席（组合未提供）时
-// 降级为空列表。官方类型未入本仓库 catalog，全部经结构化最小接口防御式
-// 读取，版本偏差时降级而不是让面板报错。
-
 import { MCP_PLUGIN_NAME } from './shared'
 
 // FiberState 枚举的源序（cordis）：fiber.state 是数字，按序映射为名字。
@@ -10,6 +5,7 @@ const FIBER_STATES = ['pending', 'loading', 'active', 'failed', 'disposed', 'unl
 
 export type FiberStatus = (typeof FIBER_STATES)[number]
 
+// 官方类型未入本仓库 catalog：全部经结构化最小接口防御式读取，偏差时降级。
 interface FiberLike {
   state: number
   await(): Promise<unknown>

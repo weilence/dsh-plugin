@@ -1,7 +1,3 @@
-// MCP 配置的校验与归一：对齐官方 mcp-client 的 Config schema（Loader 加载时
-// 仍由其 Schemastery 校验兜底）。编辑合并只提交已知键，未知键从现有配置
-// 原样保留；切换 transport 时丢弃另一形态的专属键，不留 schema union 外的死配置。
-
 import { errMsg } from '@dsh-plugins/shared'
 import type { McpConfigDraft, McpEffectiveConfig, McpTransport } from './shared'
 import { SERVER_NAME_PATTERN } from './shared'

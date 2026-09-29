@@ -1,9 +1,12 @@
 import { createBridgeClient } from '@dsh-plugins/shared/api'
 import {
+  CHECK_PATH,
   DELETE_PATH,
   LIST_PATH,
   SAVE_PATH,
   SET_ENABLED_PATH,
+  type CheckRequest,
+  type CheckResponse,
   type DeleteRequest,
   type ListResponse,
   type SaveRequest,
@@ -19,6 +22,9 @@ export const mcpApi = {
   },
   save(requestBody: SaveRequest): Promise<SaveResponse> {
     return request(SAVE_PATH, { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  check(requestBody: CheckRequest): Promise<CheckResponse> {
+    return request(CHECK_PATH, { method: 'POST', body: JSON.stringify(requestBody) })
   },
   setEnabled(requestBody: SetEnabledRequest): Promise<{ id: string; enabled: boolean }> {
     return request(SET_ENABLED_PATH, { method: 'POST', body: JSON.stringify(requestBody) })

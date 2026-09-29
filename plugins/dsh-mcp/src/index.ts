@@ -1,7 +1,3 @@
-// dsh-mcp host half：MCP 管理（面板 HTTP 桥）。读写都落在两层用户 patch
-// （不做第二套配置存储）；写入为注释保留的 YAML 编辑 + 原子替换落盘，HMR
-// 的 patch watcher 在线重整（无 HMR 的组合需重启，面板提示）。
-
 import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
@@ -9,12 +5,14 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { errMsg } from '@dsh-plugins/shared'
 import {
+  CHECK_PATH,
   DELETE_PATH,
   LIST_PATH,
   MCP_PLUGIN_NAME,
   SAVE_PATH,
   SET_ENABLED_PATH,
   rowIdOf,
+  type CheckRequest,
   type DeleteRequest,
   type ListResponse,
   type McpRow,
@@ -24,6 +22,7 @@ import {
   type SetEnabledRequest,
 } from './shared'
 import { ConfigError, extrasOf, mergeForEdit, normalizeDraft } from './mcpConfig'
+import { probeConfig } from './probe'
 import { collectLiveMcp } from './live'
 // 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
@@ -327,6 +326,38 @@ export function apply(ctx: Context): void {
         },
       }),
     'dsh-mcp: save bridge',
+  )
+
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: CHECK_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'POST' || !isTrustedFetch(req)) {
+              writeJson(res, 403, { error: 'forbidden' })
+              return
+            }
+            const body = await readJsonBody(req)
+            const request = body as unknown as CheckRequest
+            let draft
+            try {
+              draft = normalizeDraft(request.config)
+            } catch (error) {
+              const status = error instanceof ConfigError ? 400 : 500
+              throw new HttpError(status, errMsg(error))
+            }
+            // 探测失败是结论而不是异常：200 + ok:false 交给前端决定去留。
+            const outcome = await probeConfig(draft)
+            writeJson(res, 200, outcome as unknown as Record<string, unknown>)
+          } catch (error) {
+            const status = error instanceof HttpError ? error.status : 500
+            writeJson(res, status, { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-mcp: check bridge',
   )
 
   ctx.effect(
