@@ -7,7 +7,7 @@
 - `src/index.ts`：host half，五个 HTTP 桥路由（list / save / check / set-enabled / delete）；栅栏与 JSON 读写来自 `@dsh-plugins/shared/http`。
 - `src/patchFile.ts`：cordis.patch.yml 的注释保留编辑（insert / 裸覆盖 / 启停 / 删除 / 原子落盘）。
 - `src/mcpConfig.ts`：配置校验与编辑合并（对齐官方 mcp-client Config schema）。
-- `src/probe.ts`：保存前的连接检查（stdio 拉起子进程 / HTTP 直发 initialize 握手，超时可注入）。
+- `src/probe.ts`：保存前的连接检查（stdio 经 cross-spawn 拉起子进程——与官方 StdioClientTransport 同款、args 直传无 shell 插值；HTTP 直发 initialize 握手，超时可注入）。
 - `src/live.ts`：Loader / 工具注册表运行态内省（结构化最小接口，防御式读取，服务缺席时降级）。
 - `src/shared.ts`：双端 wire 类型与常量。
 - `src/client/`：settings.section 面板；服务器为可展开卡片——点行在行内新建 / 编辑 / 查看（McpServerForm / McpServerView，编辑弹窗已移除）；JSON 粘贴无解析/导入步骤，「保存」一次完成解析、连接检查与整批落盘。HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-mcp`）。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）在本分区挂载期间放大宿主设置弹窗——官方钉死 800×800 且无尺寸 API；卸载即还原。
@@ -22,7 +22,8 @@
 
 ## 陷阱
 
-- `yaml` 是 host 半唯一内联的 node_modules 依赖（`host.bundle: ['yaml']`）；新增运行时依赖须显式进 bundle，否则构建期报错而非运行期炸。
+- `yaml` 与 `cross-spawn` 是 host 半内联的 node_modules 依赖（`host.bundle`）；新增运行时依赖须显式进 bundle，否则构建期报错而非运行期炸。
+- stdio 探测的 spawn 不用 `node:child_process` 裸 spawn + `shell: true`：shell 会把 command 与 args 拼成一条 cmd 命令行，带空格路径（Program Files 下的 node）与内联脚本（`-e` 的引号 / 括号）全部失真，且命令不存在时 Windows 报 exit 1 而非 ENOENT；cross-spawn 与官方 mcp-client（MCP SDK）同源，两平台行为一致。
 - host half 变更需重启宿主（Node ESM 缓存按 URL 命中）；client half 刷新页面即生效。
 - MCP SDK（client 2.x）握手首步是 `server/discover` 探测且无超时：静默吞未知方法的自制服务器会永远停在「连接中」。排查连接问题先看服务器是否对每个带 id 的请求都有响应。
 - 连接检查默认 20s 超时：stdio 首次 npx 下载可能超时（属预期，可跳过检查），勿据此直接判断配置错误；stdio 探测会再拉起一个实例，绑定固定端口的服务器可能因此检查失败。

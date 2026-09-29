@@ -8,7 +8,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { apply } from '../src/index'
 import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
 import { parsePatchDoc, scanPatchDoc } from '../src/patchFile'
-import { STUB_INITIALIZER } from './stub'
+import { stdioConfig, STUB_INITIALIZER } from './stub'
 
 function req(headers: Record<string, string | string[] | undefined>): IncomingMessage {
   return { headers } as unknown as IncomingMessage
@@ -335,12 +335,7 @@ describe('check 桥', () => {
 
   it('stdio 握手成功 ok:true', async () => {
     const response = await harness.request('POST', '/dsh-mcp/check', {
-      config: {
-        transport: 'stdio',
-        serverName: 'stub',
-        command: process.execPath,
-        args: ['-e', STUB_INITIALIZER],
-      },
+      config: stdioConfig(STUB_INITIALIZER),
     })
     expect(response.status).toBe(200)
     expect(response.body).toEqual({ ok: true })
@@ -348,12 +343,7 @@ describe('check 桥', () => {
 
   it('握手失败 ok:false 带原因', async () => {
     const response = await harness.request('POST', '/dsh-mcp/check', {
-      config: {
-        transport: 'stdio',
-        serverName: 'stub',
-        command: process.execPath,
-        args: ['-e', 'process.exit(1)'],
-      },
+      config: stdioConfig('process.exit(1)'),
     })
     expect(response.status).toBe(200)
     expect(response.body.ok).toBe(false)

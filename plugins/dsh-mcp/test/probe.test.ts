@@ -5,16 +5,9 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { probeConfig } from '../src/probe'
 import type { McpConfigDraft } from '../src/shared'
-import { STUB_INITIALIZER } from './stub'
+import { stdioConfig, STUB_INITIALIZER } from './stub'
 
 const SLOW_MS = 5000
-
-const stdioConfig = (script: string): McpConfigDraft => ({
-  transport: 'stdio',
-  serverName: 'stub',
-  command: process.execPath,
-  args: ['-e', script],
-})
 
 const httpConfig = (url: string): McpConfigDraft => ({
   transport: 'streamable-http',

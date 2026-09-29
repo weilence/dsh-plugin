@@ -49,6 +49,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "cross-spawn": "^7.0.6"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weilence/dsh-plugins.git",
@@ -72,6 +75,7 @@
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-mcp-client": "catalog:",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

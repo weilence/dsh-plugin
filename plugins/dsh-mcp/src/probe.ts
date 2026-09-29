@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import spawn from 'cross-spawn'
 import { errMsg } from '@dsh-plugins/shared'
 import type { CheckResponse, McpConfigDraft } from './shared'
 
@@ -53,10 +53,11 @@ function probeStdio(config: McpConfigDraft, timeoutMs: number): Promise<CheckRes
         cwd: config.cwd,
         env: { ...process.env, ...config.env },
         stdio: ['pipe', 'pipe', 'pipe'],
-        // posix 上独立进程组，收尾整组击杀兜住 npx 拉起的孙进程；Windows
-        // 的 npx 等是 .cmd 脚本须借 shell 解析，带空格的 args 会失真。
+        // 与官方 StdioClientTransport 同款 cross-spawn、无 shell：args 直传
+        // 不经插值，Windows 上 npx 等 .cmd 的解析与转义由 cross-spawn 承担。
+        // posix 上独立进程组，收尾整组击杀兜住 npx 拉起的孙进程。
         detached: process.platform !== 'win32',
-        shell: process.platform === 'win32',
+        windowsHide: process.platform === 'win32',
       })
     } catch (error) {
       resolve({ ok: false, error: `无法启动 ${endpoint}：${errMsg(error)}` })
