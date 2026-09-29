@@ -1,17 +1,11 @@
-/**
- * MCP 服务器配置的校验与归一：以官方 mcp-client 的 Config schema
- * （packages/mcp/mcp-client/src/index.ts）为依据做前置校验，最终仍由
- * Loader 加载时的 Schemastery 校验兜底。
- *
- * 编辑合并规则：客户端只提交已知键；现有生效配置里的未知键
- * （reconnect / maxInstructionBytes 等）原样保留，切换 transport 时丢弃
- * 另一传输形态的专属键，避免留下 schema union 之外的死配置。
- */
+// MCP 配置的校验与归一：对齐官方 mcp-client 的 Config schema（Loader 加载时
+// 仍由其 Schemastery 校验兜底）。编辑合并只提交已知键，未知键从现有配置
+// 原样保留；切换 transport 时丢弃另一形态的专属键，不留 schema union 外的死配置。
 
+import { errMsg } from '@dsh-plugins/shared'
 import type { McpConfigDraft, McpEffectiveConfig, McpTransport } from './shared'
 import { SERVER_NAME_PATTERN } from './shared'
 
-/** 客户端可提交的全部已知键。 */
 const KNOWN_KEYS = new Set([
   'transport',
   'serverName',
@@ -58,10 +52,7 @@ function stringRecord(
   return Object.keys(record).length > 0 ? record : undefined
 }
 
-/**
- * 校验客户端提交的草稿并归一为只含已定义键的对象；请求里出现未知键
- * 直接拒绝（防止拼写错误的字段被静默丢弃）。
- */
+// 未知键直接拒绝：防止拼写错误的字段被静默丢弃
 export function normalizeDraft(input: unknown): McpConfigDraft {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) fail('config 必须是 JSON 对象')
   const source = input as Record<string, unknown>
@@ -101,7 +92,6 @@ export function normalizeDraft(input: unknown): McpConfigDraft {
       parsed = new URL(url)
     } catch {
       fail('url 不是合法的 URL')
-      return draft
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') fail('url 协议必须是 http 或 https')
     draft.url = url
@@ -147,8 +137,7 @@ export function mergeForEdit(
   return merged as McpEffectiveConfig
 }
 
-/** 草稿的展示端点（列表/卡片一行摘要）。 */
-export function endpointOf(config: Record<string, unknown>): string {
+export function endpointOf(config: McpConfigDraft | McpEffectiveConfig): string {
   if (config.transport === 'stdio') {
     const parts = [
       typeof config.command === 'string' ? config.command : '',
@@ -158,8 +147,6 @@ export function endpointOf(config: Record<string, unknown>): string {
   }
   return typeof config.url === 'string' ? config.url : ''
 }
-
-// ---- JSON 导入（Agent Plugins mcp.json / Claude .mcp.json 方言） ----
 
 /** JSON 导入解析出的一个服务器：已知键草稿 + 未知键透传 + 提示。 */
 export interface McpJsonEntry {
@@ -236,13 +223,10 @@ function draftOfEntry(name: string, value: Record<string, unknown>, transport: M
   return draft
 }
 
-/**
- * 解析粘贴的 JSON，三种等价写法（名称一律来自 JSON 本身，无需手填）：
- * ① `{"mcpServers": {"<名>": {...}}}` 包装（Agent Plugins mcp.json 与
- * Claude .mcp.json 同构）；② `{"<名>": {...}}` 直接映射；③ 裸单服务器
- * 对象（含 command / url / type），名称从 command 或 URL 推导。顶层
- * 结构问题抛 ConfigError；单个服务器的问题进 problems（不影响其余）。
- */
+// 解析粘贴的 JSON，名称一律来自 JSON 本身：mcpServers 包装 / 直接映射 /
+// 裸单服务器（名称从 command 或 URL 推导）三种等价写法（方言细节见
+// mcpImport.test.ts）。顶层结构问题抛 ConfigError；单个服务器的问题进
+// problems 不影响其余。
 export function parseMcpJsonText(text: string): McpJsonParseResult {
   const trimmed = text.trim()
   if (trimmed.length === 0) fail('请粘贴 MCP 服务器的 JSON 配置')
@@ -250,7 +234,7 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
   try {
     parsed = JSON.parse(trimmed)
   } catch (error) {
-    fail(`不是合法的 JSON：${error instanceof Error ? error.message : String(error)}`)
+    fail(`不是合法的 JSON：${errMsg(error)}`)
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     fail('顶层必须是 JSON 对象')
@@ -373,7 +357,6 @@ export function extrasOf(input: unknown): Record<string, unknown> | undefined {
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-/** 归一后的最小传输类型（供展示）。 */
 export function transportOf(config: Record<string, unknown>): McpTransport | undefined {
   return config.transport === 'stdio' || config.transport === 'streamable-http' ? config.transport : undefined
 }

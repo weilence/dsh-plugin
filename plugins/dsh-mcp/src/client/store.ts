@@ -1,13 +1,6 @@
-/**
- * 面板状态存储：settings 页打开期间持有目录快照，写操作（保存 / 启停 /
- * 删除）成功后立即刷新，并再排两次延迟刷新兜住 HMR 的异步重整（写盘 →
- * watcher → Loader 重挂载之间有秒级窗口）。React 经 useSyncExternalStore
- * 消费；面板是唯一读者。
- */
-
 import { errMsg } from '@dsh-plugins/shared'
 import { mcpApi } from './api'
-import type { DeleteRequest, ListResponse, McpRow, SaveRequest, SetEnabledRequest } from '../shared'
+import type { DeleteRequest, ListResponse, SaveRequest, SetEnabledRequest } from '../shared'
 
 export interface McpState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -158,10 +151,5 @@ export class McpStore {
     } finally {
       this.set({ busy: null })
     }
-  }
-
-  /** 按行 id 查当前快照（弹窗回填用）。 */
-  rowOf(id: string): McpRow | undefined {
-    return this.snapshot.list?.servers.find((row) => row.id === id)
   }
 }

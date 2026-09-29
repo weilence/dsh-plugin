@@ -1,25 +1,5 @@
-/**
- * cordis.patch.yml 的注释保留编辑：与官方 plugin-manager 的 patch.ts 同一
- * 路数（yaml Document 往返 + `!!js` 自定义标签容忍），但面向本插件管理的
- * mcp-client 行集合。
- *
- * 一个 MCP 服务器在 patch 文件里的规范形态是一条 insert 行：
- *
- * ```yaml
- * - insert:
- *     - id: mcp-demo
- *       name: '@deepseek-ai/dsh-mcp-client'
- *       config: { transport: streamable-http, serverName: demo, url: ... }
- * ```
- *
- * 之后的手写 / plugin-manager 覆盖是不带 insert 的裸行（按 id 定位，
- * 只替换给出的字段）：`{ id: mcp-demo, disabled: true }` 停用、
- * `{ id: mcp-demo, config: {...} }` 整体替换配置。组合语义是后行覆盖前行、
- * 两层文件里 home 层整体后于 profile 层。
- *
- * 读侧一律走 `toJS()` 的纯结构（序号与文档条目对齐），写侧走 Document 的
- * setIn / items 操作，避免 getIn 对嵌套集合返回节点与纯值的歧义。
- */
+// cordis.patch.yml 的注释保留编辑（insert 行 + 裸覆盖行，后行覆盖前行）；
+// 全部编辑走 YAML Document API，手写注释与无关行原样保留。
 
 import { randomBytes } from 'node:crypto'
 import { rename, writeFile } from 'node:fs/promises'
@@ -35,7 +15,6 @@ export interface InsertAddress {
   rowIndex: number
 }
 
-/** 扫描出的 insert 行。 */
 export interface InsertRow extends InsertAddress {
   id: string
   name: string

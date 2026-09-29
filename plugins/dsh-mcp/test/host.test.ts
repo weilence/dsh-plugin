@@ -46,8 +46,6 @@ describe('isTrustedFetch', () => {
   })
 })
 
-// ---- 集成往返 ----
-
 interface CapturedResponse {
   status: number
   body: Record<string, unknown>

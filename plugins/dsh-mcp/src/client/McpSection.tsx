@@ -1,11 +1,3 @@
-/**
- * 设置页「MCP 管理」面板：服务器声明列表（两层可编辑 patch + bundle /
- * overlay 只读来源）与运行态徽标。列表为可展开卡片——点行展开即编辑 /
- * 查看，新建服务器卡片插入列表顶部（触发按钮正下方，长列表也不会被推到
- * 视口外）。数据经 McpStore 与 host 桥交互；面板卸载时清一次性提示
- * （Toast 计时只在挂载期间有效）。
- */
-
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -26,11 +18,7 @@ export interface McpPanelEnv {
 
 export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
   useWideSettingsDialog()
-  return <McpPanel {...props} env={props} />
-}
-
-function McpPanel(props: SettingsSectionOwnerProps & { env: McpPanelEnv }) {
-  const store = props.env.store
+  const store = props.store
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => {
     if (state.status === 'idle') void store.refresh()

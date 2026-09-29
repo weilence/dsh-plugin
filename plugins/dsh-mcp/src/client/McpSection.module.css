@@ -1,10 +1,3 @@
-/* dsh-mcp 面板私有样式：面板骨架（Panel）、服务器卡片（RowCard）、
-   工具条 / 卡片列表 / 弹窗档位等都在 @dsh-plugins/client-ui 的
-   shared.module.css。这里只剩新建弹窗的输入模式切换行与工具清单。 */
-
-/* 新建弹窗的输入模式切换（表单 / JSON 粘贴）与解析操作行。候选勾选
-   清单是共享组件 PickList（@dsh-plugins/client-ui），样式在
-   shared.module.css。 */
 .tabRow {
   display: flex;
   align-items: center;

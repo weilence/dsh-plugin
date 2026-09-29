@@ -1,10 +1,3 @@
-/**
- * MCP 服务器表单（新建 / 编辑）与只读详情视图，内嵌在列表的展开卡片里。
- * 表单与 JSON 是同一份草稿的两种输入视图：新建的 JSON 粘贴解析三种方言
- * → 勾选批量导入；编辑的 JSON 直接回填草稿（serverName 是行 id 锚点，
- * 以表单为准）。保存与导入成功后回调 onDone，由父级收起卡片。
- */
-
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
@@ -19,11 +12,13 @@ import {
 import type {
   McpConfigDraft,
   McpEffectiveConfig,
+  McpLiveState,
   McpRow,
   McpScope,
   McpTransport,
   SaveRequest,
 } from '../shared'
+import { errMsg } from '@dsh-plugins/shared'
 import { SERVER_NAME_PATTERN } from '../shared'
 import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
 import type { McpStore } from './store'
@@ -117,7 +112,7 @@ export function McpServerForm(props: McpServerFormProps) {
         serverName: previous.serverName,
       }))
     } catch (error) {
-      setJsonEditError(error instanceof Error ? error.message : String(error))
+      setJsonEditError(errMsg(error))
     }
   }
 
@@ -129,7 +124,7 @@ export function McpServerForm(props: McpServerFormProps) {
       setParsed(result)
       setPicked(new Set(result.entries.map((entry) => entry.serverName)))
     } catch (error) {
-      setJsonError(error instanceof Error ? error.message : String(error))
+      setJsonError(errMsg(error))
     }
   }
 
@@ -148,7 +143,7 @@ export function McpServerForm(props: McpServerFormProps) {
       const ok = await store.save({
         scope: draft.scope,
         config: entry.draft,
-        ...(Object.keys(entry.extras).length > 0 ? { extra: entry.extras } : {}),
+        extra: Object.keys(entry.extras).length > 0 ? entry.extras : undefined,
       })
       if (!ok) return
     }
@@ -160,7 +155,7 @@ export function McpServerForm(props: McpServerFormProps) {
     if (issues.length > 0) return
     const request: SaveRequest = {
       scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
-      ...(mode === 'edit' && row !== undefined ? { id: row.id } : {}),
+      id: mode === 'edit' ? row?.id : undefined,
       config: configOf(draft),
     }
     if (await store.save(request)) props.onDone()
@@ -360,7 +355,7 @@ function pickItemsOf(parsed: McpJsonParseResult | null): PickItem[] {
     key: entry.serverName,
     title: entry.serverName,
     lines: [
-      `${entry.draft.transport} · ${endpointOf({ ...entry.draft }) || '（缺端点）'}`,
+      `${entry.draft.transport} · ${endpointOf(entry.draft) || '（缺端点）'}`,
       ...(Object.keys(entry.extras).length > 0
         ? [`透传高级键：${Object.keys(entry.extras).join(', ')}`]
         : []),
@@ -490,21 +485,13 @@ function EditBody(props: {
 }
 
 function endpointText(row: McpRow): string {
-  const config = row.config
-  if (config.transport === 'stdio') {
-    const args = Array.isArray(config.args)
-      ? (config.args as unknown[]).filter((part) => typeof part === 'string')
-      : []
-    return [typeof config.command === 'string' ? config.command : '', ...args]
-      .filter((part) => part.length > 0)
-      .join(' ')
-  }
-  return typeof config.url === 'string' ? config.url : '—'
+  return endpointOf(row.config) || '—'
 }
 
 function liveText(row: McpRow): string {
   if (row.live === null) return '待生效'
-  const labels: Record<string, string> = {
+  if (row.live.status === 'absent') return '已声明未挂载'
+  const labels: Record<Exclude<McpLiveState['status'], 'absent'>, string> = {
     pending: '等待依赖',
     loading: '连接中',
     active: '运行中',
@@ -512,7 +499,7 @@ function liveText(row: McpRow): string {
     disposed: '已卸载',
     unloading: '卸载中',
   }
-  return labels[row.live.status] ?? row.live.status
+  return labels[row.live.status]
 }
 
 /** KEY=VALUE 逐行解析；空行与 # 注释忽略；无有效行返回 undefined。 */
@@ -539,34 +526,25 @@ function entriesText(value: unknown): string {
     : ''
 }
 
-/** 草稿 → 单服务器 config 对象（保存写入与 JSON 视图的序列化同源）。 */
+// 草稿 → 单服务器 config 对象（保存写入与 JSON 视图的序列化同源）；空输入
+// 归 undefined，序列化即省略该键
 function configOf(draft: DraftState): McpConfigDraft {
+  const stdio = draft.transport === 'stdio'
+  const args = draft.args
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
   return {
     transport: draft.transport,
     serverName: draft.serverName.trim(),
-    ...(draft.transport === 'stdio'
-      ? {
-          command: draft.command.trim(),
-          ...(draft.args.trim().length > 0
-            ? {
-                args: draft.args
-                  .split(/\r?\n/)
-                  .map((line) => line.trim())
-                  .filter((line) => line.length > 0),
-              }
-            : {}),
-          ...(parseEntries(draft.env, '=') !== undefined ? { env: parseEntries(draft.env, '=') } : {}),
-          ...(draft.cwd.trim().length > 0 ? { cwd: draft.cwd.trim() } : {}),
-        }
-      : {
-          url: draft.url.trim(),
-          ...(parseEntries(draft.headers, '=') !== undefined
-            ? { headers: parseEntries(draft.headers, '=') }
-            : {}),
-        }),
-    ...(draft.toolCallTimeoutMs.trim().length > 0
-      ? { toolCallTimeoutMs: Number(draft.toolCallTimeoutMs) }
-      : {}),
+    command: stdio ? draft.command.trim() : undefined,
+    args: stdio && args.length > 0 ? args : undefined,
+    env: stdio ? parseEntries(draft.env, '=') : undefined,
+    cwd: stdio && draft.cwd.trim().length > 0 ? draft.cwd.trim() : undefined,
+    url: stdio ? undefined : draft.url.trim(),
+    headers: stdio ? undefined : parseEntries(draft.headers, '='),
+    toolCallTimeoutMs:
+      draft.toolCallTimeoutMs.trim().length > 0 ? Number(draft.toolCallTimeoutMs) : undefined,
     failOnStartupError: draft.failOnStartupError,
   }
 }

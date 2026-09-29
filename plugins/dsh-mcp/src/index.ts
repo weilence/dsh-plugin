@@ -1,27 +1,19 @@
-/**
- * dsh-mcp host half：设置页「MCP 管理」面板的 HTTP 桥。
- *
- * DSH 的 MCP 服务器就是 cordis patch 里的一个 mcp-client 插件行，本插件
- * 不做第二套配置存储：读写都落在两层用户 patch 上（profile 层
- * `<profile>/cordis.patch.yml` 与 home 层 `<DSH_HOME>/cordis.patch.yml`），
- * bundle / `--patch` 覆盖引入的行只读展示。写入为注释保留的 YAML 编辑 +
- * 原子替换落盘；HMR 的 patch watcher 监视这两层文件，改动即刻在线重整
- * （无 HMR 的组合保存后需重启，面板会提示）。
- *
- * 读侧另从 Loader 条目树取每个实例的 fiber 状态，从工具注册表取
- * `mcp__<serverName>__*` 的实时清单；loader / tools / hmr 服务都经可选
- * 访问，缺席时相应降级。
- *
- * @module dsh-mcp
- */
+// dsh-mcp host half：MCP 管理（面板 HTTP 桥）。读写都落在两层用户 patch
+// （不做第二套配置存储）；写入为注释保留的 YAML 编辑 + 原子替换落盘，HMR
+// 的 patch watcher 在线重整（无 HMR 的组合需重启，面板提示）。
 
 import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { errMsg } from '@dsh-plugins/shared'
 import {
+  DELETE_PATH,
+  LIST_PATH,
   MCP_PLUGIN_NAME,
+  SAVE_PATH,
+  SET_ENABLED_PATH,
   rowIdOf,
   type DeleteRequest,
   type ListResponse,
@@ -54,13 +46,6 @@ import {
 } from './patchFile'
 
 export const inject: string[] = ['webServer']
-
-export const LIST_PATH = '/dsh-mcp/list'
-export const SAVE_PATH = '/dsh-mcp/save'
-export const SET_ENABLED_PATH = '/dsh-mcp/set-enabled'
-export const DELETE_PATH = '/dsh-mcp/delete'
-
-// ---- profile / loader / tools 的结构化最小访问 ----
 
 interface ProfileContextLike {
   name?: unknown
@@ -110,14 +95,14 @@ async function loadLayers(profile: { patchPath: string; home: string }): Promise
     try {
       layers.push({ scope, file, doc: text === null ? emptyPatchDoc() : parsePatchDoc(text) })
     } catch (error) {
-      throw new HttpError(500, `${file} 解析失败：${String(error instanceof Error ? error.message : error)}`)
+      throw new HttpError(500, `${file} 解析失败：${errMsg(error)}`)
     }
   }
   return layers
 }
 
-/** 扫描两层文件并组合受管行（profile 行在前、home 行在后的 fold 序）。 */
-export function composeManaged(layers: readonly Layer[]): ManagedRow[] {
+// 扫描两层文件并组合受管行（profile 行在前、home 行在后的 fold 序）。
+function composeManaged(layers: readonly Layer[]): ManagedRow[] {
   const inserts: { layer: Layer; row: InsertRow }[] = []
   const overrides: { layer: Layer; row: OverrideRow }[] = []
   for (const layer of layers) {
@@ -222,7 +207,7 @@ export function apply(ctx: Context): void {
                     : {
                         status: entry.status,
                         tools: entry.tools,
-                        ...(entry.error !== undefined ? { error: entry.error } : {}),
+                        error: entry.error,
                       },
               }
             })
@@ -239,7 +224,7 @@ export function apply(ctx: Context): void {
                 live: {
                   status: entry.status,
                   tools: entry.tools,
-                  ...(entry.error !== undefined ? { error: entry.error } : {}),
+                  error: entry.error,
                 },
               })
             }
@@ -249,13 +234,13 @@ export function apply(ctx: Context): void {
             })
             const response: ListResponse = {
               profileName: profile.name,
-              patchPaths: { profile: layers[0]?.file ?? '', home: layers[1]?.file ?? '' },
+              patchPaths: { profile: layers[0].file, home: layers[1].file },
               hotApply: ctx.get('hmr') !== undefined,
               servers,
             }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
-            writeJson(res, 500, { error: String(error) })
+            writeJson(res, 500, { error: errMsg(error) })
           }
         },
       }),
@@ -284,7 +269,7 @@ export function apply(ctx: Context): void {
               draft = normalizeDraft(request.config)
             } catch (error) {
               const status = error instanceof ConfigError ? 400 : 500
-              throw new HttpError(status, error instanceof Error ? error.message : String(error))
+              throw new HttpError(status, errMsg(error))
             }
             // JSON 导入的高级键透传：已知键已被上方严格校验，这里只合并
             // 消毒后的未知键（Loader 加载时的 schema 校验兜底）。
@@ -337,7 +322,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),
@@ -383,7 +368,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, { id: request.id, enabled: request.enabled })
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),
@@ -429,7 +414,7 @@ export function apply(ctx: Context): void {
             writeJson(res, 200, { removed: true })
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500
-            writeJson(res, status, { error: String(error instanceof Error ? error.message : error) })
+            writeJson(res, status, { error: errMsg(error) })
           }
         },
       }),

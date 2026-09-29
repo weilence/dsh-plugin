@@ -32,11 +32,10 @@ DSH 设置页「MCP 管理」插件：以官方 [mcp-client](https://github.com/
 ## 安装
 
 ```bash
-# 在 profile 目录（~/.dsh/profiles/desktop）
-pnpm add link:D:/Code/dsh-plugins/plugins/dsh-mcp
+dsh plugin --profile <name> add @weilence/dsh-mcp
 ```
 
-然后把 `@weilence/dsh-mcp` 加入 `package.json` 的 `dsh.profile.bundles`（link: 安装时 boot 会合并本包自带的 `cordis.patch.yml` 插入行）。刷新设置页即可看到「MCP 管理」菜单。
+（或手动把 `@weilence/dsh-mcp` 加入 profile `package.json` 的 `dsh.profile.bundles`；link: 安装时 boot 会合并本包自带的 `cordis.patch.yml` 插入行。）刷新设置页即可看到「MCP 管理」菜单。
 
 ## 开发
 
