@@ -1,7 +1,7 @@
 /**
  * 连接引擎：fake ssh / 转发 / 扫描依赖上的全链集成——save/test/connect
- * （含部署段：环境装配 / tgz 推送 / 版本对比）/disconnect/mcp 下发合并/
- * 插件同步增删/skills 跟踪删除/互斥。
+ * （含部署段：环境装配 / tgz 推送 / 版本对比）/disconnect/三类同步
+ * （一致跳过 / 覆盖 / 未勾选不动 / 不删除远端）/互斥。
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -12,8 +12,8 @@ import { BusyError, RemoteEngine, type EngineDeps } from '../src/engine'
 import type { ForwardHandle, SshResult } from '../src/ssh'
 import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
 import { readStore, writeStore } from '../src/connections'
-import type { LocalPatchLayer } from '../src/localenv'
-import type { SaveRequest } from '../src/shared'
+import { foldSkillDigest, type LocalPatchLayer } from '../src/localenv'
+import { mcpSignature, type SaveRequest } from '../src/shared'
 
 interface Recorded {
   alias: string
@@ -22,6 +22,9 @@ interface Recorded {
 }
 
 const OK: SshResult = { code: 0, stdout: '', stderr: '' }
+
+/** 64 位十六进制摘要（远端管线输出行的哈希段形态）。 */
+const hex = (char: string): string => char.repeat(64)
 
 /** 部署段直通脚本：远端已装齐且版本一致（与 makeDeps 缺省版本对齐）——
  *  连接测试不关心装配细节时前置它，让流程直达启动段。 */
@@ -43,7 +46,12 @@ interface FakeOptions {
   homePatch?: string
   /** 层 package.json 的 dependencies（install 形态判定依据）。 */
   profileDeps?: Record<string, string>
-  skills?: { key: 'user-dsh' | 'user-agents'; path: string; names: string[] }[]
+  /** 技能扫描结果（name + 内容摘要；引擎「一致即跳过」的判定输入）。 */
+  skills?: {
+    key: 'user-dsh' | 'user-agents'
+    path: string
+    rows: { name: string; digest: string | null }[]
+  }[]
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
   localDshVersion?: string | null
@@ -295,7 +303,7 @@ describe('RemoteEngine', () => {
     )
   })
 
-  it('connect 部署段：本机版本探测失败（null）→ 直接失败，不退装 latest', async () => {
+  it('connect 部署段：本机版本探测失败（null）→ 直接失败，不回退安装 latest', async () => {
     makeEngine({
       localDshVersion: null,
       respond: (command) => {
@@ -311,11 +319,11 @@ describe('RemoteEngine', () => {
     const state = engine.stateOf('dev-box')
     expect(state.phase).toBe('error')
     expect(state.error?.message).toContain('探测失败')
-    // 不得出现任何 npm install（不退装 latest）
+    // 不得出现任何 npm install（不回退安装 latest）
     expect(fake.calls.some((call) => call.command.includes('npm install -g'))).toBe(false)
   })
 
-  it('connect 部署段：远端缺 node → error 相位（remote-cmd-failed）', async () => {
+  it('connect 部署段：远端缺 node → error 阶段（remote-cmd-failed）', async () => {
     makeEngine({
       respond: (command) => {
         if (command === 'node -v') return { code: 127, stdout: '', stderr: 'bash: node: command not found' }
@@ -339,9 +347,16 @@ describe('RemoteEngine', () => {
         transport: stdio
         serverName: demo
         command: npx
+- insert:
+    - id: custom-hand
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: hand
+        command: old-cmd
 `
 
-  it('connect：部署段直通 → start → poll token → forward → health → running（不做顺带同步）', async () => {
+  it('connect：部署段直通 → start → poll token → forward → health → running（连接路径零同步）', async () => {
     makeEngine({
       respond: (command) => {
         const ready = deployReady(command)
@@ -352,7 +367,16 @@ describe('RemoteEngine', () => {
         if (command.includes('.pid')) return { code: 0, stdout: '4242\n', stderr: '' }
         return undefined
       },
-      skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['alpha', 'beta'] }],
+      skills: [
+        {
+          key: 'user-dsh',
+          path: 'C:/skills',
+          rows: [
+            { name: 'alpha', digest: 'a' },
+            { name: 'beta', digest: 'b' },
+          ],
+        },
+      ],
     })
     await engine.save(saveRequest())
     engine.startConnect('dev-box')
@@ -463,7 +487,7 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').phase).toBe('running')
   })
 
-  it('sync mcp：合并下发（注释保留）+ 取消勾选后跟踪移除', async () => {
+  it('sync mcp：diff 行写入（手写 id 替换）、same 行跳过；注释保留', async () => {
     makeEngine({
       profilePatch: [
         '- insert:',
@@ -472,37 +496,88 @@ describe('RemoteEngine', () => {
         '      config:',
         '        transport: stdio',
         '        serverName: demo',
+        '        command: node',
+        '- insert:',
+        '    - id: mcp-same',
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        '      config:',
+        '        transport: stdio',
+        '        serverName: samesrv',
         '        command: npx',
+        '- insert:',
+        '    - id: mcp-hand',
+        "      name: '@deepseek-ai/dsh-mcp-client'",
+        '      config:',
+        '        transport: stdio',
+        '        serverName: hand',
+        '        command: new-cmd',
       ].join('\n'),
       respond: (command) => {
+        // 远端：demo 配置不同（npx vs 本机 node）、samesrv 完全一致、hand 同名不同 id 不同配置
         if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
-          return { code: 0, stdout: REMOTE_PATCH, stderr: '' }
+          return {
+            code: 0,
+            stdout: `${REMOTE_PATCH}- insert:\n    - id: mcp-same\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        transport: stdio\n        serverName: samesrv\n        command: npx\n`,
+            stderr: '',
+          }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'mcp', ['demo', 'samesrv', 'hand'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const write = fake.calls.find((call) =>
+      call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml'),
+    )
+    expect(write).toBeDefined()
+    // 手写注释与未勾选的无关行原样保留
+    expect(write?.stdin).toContain('# 远端手写注释')
+    // diff 行整块覆盖：demo 换成本机配置；hand 行替换 custom-hand（id 对齐本机）
+    expect(write?.stdin).toContain('command: node')
+    expect(write?.stdin).toContain('id: mcp-hand')
+    expect(write?.stdin).toContain('command: new-cmd')
+    expect(write?.stdin).not.toContain('custom-hand')
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({
+      installed: ['mcp-demo', 'mcp-hand'],
+      skipped: ['samesrv'],
+    })
+    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo', 'mcp-hand'])
+  })
+
+  it('sync mcp：全部一致 → 整次不写盘；取消全部勾选 → 远端零动作', async () => {
+    const identical = [
+      '- insert:',
+      '    - id: mcp-demo',
+      "      name: '@deepseek-ai/dsh-mcp-client'",
+      '      config:',
+      '        transport: stdio',
+      '        serverName: demo',
+      '        command: npx',
+    ].join('\n')
+    makeEngine({
+      profilePatch: identical,
+      respond: (command) => {
+        if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
+          return { code: 0, stdout: identical, stderr: '' }
         return undefined
       },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'mcp', ['demo'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    const write = fake.calls.find((call) =>
-      call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml'),
-    )
-    expect(write).toBeDefined()
-    expect(write?.stdin).toContain('# 远端手写注释')
-    expect(write?.stdin).toContain('serverName: demo')
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['mcp-demo'], removed: [] })
-    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo'])
+    expect(
+      fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
+    ).toBe(false)
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], skipped: ['demo'] })
 
-    // 取消勾选：远端已有但未勾选的行被移除
-    await engine.save(saveRequest({ id: 'dev-box' }))
+    // 未勾选 = 不动：无任何删除 / 重写（同步永不删远端内容）
+    fake.calls.length = 0
     engine.startSync('dev-box', 'mcp', [])
-    await waitFor(
-      () => engine.stateOf('dev-box').op === null && engine.stateOf('dev-box').lastSync.mcp !== null,
-    )
-    const rewrite = [...fake.calls]
-      .reverse()
-      .find((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml'))
-    expect(rewrite?.stdin).not.toContain('mcp-demo')
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], removed: ['mcp-demo'] })
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(
+      fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
+    ).toBe(false)
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], skipped: [] })
   })
 
   const PLUGIN_PATCH = [
@@ -514,7 +589,7 @@ describe('RemoteEngine', () => {
     "      name: '@weilence/dsh-skills'",
   ].join('\n')
 
-  it('sync plugins：本地（link）插件恒打包推送，registry 插件默认远端下载；取消勾选走 remove', async () => {
+  it('sync plugins：本地（link）插件恒打包推送，registry 插件默认远端下载；未勾选不动（不 remove）', async () => {
     makeEngine({
       profilePatch: PLUGIN_PATCH,
       profileDeps: {
@@ -522,14 +597,17 @@ describe('RemoteEngine', () => {
         '@weilence/dsh-skills': '^1.0.0',
       },
       respond: (command) => {
-        // 远端 profile 已激活 dsh-skills（含 base / 自身）：取消勾选的移除判定源
-        if (command.includes('cat ~/.dsh/profiles/web/package.json')) {
+        // 远端 bundles：dsh-skills 已激活（版本 9.9.9），dsh-mcp 未激活
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
           return {
             code: 0,
             stdout:
               '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-remote","@weilence/dsh-skills"]}}}\n',
             stderr: '',
           }
+        }
+        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
+          return { code: 0, stdout: '@weilence/dsh-skills\t9.9.9\n', stderr: '' }
         }
         return undefined
       },
@@ -544,31 +622,27 @@ describe('RemoteEngine', () => {
     expect(commands).toContain(
       'dsh plugin --profile \'web\' add "$HOME/.dsh/dsh-remote/payload/packed-1.0.0.tgz"',
     )
-    // registry 插件：远端 npm 下载（本机读不到版本时裸名）
+    // registry 插件：本机版本读不到 → 无法比对 → 保守重装（无 scope 包名）
     expect(commands).toContain("dsh plugin --profile 'web' add '@weilence/dsh-skills'")
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp', '@weilence/dsh-skills'],
-      removed: [],
+      skipped: [],
     })
 
     await engine.save(saveRequest({ id: 'dev-box' }))
     fake.calls.length = 0
     engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(
-      fake.calls.some((call) =>
-        call.command.includes("dsh plugin --profile 'web' remove '@weilence/dsh-skills'"),
-      ),
-    ).toBe(true)
-    // dsh-skills 已出清单：不再有任何针对它的安装；dsh-mcp 版本信息不可读
-    // （fixture 的 cat 恒空）→ 保守重装一次，属预期
+    // 未勾选的 dsh-skills 不动：无 remove、无针对它的 add（同步永不删远端内容）
+    expect(fake.calls.some((call) => call.command.includes("dsh plugin --profile 'web' remove"))).toBe(false)
     expect(
       fake.calls.some(
         (call) => call.command.includes('@weilence/dsh-skills') && call.command.includes(' add '),
       ),
     ).toBe(false)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      removed: ['@weilence/dsh-skills'],
+      installed: ['@weilence/dsh-mcp'],
+      skipped: [],
     })
   })
 
@@ -586,7 +660,7 @@ describe('RemoteEngine', () => {
     expect(state.error?.message).toContain('未能定位 @weilence/dsh-skills 的包目录')
   })
 
-  it('sync plugins：远端已装同版本 → 跳过安装（同步幂等）', async () => {
+  it('sync plugins：远端已激活且版本一致 → 跳过安装（同步幂等）', async () => {
     const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
     await writeFile(
       join(localPkg, 'package.json'),
@@ -599,8 +673,15 @@ describe('RemoteEngine', () => {
         '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}`,
       },
       respond: (command) => {
-        if (command.includes('node_modules/@weilence/dsh-mcp/package.json 2>/dev/null')) {
-          return { code: 0, stdout: '{"version":"0.5.0"}\n', stderr: '' }
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
+          return {
+            code: 0,
+            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-mcp"]}}}\n',
+            stderr: '',
+          }
+        }
+        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
+          return { code: 0, stdout: '@weilence/dsh-mcp\t0.5.0\n', stderr: '' }
         }
         return undefined
       },
@@ -613,18 +694,67 @@ describe('RemoteEngine', () => {
     expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: [],
-      removed: [],
+      skipped: ['@weilence/dsh-mcp'],
     })
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync skills：按勾选推送；未勾选且远端已有 → 删除；远端独有零接触', async () => {
+  it('sync plugins：版本已装但未激活（不在 bundles）→ 重装后恢复激活', async () => {
+    const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
+    await writeFile(
+      join(localPkg, 'package.json'),
+      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.5.0' }),
+      'utf8',
+    )
     makeEngine({
-      skills: [{ key: 'user-dsh', path: 'C:/skills', names: ['kept', 'other'] }],
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: {
+        '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}`,
+      },
       respond: (command) => {
-        // 远端有 kept / other（本机同名）与 gone（远端独有，不在本机清单）
-        if (command.startsWith('ls -1 ~/.dsh/skills')) {
-          return { code: 0, stdout: 'kept\nother\ngone\n', stderr: '' }
+        // 远端 bundles 不含 dsh-mcp（node_modules 里装着也不算激活）
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
+          return {
+            code: 0,
+            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}\n',
+            stderr: '',
+          }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(fake.packedRoots()).toEqual([localPkg.replaceAll('\\', '/')])
+    expect(fake.calls.some((call) => call.command.includes("dsh plugin --profile 'web' add"))).toBe(true)
+    expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
+      installed: ['@weilence/dsh-mcp'],
+      skipped: [],
+    })
+    await rm(localPkg, { recursive: true, force: true })
+  })
+
+  it('sync skills：一致项跳过、不同项推送；未勾选与远端独有零接触（不删除）', async () => {
+    makeEngine({
+      skills: [
+        {
+          key: 'user-dsh',
+          path: 'C:/skills',
+          rows: [
+            { name: 'kept', digest: foldSkillDigest([{ path: 'kept/SKILL.md', hash: hex('a') }]) },
+            { name: 'other', digest: foldSkillDigest([{ path: 'other/SKILL.md', hash: hex('z') }]) },
+          ],
+        },
+      ],
+      respond: (command) => {
+        // 远端：kept 内容一致（hash a）、other 内容不同（hash b）、gone 为远端独有
+        if (command.startsWith('if cd ~/.dsh/skills')) {
+          return {
+            code: 0,
+            stdout: `${hex('a')}  ./kept/SKILL.md\n${hex('b')}  ./other/SKILL.md\n${hex('c')}  ./gone/SKILL.md\n`,
+            stderr: '',
+          }
         }
         return undefined
       },
@@ -643,47 +773,70 @@ describe('RemoteEngine', () => {
       manifest: {},
     })
     await engine.load()
-    engine.startSync('dev-box', 'skills', ['kept'])
+    engine.startSync('dev-box', 'skills', ['kept', 'other'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    // 只打包勾选名：other 不推
+    // 一致项 kept 跳过：tar 只打包 other
     expect(fake.tarPushes).toEqual([
-      { alias: 'dev-box', localRoot: 'C:/skills', remoteRoot: '~/.dsh/skills', names: ['kept'] },
+      { alias: 'dev-box', localRoot: 'C:/skills', remoteRoot: '~/.dsh/skills', names: ['other'] },
     ])
-    // 未勾选的本机名 other 在远端存在 → 删除；kept（勾选）与 gone（远端独有）不动
-    const remove = fake.calls.find((call) => call.command.startsWith('rm -rf'))
-    expect(remove?.command).toContain("~/.dsh/skills/'other'")
-    expect(remove?.command).not.toContain('kept')
-    expect(remove?.command).not.toContain('gone')
-    expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, deleted: 1 })
+    // 同步永不删除远端：无 rm，远端独有 / 未勾选条目零接触
+    expect(fake.calls.some((call) => call.command.includes('rm -rf'))).toBe(false)
+    expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, skipped: 1 })
   })
 
-  it('remoteInventory：三类远端清单（skills 剥 .md / MCP 按 serverName / 插件取 bundles）', async () => {
+  it('remoteInventory：三类远端事实（skills 摘要 / MCP 签名 / 插件 bundles+版本）', async () => {
     makeEngine({
       respond: (command) => {
-        if (command.startsWith('ls -1 ~/.dsh/skills'))
-          return { code: 0, stdout: 'alpha\nbeta.md\n', stderr: '' }
-        if (command.startsWith('ls -1 ~/.agents/skills')) return { code: 0, stdout: 'gamma\n', stderr: '' }
+        if (command.startsWith('if cd ~/.dsh/skills'))
+          return { code: 0, stdout: `${hex('a')}  ./alpha/SKILL.md\n${hex('b')}  ./beta.md\n`, stderr: '' }
+        if (command.startsWith('if cd ~/.agents/skills'))
+          return { code: 0, stdout: `${hex('c')}  ./gamma/SKILL.md\n`, stderr: '' }
         if (command.includes('cordis.patch.yml')) return { code: 0, stdout: REMOTE_PATCH, stderr: '' }
-        if (command.includes('profiles/web/package.json'))
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
           return {
             code: 0,
             stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-remote"]}}}\n',
             stderr: '',
           }
+        }
         return undefined
       },
     })
     await engine.save(saveRequest())
     expect(await engine.remoteInventory('dev-box')).toEqual({
-      skills: ['alpha', 'beta', 'gamma'],
-      mcp: ['demo'],
-      plugins: ['@deepseek-ai/dsh-base', '@weilence/dsh-remote'],
+      skills: {
+        'user-dsh': [
+          { name: 'alpha', digest: foldSkillDigest([{ path: 'alpha/SKILL.md', hash: hex('a') }]) },
+          { name: 'beta', digest: foldSkillDigest([{ path: 'beta.md', hash: hex('b') }]) },
+        ],
+        'user-agents': [
+          { name: 'gamma', digest: foldSkillDigest([{ path: 'gamma/SKILL.md', hash: hex('c') }]) },
+        ],
+      },
+      mcp: [
+        {
+          serverName: 'demo',
+          signature: mcpSignature({ transport: 'stdio', serverName: 'demo', command: 'npx' }, false),
+          summary: 'npx',
+        },
+        {
+          serverName: 'hand',
+          signature: mcpSignature({ transport: 'stdio', serverName: 'hand', command: 'old-cmd' }, false),
+          summary: 'old-cmd',
+        },
+      ],
+      plugins: [
+        { name: '@deepseek-ai/dsh-base', version: null },
+        { name: '@weilence/dsh-remote', version: null },
+      ],
     })
   })
 
-  it('remoteInventory：远端 patch 语法坏 → mcp 按空清单降级，不失败', async () => {
+  it('remoteInventory：patch 语法坏 → mcp null（无法比对）；hasher 缺失 → 该根 null', async () => {
     makeEngine({
       respond: (command) => {
+        if (command.startsWith('if cd ~/.dsh/skills'))
+          return { code: 0, stdout: '__DSH_NO_HASHER__\n', stderr: '' }
         if (command.includes('cordis.patch.yml')) {
           return { code: 0, stdout: '- insert: [broken\n', stderr: '' }
         }
@@ -692,7 +845,8 @@ describe('RemoteEngine', () => {
     })
     await engine.save(saveRequest())
     const inventory = await engine.remoteInventory('dev-box')
-    expect(inventory).toEqual({ skills: [], mcp: [], plugins: [] })
+    expect(inventory.skills['user-dsh']).toBeNull()
+    expect(inventory.mcp).toBeNull()
   })
 
   it('互斥：操作在途时第二个操作被拒（409 语义）', async () => {

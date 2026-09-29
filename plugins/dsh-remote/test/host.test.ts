@@ -1,6 +1,6 @@
-// host 桥：假 ctx/webServer 上的路由集成往返——守卫（Host / sec-fetch /
+// host 路由：假 ctx/webServer 上的路由集成往返——守卫（Host / sec-fetch /
 // method）、state / local-rows 读取（临时目录两层 patch）、save 校验、
-// 操作点火的 404/409/400 语义。
+// 操作触发的 404/409/400 语义。
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -168,7 +168,7 @@ async function makeHarness(): Promise<Harness> {
   return { home: root, profileDir, homeDir, request }
 }
 
-describe('dsh-remote 桥路由', () => {
+describe('dsh-remote 路由', () => {
   let harness: Harness
 
   beforeEach(async () => {
@@ -176,7 +176,7 @@ describe('dsh-remote 桥路由', () => {
   })
 
   afterEach(async () => {
-    // Windows 上句柄延迟释放会让目录删除报 ENOTEMPTY——带重试兜底
+    // Windows 上句柄延迟释放会让目录删除报 ENOTEMPTY——以重试补偿
     await rm(harness.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   })
 
@@ -223,7 +223,7 @@ describe('dsh-remote 桥路由', () => {
     expect(invalid.status).toBe(400)
   })
 
-  it('POST 操作路由：未知 id 404、缺 id 400、坏 kind 400、合法点火 200', async () => {
+  it('POST 操作路由：未知 id 404、缺 id 400、坏 kind 400、合法触发 200', async () => {
     await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
       sshAlias: 'dev-box',
@@ -233,7 +233,13 @@ describe('dsh-remote 桥路由', () => {
     expect((await harness.request('POST', '/dsh-remote/connect', {})).status).toBe(400)
     const inventory = await harness.request('POST', '/dsh-remote/remote-inventory', { id: 'dev-box' })
     expect(inventory.status).toBe(200)
-    expect(inventory.body).toEqual({ skills: [], mcp: [], plugins: [] })
+    // 假 exec 恒回空输出：skills 两根空清单、patch 空 → mcp 空、profile package.json
+    // 读不到 → plugins null（无法比对降级，不阻断同步）
+    expect(inventory.body).toEqual({
+      skills: { 'user-dsh': [], 'user-agents': [] },
+      mcp: [],
+      plugins: null,
+    })
     expect((await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'other' })).status).toBe(
       400,
     )

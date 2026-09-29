@@ -11,14 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { errMsg } from '@dsh-plugins/shared'
-import {
-  composeLocalRows,
-  profileContextOf,
-  readLocalLayers,
-  scanSkillRows,
-  scanSkillsNames,
-  skillsRoots,
-} from './localenv'
+import { composeLocalRows, profileContextOf, readLocalLayers, scanSkillRows, skillsRoots } from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
@@ -53,7 +46,7 @@ async function probeTool(command: string, args: string[]): Promise<boolean> {
 
 // 本机 dsh 运行时版本（远端部署对齐目标）：必须经宿主运行时解析取包（平台
 // 包不经 node_modules 供给，静态目录探测落空）；取不到回 null，部署段据此
-// 中止——不退装 latest 的论证见 engine ensureDeployed。
+// 中止——不回退安装 latest 的论证见 engine ensureDeployed。
 const localDshVersion: string | null = await import('@deepseek-ai/dsh-app-boot')
   .then((boot) => boot.getDshRuntimeVersion())
   .catch(() => null)
@@ -171,7 +164,7 @@ function makeEngine(ctx: Context): RemoteEngine {
         })
       }),
     // 健康检查只证明隧道通：远端对无凭据的 GET / 应答 401（index 由
-    // browser-auth 把守），任何 HTTP 响应都算隧道活着，仅网络层失败为死。
+    // browser-auth 把守），任何 HTTP 响应都表示隧道可用，仅网络层失败视为不可用。
     healthCheck: async (url) => {
       try {
         await fetch(url, { redirect: 'manual' })
@@ -183,10 +176,16 @@ function makeEngine(ctx: Context): RemoteEngine {
     pushTar: tarOverSsh,
     pushFile,
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
+    // 技能行带内容摘要：引擎的「一致即跳过推送」判定源
     scanSkills: async () => {
       const roots = []
-      for (const root of skillsRoots())
-        roots.push({ key: root.key, path: root.path, names: await scanSkillsNames(root) })
+      for (const root of skillsRoots()) {
+        roots.push({
+          key: root.key,
+          path: root.path,
+          rows: (await scanSkillRows(root)).map(({ name, digest }) => ({ name, digest })),
+        })
+      }
       return roots
     },
     localDshVersion,
@@ -212,7 +211,7 @@ export function apply(ctx: Context): void {
   applyWithEngine(ctx, makeEngine(ctx))
 }
 
-/** 桥路由挂载（engine 注入口：host.test.ts 用假引擎依赖驱动集成往返）。 */
+/** 路由挂载（engine 注入口：host.test.ts 用假引擎依赖驱动集成往返）。 */
 export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
   let toolsProbe: Promise<{ ssh: boolean; tar: boolean }> | undefined
 

@@ -3,6 +3,7 @@ import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
+  Dialog,
   MenuButton,
   Panel,
   useWideSettingsDialog,
@@ -65,9 +66,11 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
 
   const connections = state.list?.connections ?? []
   const env = state.list?.env
-  const { syncing, deleting } = state
+  const { syncing, deleting, connectPrompt } = state
   const syncTarget = syncing === null ? undefined : connections.find((row) => row.id === syncing.id)
   const deleteTarget = deleting === null ? undefined : connections.find((row) => row.id === deleting.id)
+  const connectTarget =
+    connectPrompt === null ? undefined : connections.find((row) => row.id === connectPrompt.id)
 
   return (
     <Panel title="远程开发">
@@ -149,6 +152,31 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
           onClose={() => store.askSync(null)}
         />
       ) : null}
+      {connectTarget !== undefined ? (
+        <Dialog
+          title="连接远端"
+          description={`同步插件需要远端已连接。现在连接「${connectTarget.label}」（${connectTarget.sshAlias}）？`}
+          onClose={() => store.askConnect(null)}
+          actions={
+            <>
+              <Button variant="outline" onClick={() => store.askConnect(null)}>
+                取消
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  // 连接是长操作：随即关窗，进度由卡片 op pill 呈现，连接后用户重点一次菜单
+                  store.askConnect(null)
+                  void store.connect(connectTarget.id)
+                }}
+              >
+                连接
+              </Button>
+            </>
+          }
+          children={null}
+        />
+      ) : null}
       {deleteTarget !== undefined ? (
         <ConfirmDialog
           title="删除连接"
@@ -207,25 +235,27 @@ function connectionCard(
     <div>
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
-          上次 skills 同步：推送 {row.state.lastSync.skills.pushed} · 删除 {row.state.lastSync.skills.deleted}
+          上次 skills 同步：推送 {row.state.lastSync.skills.pushed}
+          {row.state.lastSync.skills.skipped > 0
+            ? ` · 跳过 ${row.state.lastSync.skills.skipped}（已一致）`
+            : ''}
           （{new Date(row.state.lastSync.skills.at).toLocaleString()}）
         </p>
       ) : null}
       {row.state.lastSync.mcp !== null ? (
         <p className={styles.rowWhen}>
           上次 MCP 同步：{row.state.lastSync.mcp.installed.length} 行
-          {row.state.lastSync.mcp.removed.length > 0
-            ? ` · 移除 ${row.state.lastSync.mcp.removed.length} 行`
+          {row.state.lastSync.mcp.skipped.length > 0
+            ? ` · 跳过 ${row.state.lastSync.mcp.skipped.length}（已一致）`
             : ''}
           （{new Date(row.state.lastSync.mcp.at).toLocaleString()}）
         </p>
       ) : null}
       {row.state.lastSync.plugins !== null ? (
         <p className={styles.rowWhen}>
-          上次插件同步：装 {row.state.lastSync.plugins.installed.length} · 卸{' '}
-          {row.state.lastSync.plugins.removed.length}
+          上次插件同步：装 {row.state.lastSync.plugins.installed.length}
           {row.state.lastSync.plugins.skipped.length > 0
-            ? ` · 跳过 ${row.state.lastSync.plugins.skipped.length}（本机已无此插件）`
+            ? ` · 跳过 ${row.state.lastSync.plugins.skipped.length}（已一致）`
             : ''}
           （{new Date(row.state.lastSync.plugins.at).toLocaleString()}）
         </p>
@@ -263,21 +293,23 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        {/* 同步写入远端后靠实例 HMR 在线生效，未连接不显示同步入口 */}
-        {running !== null ? (
-          <MenuButton
-            label="同步 ▾"
-            disabled={busy || opBusy}
-            items={[
-              { id: 'skills', label: '同步 skills' },
-              { id: 'mcp', label: '同步 MCP' },
-              { id: 'plugins', label: '同步插件' },
-            ]}
-            onSelect={(id) => {
-              if (id === 'skills' || id === 'mcp' || id === 'plugins') store.askSync({ id: row.id, kind: id })
-            }}
-          />
-        ) : null}
+        {/* skills / MCP 同步仅需 ssh 可达，全阶段常驻；插件安装依赖连接部署出的
+            远端 dsh，未连接时引导先连接 */}
+        <MenuButton
+          label="同步 ▾"
+          disabled={busy || opBusy}
+          items={[
+            { id: 'skills', label: '同步 skills' },
+            { id: 'mcp', label: '同步 MCP' },
+            { id: 'plugins', label: '同步插件' },
+          ]}
+          onSelect={(id) => {
+            if (id === 'skills' || id === 'mcp' || id === 'plugins') {
+              if (id === 'plugins' && row.state.running === null) store.askConnect(row)
+              else store.askSync({ id: row.id, kind: id })
+            }
+          }}
+        />
         <Button
           size="sm"
           variant="ghost"

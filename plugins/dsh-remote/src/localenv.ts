@@ -1,4 +1,5 @@
 // 本机清单只读扫描；本地写管理归 dsh-skills / dsh-mcp。
+import { createHash } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
@@ -7,6 +8,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   MCP_PLUGIN_NAME,
   isRemoteSelf,
+  mcpSignature,
   type LocalMcpRow,
   type LocalPluginRow,
   type LocalSkillRow,
@@ -54,6 +56,50 @@ export async function scanSkillsNames(root: SkillsRoot): Promise<string[]> {
   return names.sort()
 }
 
+/** 折叠一个技能全部文件的摘要行 → 单一内容指纹。本机扫描与远端
+ *  `find | sha256sum` 输出共用此折叠（收集规则两侧镜像：POSIX 相对路径、
+ *  跳过 '.' 开头路径段、目录包与 `<name>.md` 单文件并集），保证同内容必同指纹。 */
+export function foldSkillDigest(files: readonly { path: string; hash: string }[]): string {
+  const material = [...files]
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+    .map((file) => `${file.path}\0${file.hash}\0`)
+    .join('')
+  return createHash('sha256').update(material).digest('hex')
+}
+
+async function fileHash(file: string): Promise<string> {
+  return createHash('sha256')
+    .update(await readFile(file))
+    .digest('hex')
+}
+
+/** 一个技能的文件摘要行：目录包递归 + `<name>.md` 单文件（两者并存取并集，
+ *  镜像远端整根 find 的视角）；隐藏段跳过（对齐官方发现层对 '.' 的跳过）。 */
+async function skillFileHashes(root: SkillsRoot, name: string): Promise<{ path: string; hash: string }[]> {
+  const files: { path: string; hash: string }[] = []
+  const walk = async (dir: string, prefix: string): Promise<void> => {
+    let entries: Dirent[]
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return // 目录不存在（单文件技能）或扫描窗口内消失：无目录文件可计
+    }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.')) continue
+      const rel = `${prefix}${entry.name}`
+      if (entry.isDirectory()) await walk(join(dir, entry.name), `${rel}/`)
+      else if (entry.isFile()) files.push({ path: rel, hash: await fileHash(join(dir, entry.name)) })
+    }
+  }
+  await walk(join(root.path, name), `${name}/`)
+  try {
+    files.push({ path: `${name}.md`, hash: await fileHash(`${join(root.path, name)}.md`) })
+  } catch {
+    // 无单文件形态（目录包技能的常态）
+  }
+  return files
+}
+
 /** frontmatter 的 description 首行值（宽容提取；无 frontmatter / 失败为 null）。 */
 async function skillDescription(file: string): Promise<string | null> {
   try {
@@ -68,7 +114,7 @@ async function skillDescription(file: string): Promise<string | null> {
   }
 }
 
-/** 技能根扫描为 wire 行（名字 + 所在根 + description 摘要），供同步弹窗勾选。 */
+/** 技能根扫描为 wire 行（名字 + 所在根 + description 摘要 + 内容指纹），供同步弹窗勾选。 */
 export async function scanSkillRows(root: SkillsRoot): Promise<LocalSkillRow[]> {
   const rows: LocalSkillRow[] = []
   for (const name of await scanSkillsNames(root)) {
@@ -76,7 +122,14 @@ export async function scanSkillRows(root: SkillsRoot): Promise<LocalSkillRow[]> 
     const description =
       (await skillDescription(join(root.path, name, 'SKILL.md'))) ??
       (await skillDescription(`${join(root.path, name)}.md`))
-    rows.push({ name, root: root.key, description })
+    let digest: string | null
+    try {
+      digest = foldSkillDigest(await skillFileHashes(root, name))
+    } catch {
+      // 扫描窗口内被删等：按无法比对处理（同步侧保守推送）
+      digest = null
+    }
+    rows.push({ name, root: root.key, description, digest })
   }
   return rows
 }
@@ -140,7 +193,7 @@ export interface ProfileContextLike {
   home?: unknown
 }
 
-/** 防御式读取 profileContext（缺席返回 undefined）。 */
+/** 防御式读取 profileContext（不可用时返回 undefined）。 */
 export function profileContextOf(ctx: { get(name: string): unknown }):
   | {
       name: string | null
@@ -159,7 +212,7 @@ export function profileContextOf(ctx: { get(name: string): unknown }):
   }
 }
 
-/** 读两层本机 patch（profile 层经 profileContext；home 层兜底 DSH_HOME）。 */
+/** 读两层本机 patch（profile 层经 profileContext；home 层回退到 DSH_HOME）。 */
 export async function readLocalLayers(
   profile: { patchPath: string; home: string } | undefined,
 ): Promise<LocalPatchLayer[]> {
@@ -176,7 +229,7 @@ export interface FoldedMcpRow {
   disabled: boolean
 }
 
-/** MCP 行的 fold：先按序收集全部裸覆盖（后层覆盖前层），再套到 insert 上。 */
+/** MCP 行的 fold：先按序收集全部覆盖行（后层覆盖前层），再套到 insert 上。 */
 export function foldMcpRows(layers: readonly LocalPatchLayer[]): FoldedMcpRow[] {
   const overrides = new Map<string, { config?: Record<string, unknown>; disabled?: boolean }>()
   for (const layer of layers) {
@@ -215,7 +268,7 @@ export function foldMcpRows(layers: readonly LocalPatchLayer[]): FoldedMcpRow[] 
   return [...byId.values()]
 }
 
-function mcpSummary(config: Record<string, unknown>): string {
+export function mcpSummary(config: Record<string, unknown>): string {
   if (config.transport === 'stdio') {
     const command = typeof config.command === 'string' ? config.command : ''
     const args = Array.isArray(config.args) ? config.args.join(' ') : ''
@@ -266,11 +319,12 @@ export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Prom
   mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
 }> {
-  const mcpRows: LocalMcpRow[] = foldMcpRows(layers).map(({ row, config }) => ({
+  const mcpRows: LocalMcpRow[] = foldMcpRows(layers).map(({ row, config, disabled }) => ({
     id: row.id,
     serverName:
       typeof config.serverName === 'string' && config.serverName.length > 0 ? config.serverName : null,
     summary: mcpSummary(config),
+    signature: mcpSignature(config, disabled),
   }))
   mcpRows.sort((left, right) => ((left.serverName ?? left.id) < (right.serverName ?? right.id) ? -1 : 1))
 

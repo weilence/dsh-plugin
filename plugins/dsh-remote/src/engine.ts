@@ -3,7 +3,7 @@ import { SshFailure, shQuote } from './ssh'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
-import { composeLocalRows, foldMcpRows, scanSkillsNames, skillsRoots, type LocalPatchLayer } from './localenv'
+import { composeLocalRows, foldMcpRows, foldSkillDigest, mcpSummary, type LocalPatchLayer } from './localenv'
 import {
   emptyPatchDoc,
   parsePatchDoc,
@@ -17,12 +17,18 @@ import {
   REMOTE_PLUGIN_NAME,
   REMOTE_PROFILE,
   isRemoteSelf,
+  mcpSignature,
+  pluginStatus,
+  skillStatus,
   type ConnOp,
   type ConnRow,
   type ConnState,
   type RegistryPluginInstall,
   type RemoteConnection,
   type RemoteInventoryResponse,
+  type RemoteMcpFact,
+  type RemotePluginFact,
+  type RemoteSkillFact,
   type SaveRequest,
   type SshErrorKind,
   type SyncKind,
@@ -46,8 +52,10 @@ export interface EngineDeps {
   /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
   pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
   readLocalLayers(): Promise<LocalPatchLayer[]>
-  scanSkills(): Promise<{ key: 'user-dsh' | 'user-agents'; path: string; names: string[] }[]>
-  /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 连接部署段直接失败（禁止退装 latest）。 */
+  scanSkills(): Promise<
+    { key: 'user-dsh' | 'user-agents'; path: string; rows: { name: string; digest: string | null }[] }[]
+  >
+  /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 连接部署段直接失败（禁止回退安装 latest）。 */
   localDshVersion: string | null
   /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
   localPluginVersion: string | null
@@ -279,8 +287,8 @@ export class RemoteEngine {
     void this.runConnect(connection)
   }
 
-  /** 连接的部署段：环境探针 + dsh 版本对齐 + 本插件安装；已装齐时秒过。
-   *  失败原样抛给 runConnect 的 catch 统一 fail（error 相位）。 */
+  /** 连接的部署段：环境探针 + dsh 版本对齐 + 本插件安装；已装齐时立即完成。
+   *  失败原样抛给 runConnect 的 catch 统一 fail（error 阶段）。 */
   private async ensureDeployed(id: string): Promise<void> {
     const alias = this.connectionOf(id).sshAlias
 
@@ -306,13 +314,13 @@ export class RemoteEngine {
     }
 
     // 远端 dsh 版本对齐本机；探测失败直接终止——npm 的 latest 标签可能落后
-    // 于 next（实测 latest=0.1.7-rc.2、0.2 线在 next），退装会装出旧线触发
+    // 于 next（实测 latest=0.1.7-rc.2、0.2 线在 next），回退安装会装出旧版本线，触发
     // 插件的 engines 版本闸门。
     const wantVersion = this.deps.localDshVersion
     if (wantVersion === null) {
       throw new SshFailure(
         'unknown',
-        '本机 dsh 运行时版本探测失败（@deepseek-ai/dsh-app-boot 不可达）：远端不退装 latest，已中止装配',
+        '本机 dsh 运行时版本探测失败（@deepseek-ai/dsh-app-boot 不可达）：远端不回退安装 latest，已中止装配',
       )
     }
     this.step(id, 'install-dsh', wantVersion)
@@ -333,7 +341,7 @@ export class RemoteEngine {
       }
     }
 
-    // 远端默认只装本插件——tgz 推送安装（裸名 dsh-remote 在 npm 已被第三方
+    // 远端默认只装本插件——tgz 推送安装（无 scope 包名 dsh-remote 在 npm 已被第三方
     // 包占用，不能走 registry）；版本与 profile 登记都一致时跳过。
     this.step(id, 'install-plugin', REMOTE_PLUGIN_NAME)
     const localPluginVersion = this.deps.localPluginVersion
@@ -404,14 +412,14 @@ export class RemoteEngine {
       const runtime = this.runtimeOf(id)
       runtime.running = null
 
-      // 部署段先行（幂等，已装齐秒过）；装配完成进入启动段（相位驱动面板 pill）
+      // 部署段先行（幂等，已装齐时直接跳过）；装配完成进入启动段（阶段驱动面板 pill）
       await this.ensureDeployed(id)
       runtime.phase = 'starting'
 
       const log = `~/.dsh/dsh-remote/${id}.log`
       const pidFile = `~/.dsh/dsh-remote/${id}.pid`
       this.step(id, 'start', REMOTE_PROFILE)
-      // pid 文件里的实例仍活着就复用（重试连接不再叠加新实例，token 不变）；
+      // pid 文件里的实例仍在运行就复用（重试连接不再叠加新实例，token 不变）；
       // 日志与 pid 由同一次启动写入，存活即两者一致。
       const start = await this.deps.exec(
         alias,
@@ -513,73 +521,137 @@ export class RemoteEngine {
     }
   }
 
-  /** 远端 skills 两根的技能名：目录名即技能名，.md 单文件剥后缀；读取失败按空。 */
-  private async remoteSkillNames(alias: string): Promise<Record<'user-dsh' | 'user-agents', string[]>> {
-    const roots = { 'user-dsh': '~/.dsh/skills', 'user-agents': '~/.agents/skills' } as const
-    const out: Record<'user-dsh' | 'user-agents', string[]> = { 'user-dsh': [], 'user-agents': [] }
-    for (const key of ['user-dsh', 'user-agents'] as const) {
-      const list = await this.deps.exec(alias, `ls -1 ${roots[key]} 2>/dev/null || true`)
-      out[key] = list.stdout
-        .split(/\r?\n/)
-        .map((line) => line.trim().replace(/\.md$/, ''))
-        .filter((name) => name.length > 0)
+  /** 远端一个 skills 根的技能内容指纹：find|sha256 管线一次取整根文件摘要，
+   *  host 侧按顶层段折成 name → digest（与 localenv.foldSkillDigest 同一折叠）。
+   *  hasher 缺失 / 命令失败回 null——该根全部按「无法比对」保守推送。
+   *  刻意不比 mtime / mode：声明语义只关心内容字节。 */
+  private async remoteSkillFacts(
+    alias: string,
+    key: 'user-dsh' | 'user-agents',
+  ): Promise<RemoteSkillFact[] | null> {
+    const root = key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
+    const list = await this.deps.exec(
+      alias,
+      `if cd ${root} 2>/dev/null; then if command -v sha256sum >/dev/null 2>&1; then find . -type f ! -path '*/.*' -print0 | xargs -0 sha256sum; elif command -v shasum >/dev/null 2>&1; then find . -type f ! -path '*/.*' -print0 | xargs -0 shasum -a 256; else echo __DSH_NO_HASHER__; fi; fi`,
+    )
+    if (list.code !== 0 || list.stdout.includes('__DSH_NO_HASHER__')) return null
+    const byName = new Map<string, { path: string; hash: string }[]>()
+    for (const line of list.stdout.split(/\r?\n/)) {
+      // sha256sum / shasum 输出形态：`<hash>  ./path`（二进制模式为 ` *./path`）
+      const match = /^([0-9a-f]{64})[ *]+(.+)$/.exec(line)
+      if (match === null) continue
+      const path = match[2].replace(/^\.\//, '')
+      const slash = path.indexOf('/')
+      const top = slash === -1 ? path : path.slice(0, slash)
+      const name = top.endsWith('.md') ? top.slice(0, -'.md'.length) : top
+      if (name.length === 0) continue
+      const files = byName.get(name) ?? []
+      files.push({ path, hash: match[1] })
+      byName.set(name, files)
     }
-    return out
+    return [...byName].map(([name, files]) => ({ name, digest: foldSkillDigest(files) }))
   }
 
-  /** 远端 patch 内 MCP 行的 serverName → 行 id（手写行 id 不必循命名约定，按 serverName 对齐）。 */
-  private mcpEntriesOfDoc(doc: ReturnType<typeof parsePatchDoc>): Map<string, string> {
-    const entries = new Map<string, string>()
+  /** 远端 patch 内 MCP 行的事实（serverName → 行 id / 配置签名 / 摘要；手写行
+   *  id 不必循命名约定，按 serverName 对齐）。 */
+  private mcpFactsOfDoc(
+    doc: ReturnType<typeof parsePatchDoc>,
+  ): Map<string, { id: string; signature: string; summary: string }> {
+    const facts = new Map<string, { id: string; signature: string; summary: string }>()
     for (const row of scanInserts(doc)) {
       if (row.name !== MCP_PLUGIN_NAME) continue
       const serverName = asServerName(row.config)
-      if (serverName !== undefined) entries.set(serverName, row.id)
+      if (serverName === undefined) continue
+      const config =
+        typeof row.config === 'object' && row.config !== null && !Array.isArray(row.config)
+          ? (row.config as Record<string, unknown>)
+          : {}
+      facts.set(serverName, {
+        id: row.id,
+        signature: mcpSignature(config, row.disabled === true),
+        summary: mcpSummary(config),
+      })
     }
-    return entries
+    return facts
   }
 
-  /** 远端 profile 已激活的插件包名（dsh.profile.bundles，含 shipped base；消费侧按本机清单交集）。 */
-  private async remoteBundleNames(alias: string): Promise<Set<string>> {
+  /** 远端插件事实：bundles 激活清单 + 激活插件的已装版本（一条 node 批量读，
+   *  部署前置保证远端有 node；pnpm 的 node_modules 符号链接 cat 可直接穿透）。
+   *  任一环节失败回 null——按「无法比对」处理，同步侧保守安装。 */
+  private async remotePluginFacts(
+    alias: string,
+    names: readonly string[],
+  ): Promise<RemotePluginFact[] | null> {
     const pkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
     const current = await this.deps.exec(alias, `cat ${pkg} 2>/dev/null || true`)
+    let bundles: string[]
     try {
       const parsed = JSON.parse(current.stdout) as { dsh?: { profile?: { bundles?: unknown } } }
-      const bundles = parsed.dsh?.profile?.bundles
-      return new Set(
-        Array.isArray(bundles) ? bundles.filter((name): name is string => typeof name === 'string') : [],
-      )
+      const raw = parsed.dsh?.profile?.bundles
+      bundles = Array.isArray(raw) ? raw.filter((name): name is string => typeof name === 'string') : []
     } catch {
-      return new Set()
+      return null
     }
+    const versions = new Map<string, string | null>()
+    const probe = bundles.filter((name) => names.includes(name))
+    if (probe.length > 0) {
+      const script =
+        'for (const n of process.argv.slice(1)) { let v = ""; try { v = String(JSON.parse(require("fs").readFileSync(n + "/package.json", "utf8")).version ?? "") } catch {} console.log(n + "\\t" + v) }'
+      const read = await this.deps.exec(
+        alias,
+        `cd ~/.dsh/profiles/${REMOTE_PROFILE}/node_modules && node -e ${shQuote(script)} ${probe
+          .map((name) => shQuote(name))
+          .join(' ')}`,
+        { timeoutMs: 60_000 },
+      )
+      if (read.code !== 0) return null
+      for (const line of read.stdout.split(/\r?\n/)) {
+        const tab = line.indexOf('\t')
+        if (tab <= 0) continue
+        const version = line.slice(tab + 1).trim()
+        versions.set(line.slice(0, tab), version.length > 0 ? version : null)
+      }
+    }
+    return bundles.map((name) => ({ name, version: versions.get(name) ?? null }))
   }
 
-  /** POST /remote-inventory：同步弹窗的默认勾选源（远端已有即勾选；差异对比后续迭代）。
-   *  读侧任一环节失败按空清单降级——ssh 连接级失败仍抛（路由转 5xx，弹窗提示重试）。 */
+  /** POST /remote-inventory：同步弹窗的徽标判定源（远端三类条目的事实）。
+   *  读侧任一环节失败按该类 null 降级——弹窗按「无法比对」渲染但不阻断同步
+   *  （只有新增/覆盖，无删除风险）；ssh 连接级失败仍抛（路由转 5xx，弹窗提示）。 */
   async remoteInventory(id: string): Promise<RemoteInventoryResponse> {
     await this.load()
     const alias = this.connectionOf(id).sshAlias
-    const skills = await this.remoteSkillNames(alias)
+    const skills = {
+      'user-dsh': await this.remoteSkillFacts(alias, 'user-dsh'),
+      'user-agents': await this.remoteSkillFacts(alias, 'user-agents'),
+    }
     const patch = await this.deps.exec(
       alias,
       `cat ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}/cordis.patch.yml || true`,
     )
-    let mcpEntries = new Map<string, string>()
+    let mcp: RemoteMcpFact[] | null = []
     if (patch.stdout.trim().length > 0) {
       try {
-        mcpEntries = this.mcpEntriesOfDoc(parsePatchDoc(patch.stdout))
+        mcp = [...this.mcpFactsOfDoc(parsePatchDoc(patch.stdout))].map(([serverName, fact]) => ({
+          serverName,
+          signature: fact.signature,
+          summary: fact.summary,
+        }))
       } catch {
-        // 远端 patch 语法坏：按无 MCP 行处理（写入侧 doMcpSync 会显式失败并报原因）
+        // 远端 patch 语法坏：无法比对（写入侧 doMcpSync 会显式失败并报原因）
+        mcp = null
       }
     }
-    const plugins = await this.remoteBundleNames(alias)
-    return {
-      skills: [...new Set([...skills['user-dsh'], ...skills['user-agents']])],
-      mcp: [...mcpEntries.keys()],
-      plugins: [...plugins],
-    }
+    const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
+    const plugins = await this.remotePluginFacts(
+      alias,
+      pluginRows.map((row) => row.name),
+    )
+    return { skills, mcp, plugins }
   }
 
-  /** 点火声明式同步：names 为勾选项（目标态），未勾选且远端已有的删除。 */
+  /** 触发同步：names 为勾选项（勾选 = 安装/覆盖，一致项引擎侧跳过；
+   *  未勾选 = 不动——只新增/覆盖，永不删除远端内容）。 */
   startSync(
     id: string,
     kind: SyncKind,
@@ -603,101 +675,117 @@ export class RemoteEngine {
     })()
   }
 
-  /** skills 单向同步：勾选名按根打包推送；未勾选且远端已有的删除（本机清单外零接触）。 */
+  /** skills 同步：勾选且指纹不同的按根打包推送；一致项跳过（不重传）；
+   *  未勾选不动——同步只往远端新增/覆盖，不删除远端内容。 */
   private async doSkillsSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
-    const remoteRoots = await this.remoteSkillNames(connection.sshAlias)
     const next: Record<string, string[]> = {}
     let pushed = 0
-    let deleted = 0
+    let skipped = 0
     for (const root of await this.deps.scanSkills()) {
       const remoteRoot = root.key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
-      const chosen = root.names.filter((name) => selected.has(name))
+      const picked = root.rows.filter((row) => selected.has(row.name))
+      // 该根无勾选项：既不推送也无需取远端指纹（省两次 ssh 往返）
+      if (picked.length === 0) {
+        next[root.key] = []
+        continue
+      }
+      const facts = await this.remoteSkillFacts(connection.sshAlias, root.key)
+      const factByName = new Map((facts ?? []).map((fact) => [fact.name, fact]))
+      const chosen: string[] = []
+      for (const row of picked) {
+        const status = facts === null ? 'unknown' : skillStatus(row.digest, factByName.get(row.name))
+        if (status === 'same') skipped += 1
+        else chosen.push(row.name)
+      }
       next[root.key] = chosen
       if (chosen.length > 0) {
         this.step(id, 'push', `${root.key} ${chosen.length} 项`)
         await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot, chosen)
         pushed += chosen.length
       }
-      // 未勾选且远端已有 → 删除（rm 幂等；远端独有名不在本机清单，不会出现在这里）
-      const remote = new Set(remoteRoots[root.key])
-      const gone = root.names.filter((name) => !selected.has(name) && remote.has(name))
-      if (gone.length === 0) continue
-      this.step(id, 'clean', `${gone.length} 项`)
-      const targets = gone
-        .map((name) => `${remoteRoot}/${shQuote(name)} ${remoteRoot}/${shQuote(`${name}.md`)}`)
-        .join(' ')
-      const remove = await this.deps.exec(connection.sshAlias, `rm -rf ${targets}`)
-      if (remove.code !== 0) {
-        throw new SshFailure(
-          'remote-cmd-failed',
-          `远端清理失效技能失败：${remove.stderr.trim().slice(0, 200)}`,
-        )
-      }
-      deleted += gone.length
     }
     this.store.manifest[id] = { ...this.manifestOf(id), skills: next }
     await this.persist()
-    runtime.lastSync.skills = { at: this.deps.now(), pushed, deleted }
+    runtime.lastSync.skills = { at: this.deps.now(), pushed, skipped }
   }
 
-  /** MCP 同步：本机两层 patch fold 出选中 serverName 的生效配置，整块写进远端 profile patch。 */
+  /** MCP 同步：本机两层 patch fold 出选中 serverName 的生效配置，只把签名不同的
+   *  行写进远端 profile patch——一致项跳过，全部一致则整次不写盘（不触发远端
+   *  HMR / mtime 抖动）。远端手写行（同 serverName 不同 id）被本机行替换：
+   *  覆盖语义，不是删除远端条目。未勾选不动。 */
   private async doMcpSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
     const layers = await this.deps.readLocalLayers()
-    const rows: { id: string; name: string; config: Record<string, unknown>; disabled?: boolean }[] = []
-    const localNames: string[] = []
+    const rows: {
+      serverName: string
+      id: string
+      name: string
+      config: Record<string, unknown>
+      disabled?: boolean
+    }[] = []
     for (const entry of foldMcpRows(layers)) {
       const serverName = asServerName(entry.config)
-      if (serverName === undefined) continue
-      localNames.push(serverName)
-      if (selected.has(serverName)) {
-        rows.push({
-          id: entry.row.id,
-          name: MCP_PLUGIN_NAME,
-          config: entry.config,
-          // 只写 true：显式 false 会渲染成 YAML 行（upsertInsertRow 对 undefined 不写）
-          disabled: entry.disabled || undefined,
-        })
-      }
+      if (serverName === undefined || !selected.has(serverName)) continue
+      rows.push({
+        serverName,
+        id: entry.row.id,
+        name: MCP_PLUGIN_NAME,
+        config: entry.config,
+        // 只写 true：显式 false 会渲染成 YAML 行（upsertInsertRow 对 undefined 不写）
+        disabled: entry.disabled || undefined,
+      })
     }
-    const installed = rows.map((row) => row.id)
 
     const remotePatch = `~/.dsh/profiles/${REMOTE_PROFILE}/cordis.patch.yml`
     this.step(id, 'read-remote', remotePatch)
     const current = await this.deps.exec(connection.sshAlias, `cat ${remotePatch} || true`)
     const doc = current.stdout.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(current.stdout)
+    const remoteFacts = this.mcpFactsOfDoc(doc)
 
-    // 未勾选且远端已有（按 serverName 对齐，手写行 id 不必循命名约定）→ 移除
-    const remoteEntries = this.mcpEntriesOfDoc(doc)
-    const removed = localNames
-      .filter((serverName) => !selected.has(serverName))
-      .map((serverName) => remoteEntries.get(serverName))
-      .filter((rowId): rowId is string => rowId !== undefined)
-    this.step(id, 'merge', `${installed.length} 行`)
-    for (const row of rows) upsertInsertRow(doc, row)
-    if (removed.length > 0) removeInsertRows(doc, new Set(removed))
+    const writes: typeof rows = []
+    const skipped: string[] = []
+    const replacedIds = new Set<string>()
+    for (const row of rows) {
+      const fact = remoteFacts.get(row.serverName)
+      if (fact !== undefined) {
+        if (fact.signature === mcpSignature(row.config, row.disabled === true)) {
+          skipped.push(row.serverName)
+          continue
+        }
+        if (fact.id !== row.id) replacedIds.add(fact.id)
+      }
+      writes.push(row)
+    }
+    const installed = writes.map((row) => row.id)
 
-    this.step(id, 'write-remote')
-    await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
-    const write = await this.deps.exec(
-      connection.sshAlias,
-      `cat > ${remotePatch}.tmp-dsh-remote && mv ${remotePatch}.tmp-dsh-remote ${remotePatch}`,
-      { stdin: renderPatchDoc(doc) },
-    )
-    if (write.code !== 0)
-      throw new SshFailure('remote-cmd-failed', `远端 patch 写入失败：${write.stderr.trim()}`)
+    if (writes.length > 0) {
+      this.step(id, 'merge', `${writes.length} 行`)
+      if (replacedIds.size > 0) removeInsertRows(doc, replacedIds)
+      for (const row of writes) upsertInsertRow(doc, row)
+
+      this.step(id, 'write-remote')
+      await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
+      const write = await this.deps.exec(
+        connection.sshAlias,
+        `cat > ${remotePatch}.tmp-dsh-remote && mv ${remotePatch}.tmp-dsh-remote ${remotePatch}`,
+        { stdin: renderPatchDoc(doc) },
+      )
+      if (write.code !== 0)
+        throw new SshFailure('remote-cmd-failed', `远端 patch 写入失败：${write.stderr.trim()}`)
+    }
 
     this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
     await this.persist()
-    runtime.lastSync.mcp = { at: this.deps.now(), installed, removed }
+    runtime.lastSync.mcp = { at: this.deps.now(), installed, skipped }
   }
 
-  /** 插件同步：本地路径安装的插件永远本地打包传输（未发布的开发代码也只有
-   *  这条路能到达远端）；registry 插件按调用选项分流（推送 / 远端 npm 下载）。
-   *  逐插件版本对比，远端已同版本即跳过——重复同步幂等；未勾选且远端已激活的移除。 */
+  /** 插件同步：勾选项逐个比对「bundles 激活 + 已装版本」，一致跳过，其余安装
+   *  （版本同但未激活也走重装——否则已安装但未激活的插件永远无法激活）。本地路径
+   *  安装恒本地打包传输（未发布的开发版本也只有这条路径能到达远端），registry
+   *  插件按调用选项分流推送 / 远端 npm 下载。未勾选不动（不删除）。 */
   private async doPluginSync(
     id: string,
     selectedIn: ReadonlySet<string>,
@@ -708,29 +796,22 @@ export class RemoteEngine {
     const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
     const byName = new Map(pluginRows.map((row) => [row.name, row]))
     const selected = [...selectedIn].filter((name) => !isRemoteSelf(name) && byName.has(name))
-    const skipped = [...selectedIn].filter((name) => !isRemoteSelf(name) && !byName.has(name))
-    // 未勾选且远端已激活（bundles）→ 移除
-    const remotePlugins = await this.remoteBundleNames(connection.sshAlias)
-    const toRemove = [...byName.keys()].filter(
-      (name) => !isRemoteSelf(name) && !selected.includes(name) && remotePlugins.has(name),
+    const facts = await this.remotePluginFacts(
+      connection.sshAlias,
+      pluginRows.map((row) => row.name),
     )
+    const factByName = facts === null ? null : new Map(facts.map((fact) => [fact.name, fact]))
 
     const installed: string[] = []
+    const skipped: string[] = []
     for (const name of selected) {
       const row = byName.get(name)
       if (row === undefined) continue
-      // 版本对比：远端 node_modules 已装同版本 → 跳过
-      const remotePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${row.name}/package.json`
-      const current = await this.deps.exec(connection.sshAlias, `cat ${remotePkg} 2>/dev/null || true`)
-      let remoteVersion: string | null = null
-      try {
-        const parsed = JSON.parse(current.stdout) as { version?: unknown }
-        remoteVersion =
-          typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
-      } catch {
-        // cat 空（未装）：按未装处理
+      const status = factByName === null ? 'unknown' : pluginStatus(row.version, factByName.get(name))
+      if (status === 'same') {
+        skipped.push(name)
+        continue
       }
-      if (remoteVersion !== null && remoteVersion === row.version) continue
 
       this.step(id, 'install', row.name)
       const viaPush = row.install === 'local' || registryInstall === 'push'
@@ -750,24 +831,9 @@ export class RemoteEngine {
       installed.push(row.name)
     }
 
-    if (toRemove.length > 0) {
-      this.step(id, 'remove', toRemove.join(' '))
-      const remove = await this.deps.exec(
-        connection.sshAlias,
-        `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} remove ${toRemove.map((name) => shQuote(name)).join(' ')}`,
-        { timeoutMs: 300_000 },
-      )
-      if (remove.code !== 0) {
-        throw new SshFailure(
-          'remote-cmd-failed',
-          `远端插件移除失败：${remove.stderr.trim().split(/\r?\n/).slice(-3).join(' ').slice(0, 300)}`,
-        )
-      }
-    }
-
     this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
     await this.persist()
-    runtime.lastSync.plugins = { at: this.deps.now(), installed, removed: toRemove, skipped }
+    runtime.lastSync.plugins = { at: this.deps.now(), installed, skipped }
   }
 
   /** 打包本机包根 → 推送 payload → 远端 add tgz（本地路径插件与选项 push 的 registry 插件共用）。 */

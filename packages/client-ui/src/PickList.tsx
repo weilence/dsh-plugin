@@ -11,6 +11,9 @@ export interface PickItem {
   notes?: readonly string[]
   /** 存在即禁选并红字展示原因。 */
   problem?: string
+  /** 勾选锁定：渲染为已勾选 + 不可切换（正常配色，区别于 problem 的红字禁选）；
+   *  picked 集合里应恒含此 key。 */
+  locked?: boolean
 }
 
 export function PickList(props: {
@@ -28,7 +31,7 @@ export function PickList(props: {
             <input
               type="checkbox"
               checked={picked.has(item.key)}
-              disabled={item.problem !== undefined}
+              disabled={item.locked === true || item.problem !== undefined}
               onChange={() => onToggle(item.key)}
             />
             <span className={shared.pickMain}>

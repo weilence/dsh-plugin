@@ -27,6 +27,8 @@ export interface RemoteState {
   deleting: ConnRow | null
   /** 同步弹窗的目标：连接 + 从下拉菜单选定的类别（勾选清单在弹窗内编辑）。 */
   syncing: { id: string; kind: SyncKind } | null
+  /** 未连接时点「同步插件」的引导目标（插件安装依赖连接部署出的远端 dsh）。 */
+  connectPrompt: ConnRow | null
 }
 
 const INITIAL: RemoteState = {
@@ -41,6 +43,7 @@ const INITIAL: RemoteState = {
   testResult: null,
   deleting: null,
   syncing: null,
+  connectPrompt: null,
 }
 
 const FAST_POLL_MS = 1_200
@@ -167,6 +170,10 @@ export class RemoteStore {
 
   askSync(target: { id: string; kind: SyncKind } | null): void {
     this.set({ syncing: target })
+  }
+
+  askConnect(row: ConnRow | null): void {
+    this.set({ connectPrompt: row })
   }
 
   dismissNotice(): void {

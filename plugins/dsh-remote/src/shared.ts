@@ -1,10 +1,10 @@
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 
-/** 本插件包名（scoped，weilence.com 域名空间；裸名 dsh-remote 在 npm 已被第三方占用，
+/** 本插件包名（scoped，weilence.com 域名空间；无 scope 包名 dsh-remote 在 npm 已被第三方占用，
  *  远端安装因此不走 registry——部署时本地打包 tgz 推送，见 engine ensureDeployed）。 */
 export const REMOTE_PLUGIN_NAME = '@weilence/dsh-remote'
 
-/** 是否本插件自身（scoped 包名或改名前的旧裸名行）：远端装配的基线，不进同步清单。 */
+/** 是否本插件自身（当前 scoped 包名或改名前的旧包名 dsh-remote）：远端装配的基线，不进同步清单。 */
 export function isRemoteSelf(name: string): boolean {
   return name === REMOTE_PLUGIN_NAME || name === 'dsh-remote'
 }
@@ -20,7 +20,7 @@ export const SSH_ALIAS_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 /** 连接 id 的合法性。 */
 export const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 
-/** host 桥路由路径（client api.ts 复用，端点单源）。 */
+/** host 路由路径（client api.ts 复用，端点单源）。 */
 export const STATE_PATH = '/dsh-remote/state'
 export const LOCAL_ROWS_PATH = '/dsh-remote/local-rows'
 export const SAVE_PATH = '/dsh-remote/save'
@@ -50,19 +50,19 @@ export interface RemoteConnection {
 export type SshErrorKind =
   'auth-failed' | 'unreachable' | 'remote-cmd-failed' | 'timeout' | 'local-tool-missing' | 'unknown'
 
-/** 连接生命周期相位。 */
+/** 连接生命周期阶段。 */
 export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running' | 'stopping' | 'error'
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。 */
 export interface ConnOp {
   kind: 'test' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins'
-  /** 当前步进（连接的部署段 probe-node/install-dsh…、启动段 start/poll/forward…）。 */
+  /** 当前步骤（连接的部署段 probe-node/install-dsh…、启动段 start/poll/forward…）。 */
   step?: string
-  /** 步进的补充说明（版本号、插件名等）。 */
+  /** 步骤的补充说明（版本号、插件名等）。 */
   detail?: string
 }
 
-/** running 相位的事实（token URL 由启动日志解析而来）。 */
+/** running 阶段的事实（token URL 由启动日志解析而来）。 */
 export interface ConnRunning {
   url: string
   localPort: number
@@ -79,18 +79,78 @@ export interface ConnState {
   running: ConnRunning | null
   /** phase = error 时的错误事实。 */
   error: { message: string; kind: SshErrorKind } | null
-  /** 最近一次各同步的结果摘要（面板展示用）。 */
+  /** 最近一次各同步的结果摘要（面板展示用；同步只新增/覆盖，skipped = 已一致跳过）。 */
   lastSync: {
-    skills: { at: string; pushed: number; deleted: number } | null
-    mcp: { at: string; installed: string[]; removed: string[] } | null
-    plugins: { at: string; installed: string[]; removed: string[]; skipped: string[] } | null
+    skills: { at: string; pushed: number; skipped: number } | null
+    mcp: { at: string; installed: string[]; skipped: string[] } | null
+    plugins: { at: string; installed: string[]; skipped: string[] } | null
   }
+}
+
+/** 一个条目与远端比对后的结论：same 跳过写入，diff 覆盖，absent 远端安装，
+ *  unknown 指纹读不出——一律按 diff 保守执行（宁可重推不可漏装）。 */
+export type ItemStatus = 'same' | 'diff' | 'absent' | 'unknown'
+
+/** 递归按 key 排序的稳定 JSON：两侧 YAML 键序 / 注释差异不参与相等性。 */
+export function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'null'
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/** MCP 行的生效配置签名（config 与 disabled 一并入签，弹窗徽标与引擎跳过共用）。 */
+export function mcpSignature(config: Record<string, unknown>, disabled: boolean): string {
+  return canonicalJson({ config, disabled })
+}
+
+/** 远端一个技能的事实（digest = 内容摘要；null = 远端摘要管道失败）。 */
+export interface RemoteSkillFact {
+  name: string
+  digest: string | null
+}
+
+/** 远端一条 MCP 行的事实（按 serverName 对齐）。 */
+export interface RemoteMcpFact {
+  serverName: string
+  signature: string
+  /** 传输形态摘要（弹窗「远端：…」对比行用）。 */
+  summary: string
+}
+
+/** 远端一个插件的事实（列表恒为 bundles 激活清单；version null = 读不到）。 */
+export interface RemotePluginFact {
+  name: string
+  version: string | null
+}
+
+export function skillStatus(local: string | null, remote: RemoteSkillFact | undefined): ItemStatus {
+  if (remote === undefined) return 'absent'
+  if (local === null || remote.digest === null) return 'unknown'
+  return local === remote.digest ? 'same' : 'diff'
+}
+
+export function mcpStatus(localSignature: string, remote: RemoteMcpFact | undefined): ItemStatus {
+  if (remote === undefined) return 'absent'
+  return remote.signature === localSignature ? 'same' : 'diff'
+}
+
+export function pluginStatus(local: string | null, remote: RemotePluginFact | undefined): ItemStatus {
+  if (remote === undefined) return 'absent'
+  if (local === null || remote.version === null) return 'unknown'
+  return local === remote.version ? 'same' : 'diff'
 }
 
 /** 面板一行：持久化声明 + 运行态快照。 */
 export type ConnRow = RemoteConnection & { state: ConnState }
 
-/** 本机工具探针结果（ssh / tar 缺席时面板置顶告警并禁用操作）。 */
+/** 本机工具探针结果（ssh / tar 缺失时面板置顶告警并禁用操作）。 */
 export interface LocalEnv {
   profileName: string | null
   /** $DSH_HOME 绝对路径（同步源与存储定位用）。 */
@@ -106,6 +166,8 @@ export interface LocalSkillRow {
   root: 'user-dsh' | 'user-agents'
   /** frontmatter 的 description（提取失败为 null）。 */
   description: string | null
+  /** 内容摘要（技能全部文件的折叠指纹；读取失败为 null → 按无法比对处理）。 */
+  digest: string | null
 }
 
 /** 本机 MCP 行（两层用户 patch 的只读清单，供勾选下发）。 */
@@ -115,6 +177,8 @@ export interface LocalMcpRow {
   serverName: string | null
   /** 传输形态摘要（stdio 命令或 http 端点）。 */
   summary: string
+  /** 生效配置签名（config + disabled 的规范化 JSON）。 */
+  signature: string
 }
 
 /** 本机插件行（两层用户 patch 的 insert 清单，供勾选同步到远端）。 */
@@ -138,19 +202,20 @@ export interface LocalRowsResponse {
   skillRows: LocalSkillRow[]
   mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
-  /** profileContext 缺席（非 profile 启动）时为 false，清单为空。 */
+  /** profileContext 不可用（非 profile 启动）时为 false，清单为空。 */
   available: boolean
 }
 
-/** POST /remote-inventory 的响应：远端三类清单（同步弹窗的默认勾选源——
- *  远端已有即默认勾选；条目级差异对比的判定后续迭代）。 */
+/** POST /remote-inventory 的响应：三类条目的远端事实（弹窗徽标与引擎跳过的
+ *  同一判定源）。字段 null = 该类事实读取失败——弹窗按「无法比对」降级渲染，
+ *  不阻断同步（同步只新增/覆盖，无删除风险）；ssh 连接级失败仍原样抛。 */
 export interface RemoteInventoryResponse {
-  /** 远端两个 skills 根下的技能名（.md 单文件已剥后缀）。 */
-  skills: string[]
-  /** 远端 profile patch 内 MCP 行的 serverName。 */
-  mcp: string[]
-  /** 远端 profile dsh.profile.bundles 的包名（含 shipped base，消费侧按本机清单交集）。 */
-  plugins: string[]
+  /** 远端两个 skills 根的技能摘要（按根区分：本机同名技能在不同根是不同条目）。 */
+  skills: Record<'user-dsh' | 'user-agents', RemoteSkillFact[] | null>
+  /** 远端 profile patch 内 MCP 行（按 serverName 对齐）。 */
+  mcp: RemoteMcpFact[] | null
+  /** 远端 bundles 激活清单及各自已装版本。 */
+  plugins: RemotePluginFact[] | null
 }
 
 export interface SaveRequest {
@@ -179,8 +244,8 @@ export interface OpRequest {
 
 export type SyncKind = 'skills' | 'mcp' | 'plugins'
 
-/** POST /sync：勾选清单随请求直传（声明式同步的目标态——勾选=安装/升级，
- *  未勾选且远端已有=删除）。 */
+/** POST /sync：勾选清单随请求直传（勾选 = 安装/覆盖，指纹一致项跳过；
+ *  未勾选 = 不动——同步只往远端新增/覆盖，永不删除远端内容）。 */
 export interface SyncRequest {
   id: string
   kind: SyncKind

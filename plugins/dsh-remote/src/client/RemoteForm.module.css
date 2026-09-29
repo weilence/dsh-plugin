@@ -4,9 +4,18 @@
   gap: 14px;
 }
 
-/* footer 动作行（共享表里无此类，各插件自带同款）。 */
+/* footer 动作行（共享表里无此类，各插件自带相同样式）。 */
 .formActions {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+
+/* 同步弹窗「隐藏已一致」开关行（纯视图过滤，锁定勾选语义见 PickList locked）。 */
+.hideToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  cursor: pointer;
 }
