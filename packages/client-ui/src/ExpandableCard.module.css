@@ -26,7 +26,9 @@
 }
 
 /* 卡片行头（官方 .header）：标题居左，动作按钮与展开箭头靠右、按钮在
-   箭头左侧；整行可点击展开 / 收起（按钮与箭头阻止冒泡），可拖拽。 */
+   箭头左侧；整行可点击展开 / 收起（按钮与箭头阻止冒泡），可拖拽。
+   整行禁选保点击干净；meta / 信息值行与共享样式的描述 / 路径行是复制
+   目标，各自恢复 user-select: text（拖选后的 click 不切换，见组件守卫）。 */
 .head {
   display: flex;
   align-items: center;
@@ -76,6 +78,9 @@
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary);
   overflow-wrap: anywhere;
+  /* id 类值（provider / 模型 id、ssh 别名）常被复制引用，见 .head 禁选说明。 */
+  user-select: text;
+  cursor: text;
 }
 
 .actions {
@@ -114,6 +119,9 @@
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
   min-width: 0;
+  /* Endpoint / API 等配置值是复制目标，见 .head 禁选说明。 */
+  user-select: text;
+  cursor: text;
 }
 
 /* 展开指示箭头（官方 .chevron / .chevronOpen 同款）：朝下 = 收起，

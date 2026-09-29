@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RowDragHandlers } from './drag'
 import { Pill, type PillData } from './Pill'
@@ -52,6 +52,11 @@ export interface ExpandableCardProps {
 
 export function ExpandableCard(props: ExpandableCardProps) {
   const { dragHandlers } = props
+  // 手势仲裁：draggable 行头上浏览器拖拽优先于划选。按下点在可选值行
+  // （data-drag-skip 标记的 meta / 描述 / 信息值 / 路径）上时本次手势禁用
+  // draggable 让位给划选；mousedown 的同步 flush 保证属性在拖拽阈值前
+  // 已落 DOM，从行头其余区域按下照常拖拽。
+  const [dragArmed, setDragArmed] = useState(true)
   return (
     <section
       className={[
@@ -73,10 +78,30 @@ export function ExpandableCard(props: ExpandableCardProps) {
         tabIndex={0}
         aria-expanded={props.open}
         aria-label={props.ariaLabel}
-        draggable={dragHandlers?.draggable}
+        draggable={dragHandlers?.draggable === true && dragArmed}
         onDragStart={dragHandlers?.onDragStart}
-        onDragEnd={dragHandlers?.onDragEnd}
-        onClick={props.onToggle}
+        onDragEnd={() => {
+          setDragArmed(true)
+          dragHandlers?.onDragEnd?.()
+        }}
+        onMouseDown={(event) => {
+          setDragArmed((event.target as Element).closest('[data-drag-skip]') === null)
+        }}
+        onMouseUp={() => setDragArmed(true)}
+        onClick={(event) => {
+          // 拖选行内文本（描述行 URL 等）松开时也派发 click，选中即收起/展开
+          // 会让选择刚做完就翻面——选区锚点在本行头内的 click 只当选择，不切换。
+          const selection = window.getSelection()
+          if (
+            selection !== null &&
+            !selection.isCollapsed &&
+            selection.anchorNode !== null &&
+            event.currentTarget.contains(selection.anchorNode)
+          ) {
+            return
+          }
+          props.onToggle()
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
@@ -92,27 +117,37 @@ export function ExpandableCard(props: ExpandableCardProps) {
               <Pill key={index} text={pill.text} tone={pill.tone} title={pill.title} />
             ))}
             {props.meta !== undefined && props.meta !== '' ? (
-              <span className={styles.meta}>{props.meta}</span>
+              <span className={styles.meta} data-drag-skip>
+                {props.meta}
+              </span>
             ) : null}
           </span>
-          {props.description !== undefined ? <p className={shared.rowDesc}>{props.description}</p> : null}
+          {props.description !== undefined ? (
+            <p className={shared.rowDesc} data-drag-skip>
+              {props.description}
+            </p>
+          ) : null}
           {props.note !== undefined ? <p className={shared.rowWhen}>{props.note}</p> : null}
           {props.error !== undefined && props.error.length > 0 ? (
-            <p className={shared.rowErrText} title={props.error}>
+            <p className={shared.rowErrText} title={props.error} data-drag-skip>
               {props.error}
             </p>
           ) : null}
           {props.info !== undefined && props.info.length > 0 ? (
             <div className={styles.info}>
               {props.info.map((item) => (
-                <span className={styles.infoItem} key={item.label}>
+                <span className={styles.infoItem} key={item.label} data-drag-skip>
                   <span className={styles.infoLabel}>{item.label}</span>
                   <span className={styles.infoValue}>{item.value}</span>
                 </span>
               ))}
             </div>
           ) : null}
-          {props.path !== undefined ? <p className={shared.rowPath}>{props.path}</p> : null}
+          {props.path !== undefined ? (
+            <p className={shared.rowPath} data-drag-skip>
+              {props.path}
+            </p>
+          ) : null}
         </div>
         {props.actions !== undefined ? (
           <div className={styles.actions} onClick={(event) => event.stopPropagation()}>

@@ -370,6 +370,10 @@
   line-height: 18px;
   color: var(--dsw-alias-label-primary);
   overflow-wrap: anywhere;
+  /* 描述行承载端点 / URL 等要复制的值：ExpandableCard 行头为整行点击展开
+     设了 user-select: none + 指针光标，这里恢复可选与文本光标。 */
+  user-select: text;
+  cursor: text;
 }
 
 .rowWhen {
@@ -389,6 +393,9 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  /* 错误文案是报障复制目标；ExpandableCard 行头禁选，这里恢复（悬停 title 兜底全文）。 */
+  user-select: text;
+  cursor: text;
 }
 
 .rowPath {
@@ -401,6 +408,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  /* 路径（技能位置等）与描述行同属复制目标：ExpandableCard 行头禁选，恢复。 */
+  user-select: text;
+  cursor: text;
 }
 
 .rowActions {
