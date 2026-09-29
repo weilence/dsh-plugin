@@ -36,7 +36,7 @@ import { readGitIndex, writeGitIndex, type RootGitIndex } from './gitMeta'
 import { applyGitUpdates, checkGitUpdates } from './gitUpdate'
 import { RootMatcher, managedRoots, rootInfos, type ManagedRoot } from './roots'
 import { scanRoot } from './scan'
-// 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
+// 请求校验函数与 JSON 读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
 import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
@@ -51,7 +51,7 @@ function optionalBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback
 }
 
-/** 解析查询里的 cwd：空白或缺席 = 全局作用域。 */
+/** 解析查询里的 cwd：空白或缺失 = 全局作用域。 */
 function cwdOf(value: string | null): string | undefined {
   return optionalString(value)
 }
@@ -115,7 +115,7 @@ export function apply(ctx: Context): void {
             )
             // 全局注册表补充：落在四个可写根之外的条目（内置 / 自定义 /
             // 运行时）作只读展示；另一档作用域的可写根条目随作用域一并隐藏。
-            // 注册表缺席（组合未挂载）时跳过。
+            // 注册表不可用（组合未挂载）时跳过。
             const registry = ctx.get('skills')
             if (registry !== undefined) {
               const seenPaths = new Set(rows.map((row) => row.path))
@@ -333,7 +333,7 @@ export function apply(ctx: Context): void {
             const matched = await matcher.matchWithBase(path)
             if (matched === undefined) throw new HttpError(403, '该文件不在可管理的技能根内')
             // 形态校验：根下单文件（<name>.md）或目录包（<name>/SKILL.md），
-            // 更深的路径不是官方可发现的技能实体，拒绝删除以免误伤资源目录。
+            // 更深的路径不是官方可发现的技能实体，拒绝删除以免波及资源目录。
             // 以实际命中的基座变体（字面或 realpath）计算相对路径。
             const rel = relative(matched.base, path)
               .split(/[\\/]/)

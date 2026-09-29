@@ -52,7 +52,7 @@ function mappedProtocol(provider: ModelsDevProvider): string | undefined {
   return plan.kind === 'custom' ? String(plan.profile['api']) : undefined
 }
 
-/** 官方 llm-pi-ai 的 route 级容量回退：列表对缺失值按这两个值兜底显示。 */
+/** 官方 llm-pi-ai 的 route 级容量回退：列表对缺失值按这两个值回退显示。 */
 const FALLBACK_CONTEXT_WINDOW = 262_144
 const FALLBACK_MAX_TOKENS = 32_768
 
@@ -98,7 +98,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
           apiKey: apiKey.trim().length > 0 ? apiKey.trim() : undefined,
         })
         // 元数据按 matching.ts 的匹配链补全（Endpoint 来源 → 已知厂商 →
-        // 全目录多数派兜底）；目录没有对应项时保留 Endpoint 返回值。
+        // 全目录多数派回退）；目录没有对应项时保留 Endpoint 返回值。
         setModels(discovered.map((model) => discoveredToCatalogEntry(props.catalog, model, source?.id)))
       } catch (error) {
         setFetchError(errMsg(error))
@@ -179,7 +179,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                   setFetchError(null)
                   setEndpoint(next)
                   // datalist 没有独立的「选中」事件，但选中建议时 onChange
-                  // 会带上完整值：命中 models.dev 建议就自动带出协议。
+                  // 会带上完整值：命中 models.dev 建议就自动填入协议。
                   const matched = endpointOptions(props.catalog).find(
                     (provider) => provider.api === next.trim(),
                   )

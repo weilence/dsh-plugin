@@ -113,7 +113,7 @@ describe('applyKnown', () => {
     expect(fm).toContain('  kind: flow')
   })
 
-  it('whenToUse 缺席即删除该键（含块标量续行）', () => {
+  it('whenToUse 缺失即删除该键（含块标量续行）', () => {
     const fm = applyKnown('name: a\ndescription: b\nwhenToUse: |\n  多行\n  时机\n', draft())
     expect(fm).not.toContain('whenToUse')
     expect(fm).not.toContain('多行')
@@ -167,7 +167,7 @@ describe('renderFile / bodyForEditor', () => {
 })
 
 describe('yamlScalar', () => {
-  it('安全值裸写', () => {
+  it('安全值不加引号直写', () => {
     expect(yamlScalar('plain-value_1')).toBe('plain-value_1')
     expect(yamlScalar('中文描述')).toBe('中文描述')
   })

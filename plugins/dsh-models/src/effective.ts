@@ -3,7 +3,7 @@ import type {} from '@deepseek-ai/dsh-llm'
 import type { LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm/types'
 import { errMsg } from '@dsh-plugins/shared'
 
-/** 只读桥回答的一条模型能力（client half 经 operations.ts 复用同一契约）。 */
+/** 只读接口回答的一条模型能力（client half 经 operations.ts 复用同一契约）。 */
 export interface EffectiveModelFacts {
   id: string
   name: string
@@ -46,7 +46,7 @@ export async function effectiveModelsFor(ctx: Context, provider: string): Promis
       try {
         models.push(toBody(await ctx.llm.resolveModelInfo(provider, model.id)))
       } catch {
-        // 单模型解析失败属瞬态 catalog drift，不该让整条只读桥变 unavailable。
+        // 单模型解析失败属瞬态 catalog drift，不该让整条只读接口变 unavailable。
       }
     }
     return { kind: 'ok', models }

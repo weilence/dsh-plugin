@@ -90,7 +90,7 @@ function apply(ctx: Context) {
     'dsh-models: catalog bridge',
   )
 
-  // 只读能力桥是可选面：llm 服务缺席时目录桥照常工作，面板把「生效能力」
+  // 只读能力接口是可选面：llm 服务不可用时目录接口照常工作，面板把「生效能力」
   // 显示为未知，而不是让整个插件不激活。
   ctx.inject(['llm'], (llmCtx) =>
     llmCtx.effect(
@@ -129,8 +129,8 @@ function apply(ctx: Context) {
     ),
   )
 
-  // 订阅登录桥同样是可选面：authorization 服务缺席（无登录型 provider 的
-  // 组合）时目录桥照常，面板不显示任何登录入口。
+  // 订阅登录接口同样是可选面：authorization 服务不可用（无登录型 provider 的
+  // 组合）时目录接口照常，面板不显示任何登录入口。
   ctx.inject(['authorization'], (authCtx) =>
     authCtx.effect(() => applyAuthBridge(authCtx), 'dsh-models: auth bridge'),
   )

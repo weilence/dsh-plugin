@@ -172,7 +172,7 @@ describe('模型目录面板 store', () => {
     expect(store.getSnapshot().error).toBeNull()
   })
 
-  it('连续冲突时保留错误提示而不是静默吞掉', async () => {
+  it('连续冲突时保留错误提示而不是静默丢弃', async () => {
     const scope = scopeStub({ user: {}, value: { providers: { anthropic: {} } }, revision: 1 })
     const { operations } = operationsStub({
       writeProfile: (async () => ({ kind: 'conflict', message: 'stale' })) as PiAiOperations['writeProfile'],
@@ -288,7 +288,7 @@ describe('模型目录面板 store', () => {
 })
 
 describe('订阅登录状态', () => {
-  it('beginSignIn 后轮询折叠事件，authorized 收口并刷新登录目录', async () => {
+  it('beginSignIn 后轮询折叠事件，authorized 结束并刷新登录目录', async () => {
     vi.useFakeTimers()
     try {
       const scope = scopeStub({ user: {}, value: {} })
@@ -326,7 +326,7 @@ describe('订阅登录状态', () => {
       )
       let attempt = store.getSnapshot().auth.attempt
 
-      // 应答后下一次轮询拿到 outcome（authorized），收口并刷新记录状态。
+      // 应答后下一次轮询拿到 outcome（authorized），结束并刷新记录状态。
       authEvents.mockResolvedValueOnce({
         events: [
           { seq: 3, kind: 'answered', promptId: 2 },
@@ -341,7 +341,7 @@ describe('订阅登录状态', () => {
       expect(attempt?.events.at(-1)).toMatchObject({ kind: 'outcome', status: 'authorized' })
       expect(store.getSnapshot().notice).toBe('账号登录成功')
       expect(store.getSnapshot().auth.records['openai-codex']).toEqual({ configured: true, kind: 'grant' })
-      // 收口后循环退出：不再发起新轮询。
+      // 结束后循环退出：不再发起新轮询。
       const callsAfterSettle = authEvents.mock.calls.length
       await vi.advanceTimersByTimeAsync(3_000)
       expect(authEvents.mock.calls.length).toBe(callsAfterSettle)
@@ -414,7 +414,7 @@ describe('订阅登录状态', () => {
       await store.beginSignIn('openai-codex')
       await vi.advanceTimersByTimeAsync(700)
       expect(store.getSnapshot().auth.attempt?.running).toBe(false)
-      // 刷新（Host 也不再报告进行中尝试）后回看态清空。
+      // 刷新（Host 也不再报告进行中尝试）后结果展示清空。
       await store.refresh()
       expect(store.getSnapshot().auth.attempt).toBeNull()
     } finally {

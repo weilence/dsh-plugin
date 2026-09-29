@@ -19,7 +19,7 @@ const INITIAL: McpState = {
   busy: null,
 }
 
-/** 写入后等待 HMR 生效的兜底刷新延迟。 */
+/** 写入后等待 HMR 生效的补偿刷新延迟。 */
 const SETTLE_DELAYS_MS = [1200, 4000] as const
 
 export class McpStore {
@@ -53,7 +53,7 @@ export class McpStore {
     this.set({ error: message, notice: null })
   }
 
-  // 页面打开时多个事件常常接连到来，加载进行中的触发只置脏标记，完成后
+  // 页面打开时多个事件常常接连到来，加载进行中的触发只标记 dirty，完成后
   // 至多补拉一次。
   refresh(): Promise<void> {
     if (this.refreshLoading) {
@@ -68,7 +68,7 @@ export class McpStore {
           await this.load()
         } while (this.refreshDirty)
       } catch {
-        // load 自行捕获错误；这里兜底，避免链条被 reject 污染。
+        // load 自行捕获错误；这里额外捕获，避免链条被 reject 污染。
       } finally {
         this.refreshLoading = false
       }
@@ -91,7 +91,7 @@ export class McpStore {
     }
   }
 
-  /** 写操作成功后的刷新：立即一次，再按延迟兜底 HMR 生效窗口。 */
+  /** 写操作成功后的刷新：立即一次，再按延迟补偿 HMR 生效窗口。 */
   private async refreshAfterMutation(notice: string): Promise<void> {
     this.set({ notice })
     await this.refresh()

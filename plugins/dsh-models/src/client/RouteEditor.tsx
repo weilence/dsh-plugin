@@ -92,7 +92,7 @@ const BLANK_ROW: ModelRow = {
   writeSite: 'catalog',
 }
 
-// 「新增中」行的 key：NUL 不会出现在合法模型 id 里，避免与真实行撞 key。
+// 「新增中」行的 key：NUL 不会出现在合法模型 id 里，避免与真实行的 key 冲突。
 const CREATING_ROW_KEY = '\u0000creating'
 
 // 只标注用户覆盖过的模型：纯目录继承是默认态，手写 route 与显式清单是
@@ -192,7 +192,7 @@ export function RouteEditor(props: RouteEditorProps) {
 
   const rowOf = (id: string) => route.rows.find((row) => row.id === id)
   const factsOf = (id: string) => rowOf(id)?.facts
-  // route 级默认容量（schema 默认值）：模型表单容量留空时 placeholder 兜底显示。
+  // route 级默认容量（schema 默认值）：模型表单容量留空时 placeholder 回退显示。
   const routeDefaults = {
     contextWindow:
       typeof route.effectiveProfile?.defaultContextWindow === 'number'
@@ -372,7 +372,7 @@ export function RouteEditor(props: RouteEditorProps) {
       />
     )
 
-  // 卡片行头的 label / value 信息项：与列表页表格同一条回退链（条目 → 生效桥
+  // 卡片行头的 label / value 信息项：与列表页表格同一条回退链（条目 → 生效接口
   // → route 默认），未显式配置的容量显示 —。
   const modelInfo = (row: ModelRow): ExpandableCardInfoItem[] => {
     const entry: PiAiModelEntry | undefined = row.userEntry ?? row.catalogEntry

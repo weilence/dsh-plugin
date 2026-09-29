@@ -105,7 +105,7 @@ function majorityOf<T>(values: readonly (T | undefined)[], tieBreak?: (a: T, b: 
   return best === undefined ? undefined : best.value
 }
 
-// 全目录兜底：同一基础 ID 被多家网关收录而容量略有出入，逐字段取出现次数
+// 全目录回退：同一基础 ID 被多家网关收录而容量略有出入，逐字段取出现次数
 // 最多的值（contextWindow / maxTokens 同票数取较大值）。
 function crossCatalogEntry(
   catalog: ModelsDevCatalog | null,
@@ -157,7 +157,7 @@ function crossCatalogEntry(
 }
 
 // 匹配顺序：① Endpoint Provider 精确 → ② 已知厂商（精确 → -尾缀）→
-// ③ 全目录兜底（精确 → -尾缀，多数派容量）；目录没有对应项时保留 Endpoint 返回值。
+// ③ 全目录回退（精确 → -尾缀，多数派容量）；目录没有对应项时保留 Endpoint 返回值。
 export function discoveredToCatalogEntry(
   catalog: ModelsDevCatalog | null,
   model: DiscoveredModel,

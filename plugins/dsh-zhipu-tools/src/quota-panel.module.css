@@ -1,4 +1,4 @@
-/* 背景材质与圆角交由官方 MenuSurface primitive（模型选择弹窗同款）：Windows 上其填充仅 45%/58% 不透明度、靠毛玻璃成立，绕过它会透出下层内容。 */
+/* 背景材质与圆角交由官方 MenuSurface primitive（与模型选择弹窗一致）：Windows 上其填充仅 45%/58% 不透明度、靠毛玻璃成立，绕过它会透出下层内容。 */
 .panel {
   position: fixed;
   z-index: 1100;
@@ -15,7 +15,7 @@
   font-size: 12px;
   line-height: 18px;
 }
-/* useAnchoredPosition 实测尺寸前的隐藏占位（官方浮层同款 measure pass）。 */
+/* useAnchoredPosition 实测尺寸前的隐藏占位（与官方浮层一致的 measure pass）。 */
 .measure {
   visibility: hidden;
   left: 0;

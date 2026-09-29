@@ -146,10 +146,10 @@ export function endpointOf(config: McpConfigDraft | McpEffectiveConfig): string 
 
 /** JSON 导入解析出的一个服务器：已知键草稿 + 未知键透传 + 提示。 */
 export interface McpJsonEntry {
-  /** 服务器名：mcpServers / 直接映射的键名，或裸对象自动推导的名称。 */
+  /** 服务器名：mcpServers / 直接映射的键名，或单个服务器对象自动推导的名称。 */
   serverName: string
   draft: McpConfigDraft
-  /** 表单外的高级键原样透传（host 合并进 patch，Loader 校验兜底）。 */
+  /** 表单外的高级键原样透传（host 合并进 patch，由 Loader 加载时校验）。 */
   extras: Record<string, unknown>
   notes: string[]
 }
@@ -190,7 +190,7 @@ function transportOfEntry(value: Record<string, unknown>, notes: string[]): McpT
   return undefined
 }
 
-/** 从一个服务器对象抽出已知键草稿（类型不合的键跳过，交由 host 严格校验兜底）。 */
+/** 从一个服务器对象抽出已知键草稿（类型不合的键跳过，交由 host 严格校验）。 */
 function draftOfEntry(name: string, value: Record<string, unknown>, transport: McpTransport): McpConfigDraft {
   const draft: McpConfigDraft = { transport, serverName: name }
   if (transport === 'stdio') {
@@ -220,7 +220,7 @@ function draftOfEntry(name: string, value: Record<string, unknown>, transport: M
 }
 
 // 解析粘贴的 JSON，名称一律来自 JSON 本身：mcpServers 包装 / 直接映射 /
-// 裸单服务器（名称从 command 或 URL 推导）三种等价写法（方言细节见
+// 单个服务器对象（名称从 command 或 URL 推导）三种等价写法（方言细节见
 // mcpImport.test.ts）。顶层结构问题抛 ConfigError；单个服务器的问题进
 // problems 不影响其余。
 export function parseMcpJsonText(text: string): McpJsonParseResult {
@@ -316,7 +316,7 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
   return { entries, problems }
 }
 
-/** 裸对象兜底命名：command 主干（去路径与 .exe 等）或 URL 主机名，
+/** 单个服务器对象的回退命名：command 主干（去路径与 .exe 等）或 URL 主机名，
  * 清洗到 SERVER_NAME_PATTERN 文法；推不出来返回 undefined。 */
 function deriveServerName(value: Record<string, unknown>): string | undefined {
   let raw: string | undefined
@@ -341,8 +341,8 @@ function deriveServerName(value: Record<string, unknown>): string | undefined {
 }
 
 /**
- * host 侧消毒 JSON 导入的透传键：剔除与已知键同名的项（防绕过草稿
- * 校验），非对象输入或缺席返回 undefined。
+ * host 侧过滤 JSON 导入的透传键：剔除与已知键同名的项（防绕过草稿
+ * 校验），非对象输入或缺失时返回 undefined。
  */
 export function extrasOf(input: unknown): Record<string, unknown> | undefined {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined

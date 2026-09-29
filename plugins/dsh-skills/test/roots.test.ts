@@ -44,7 +44,7 @@ describe('findProjectRoot', () => {
 })
 
 describe('managedRoots', () => {
-  it('cwd 缺席只有用户级根', async () => {
+  it('cwd 缺失只有用户级根', async () => {
     const roots = await managedRoots(undefined)
     expect(roots.map((root) => root.id)).toEqual(['user-dsh', 'user-agents'])
   })

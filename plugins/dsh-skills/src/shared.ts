@@ -8,7 +8,7 @@ export const GIT_INSTALL_PATH = '/dsh-skills/git-install'
 export const GIT_CHECK_PATH = '/dsh-skills/git-check'
 export const GIT_UPDATE_PATH = '/dsh-skills/git-update'
 
-/** 官方 skill 名称文法（@deepseek-ai/dsh-skill 的 isSkillName 同款）。 */
+/** 官方 skill 名称文法（与 @deepseek-ai/dsh-skill 的 isSkillName 一致）。 */
 export const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /**
@@ -42,15 +42,15 @@ export interface SkillRow {
   source: string
   /** 提供方名（scan / filesystem / runtime / …）。 */
   provider: string
-  /** 技能文件绝对路径；虚拟技能（无文件）缺席。 */
+  /** 技能文件绝对路径；虚拟技能（无文件）缺失。 */
   path?: string
-  /** 命中的可写根；缺席 = 只读来源。 */
+  /** 命中的可写根；缺失 = 只读来源。 */
   rootId?: RootId
   /** rootId 存在即 editable。 */
   editable: boolean
   /** 该条目当前是否在本面板的合并视图里胜出（未被同名更低 rank 来源遮蔽）。 */
   effective: boolean
-  /** 校验失败原因（frontmatter 不合官方规则）；缺席 = 合法。 */
+  /** 校验失败原因（frontmatter 不合官方规则）；缺失 = 合法。 */
   invalid?: string
   /** 文件形态。 */
   format?: SkillFormat
@@ -75,7 +75,7 @@ export type SkillFormat = 'flat' | 'bundle'
 
 /** POST /dsh-skills/save 请求。 */
 export interface SaveRequest {
-  /** 工作区级作用域（工作区 cwd）；缺席 = 仅全局根。 */
+  /** 工作区级作用域（工作区 cwd）；缺失 = 仅全局根。 */
   cwd?: string
   /** 新建时的目标根（编辑时忽略，以 editPath 所属根为准）。 */
   rootId: RootId
@@ -137,7 +137,7 @@ export interface GitSkillCandidate {
   whenToUse?: string
   /** 发现位置：marketplace / plugin.json 声明或标准技能目录。 */
   origin: 'marketplace' | 'plugin' | 'skills' | 'agents' | 'claude' | 'root'
-  /** 校验问题（缺 description / 非法 name 等）；缺席 = 可安装。 */
+  /** 校验问题（缺 description / 非法 name 等）；缺失 = 可安装。 */
   problem?: string
 }
 

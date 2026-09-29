@@ -1,4 +1,4 @@
-/* 宿主设置弹窗（ui-settings-general 的 SettingsRoot）把面板钉死在 800×800 且
+/* 宿主设置弹窗（ui-settings-general 的 SettingsRoot）把面板固定在 800×800 且
    不暴露任何尺寸 API，管理类插件的表单在这个宽度下放不下。useWideSettingsDialog
    在分区激活期间把本类挂到弹窗面板上放宽高，切走分区随组件卸载自动还原，
    其他设置分区不受影响。

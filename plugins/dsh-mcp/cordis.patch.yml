@@ -3,8 +3,8 @@
 # 安装后（dependencies 与 dsh.profile.bundles 均含 @weilence/dsh-mcp），启动时
 # profile boot 合并本 patch，把插件行插入 host composition。行 name 用包名
 # （loader entry 名 → client bundle 解析键），行 id 用短 slug。只硬依赖
-# webServer（HTTP 桥）；loader / tools / profileContext / hmr 服务均经
-# ctx.get() 可选访问——官方 web/desktop 组合都提供，缺席时降级为
+# webServer（HTTP 路由）；loader / tools / profileContext / hmr 服务均经
+# ctx.get() 可选访问——官方 web/desktop 组合都提供，不可用时降级为
 # 只读面板或明确报错，不影响加载。
 - insert:
     - id: dsh-mcp

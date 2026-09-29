@@ -4,7 +4,7 @@
 /* 官方 Input 的全宽变体：三重保险让外框（.wrap）铺满字段列且不越界——
    box-sizing: border-box 必须显式声明（官方 .wrap 没写，默认 content-box
    会把 padding+border 加在 100% 之外，正好溢出 18px 压到右列上）；
-   align-self: stretch 不依赖百分比解析；width/max-width: 100% 兜底；
+   align-self: stretch 不依赖百分比解析；width/max-width: 100% 作为回退；
    min-width: 0 允许收缩。内层 input 的填充规则同样写死。 */
 .fieldInput {
   box-sizing: border-box;
@@ -41,7 +41,7 @@
   flex: 1 1 auto;
 }
 
-/* 与官方 Input 同款视觉（border-l4 / layer-2 / 9px 圆角 / 13px 字号），
+/* 与官方 Input 相同的视觉（border-l4 / layer-2 / 9px 圆角 / 13px 字号），
    hover 提亮边框对齐官方交互态。 */
 .addonButton {
   box-sizing: border-box;

@@ -134,7 +134,7 @@ describe('SignInCard', () => {
     expect(html).toContain('取消登录')
   })
 
-  it('尝试已结束：结果行可回看，登录入口立即还给用户', () => {
+  it('尝试已结束：结果行可见，登录入口立即恢复', () => {
     const html = renderToStaticMarkup(
       createElement(SignInCard, {
         provider: 'github-copilot',

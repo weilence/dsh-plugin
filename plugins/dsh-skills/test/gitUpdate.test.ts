@@ -17,7 +17,7 @@ function gitOf(repo: string): (args: string[]) => Promise<unknown> {
   return (args) => execFileAsync('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', ...args])
 }
 
-/** 造仓库并做一次初始提交。 */
+/** 创建仓库并做一次初始提交。 */
 async function gitInit(repo: string): Promise<void> {
   const git = gitOf(repo)
   await git(['init', '-q'])

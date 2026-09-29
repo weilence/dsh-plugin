@@ -212,7 +212,7 @@ function validateDraft(draft: DraftState, mode: 'create' | 'edit', known: readon
     if (!SKILL_NAME_PATTERN.test(draft.name)) {
       issues.push('名称需为 kebab-case：小写字母 / 数字 / 连字符，如 commit-message-style')
     } else if (known.some((skill) => skill.name === draft.name && skill.rootId === draft.rootId)) {
-      // 同根同名会直接撞文件（host 侧 409）；跨根同名是合法的遮蔽用法，不拦。
+      // 同根同名会直接产生文件冲突（host 侧 409）；跨根同名是合法的遮蔽用法，不拦截。
       issues.push(`目标根里已存在同名技能「${draft.name}」`)
     }
   }

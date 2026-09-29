@@ -53,7 +53,7 @@ export interface SignInView {
 }
 
 /**
- * 账号登录卡：状态点（已授权 = Host 凭据记录在座）+ 登录入口 + 进行中的
+ * 账号登录卡：状态点（已授权 = Host 凭据记录存在）+ 登录入口 + 进行中的
  * 事件流（提示 / 授权链接 / 设备码 / 问题应答）。账号授权与 API Key 是两种
  * 不同的凭据形态，此卡只管前者；同一时刻面板只驱动一个登录尝试。
  */
@@ -79,7 +79,7 @@ export function SignInCard(props: {
 
   const activePrompt = mine !== null ? activePromptOf(mine.events) : undefined
   const outcome = mine !== null && !mine.running ? mine.events.at(-1) : undefined
-  // 选择题草稿回退到首项：授权流程的问题总有推荐项，避免空选择卡住提交。
+  // 选择题草稿回退到首项：授权流程的问题总有推荐项，避免空选阻塞提交。
   const selectOptions =
     (activePrompt?.prompt.kind === 'select' ? activePrompt.prompt.options : undefined) ?? []
   const selectValue = selectOptions.some((option) => option.id === selectDraft)
@@ -165,7 +165,7 @@ export function SignInCard(props: {
           : `该 Provider 支持账号登录（${props.flow.label}）；也可继续使用 API Key。`}
       </div>
       {mine !== null ? (
-        // 进行中 / 刚结束的尝试收进同一块有边界的面板：事件流、问题、收口
+        // 进行中 / 刚结束的尝试收纳进同一块有边界的面板：事件流、问题、结束
         // 按钮在视觉上是一个整体，不再与表单字段的松散堆叠混排。
         <div className={local.attempt}>
           {mine.events.map((event) =>
@@ -189,8 +189,8 @@ export function SignInCard(props: {
                 取消登录
               </Button>
             ) : (
-              // 尝试已结束：结果行只回看这一次，入口必须立即还给用户，否则
-              // 取消后卡片死在「登录已取消」上。
+              // 尝试已结束：结果行只展示这一次，登录入口必须立即恢复，否则
+              // 取消后卡片停留在「登录已取消」状态。
               <Button
                 variant="primary"
                 disabled={auth.attempt?.running === true}

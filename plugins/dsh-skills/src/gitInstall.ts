@@ -77,7 +77,7 @@ function runGit(args: string[], cwd: string): Promise<string> {
   })
 }
 
-/** 浅克隆起步时物化的标准位置（仓库根文件随 --sparse 自带）。 */
+/** 浅克隆起步时默认检出的标准位置（仓库根文件随 --sparse 自带）。 */
 const SPARSE_BASE_DIRS = ['skills', '.agents/skills', '.claude/skills', '.claude-plugin'] as const
 
 /** marketplace / plugin 清单的声明面（无清单返回 undefined）。 */
@@ -112,7 +112,7 @@ function pluginSourceRel(pluginRoot: string, source: string): string {
   return source.startsWith('./') || source.startsWith('../') ? source : `${pluginRoot}/${source}`
 }
 
-/** 需要补充物化的插件目录（相对仓库根，posix 分隔）；不补稀疏检出就看不见它们。 */
+/** 需要补充检出的插件目录（相对仓库根，posix 分隔）；不补充稀疏检出就看不见它们。 */
 async function declaredPluginDirs(repo: string): Promise<string[]> {
   const manifest = await readPluginManifest(repo)
   if (manifest === undefined) return []
@@ -128,7 +128,7 @@ async function declaredPluginDirs(repo: string): Promise<string[]> {
   return [...dirs]
 }
 
-/** 部分克隆 + 稀疏检出（只物化技能相关目录）到临时目录。仅旧 git 不认识
+/** 部分克隆 + 稀疏检出（只检出技能相关目录）到临时目录。仅旧 git 不认识
  *  --sparse / --filter / sparse-checkout 时回退整仓浅克隆——网络 / 认证
  *  失败重试注定同样失败，直接抛首错。 */
 export async function cloneToTemp(url: string): Promise<string> {

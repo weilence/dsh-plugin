@@ -15,7 +15,7 @@ export interface ScannedSkill {
   source: RootId
   path: string
   format: SkillFormat
-  /** 校验失败原因；缺席 = 合法条目。 */
+  /** 校验失败原因；缺失 = 合法条目。 */
   invalid?: string
 }
 
@@ -30,7 +30,7 @@ async function listEntries(rootPath: string): Promise<RootEntry[]> {
   try {
     entries = await readdir(rootPath, { withFileTypes: true, encoding: 'utf8' })
   } catch {
-    // 根不存在或不可读 = 空根（与官方 provider 的缺席语义一致）。
+    // 根不存在或不可读 = 空根（与官方 provider 的缺失语义一致）。
     return []
   }
   const result: RootEntry[] = []

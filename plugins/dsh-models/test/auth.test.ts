@@ -1,5 +1,5 @@
-// 订阅登录桥：AuthAttemptRelay 的中继语义（事件序 / 应答 / 拒绝 / 撤回 /
-// 收口）+ 假 ctx/webServer 的桥路由集成往返（目录过滤 scope、begin 预检、
+// 订阅登录接口：AuthAttemptRelay 的中继语义（事件序 / 应答 / 拒绝 / 撤回 /
+// 结束）+ 假 ctx/webServer 的路由集成往返（目录过滤 scope、begin 预检、
 // 事件流与应答、取消、守卫 403）。
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -32,7 +32,7 @@ describe('AuthAttemptRelay 中继', () => {
     expect(relay.eventsAfter(2).events.map((event) => event.kind)).toEqual(['answered'])
   })
 
-  it('answer 兑现挂起问题；decline 以官方 Declined 错误拒绝', async () => {
+  it('answer 应答挂起问题；decline 以官方 Declined 错误拒绝', async () => {
     const relay = new AuthAttemptRelay()
     const prompt = relay.prompt({ kind: 'secret', message: '输入密钥' })
     expect(relay.answer('secret-value')).toBe(true)
@@ -65,7 +65,7 @@ describe('AuthAttemptRelay 中继', () => {
     expect(relay.answer('late')).toBe(false)
   })
 
-  it('settle 收口：清挂起问题、写 outcome，running 翻 false', async () => {
+  it('settle 结束：清挂起问题、写 outcome，running 变为 false', async () => {
     const relay = new AuthAttemptRelay()
     const prompt = relay.prompt({ kind: 'text', message: '还没答完' })
     relay.settle('failed', '流程崩溃')
@@ -215,7 +215,7 @@ function bridgeHost(script?: Parameters<typeof authorizationStub>[0]) {
   return { request, dispose, authorization, describeRecord }
 }
 
-describe('订阅登录桥', () => {
+describe('订阅登录接口', () => {
   it('GET 目录：只收 llm-pi-ai scope 且带 oauth 方法的 flow（api-key 交互型不进）', async () => {
     const host = bridgeHost()
     const response = await host.request('GET', '/dsh-models/auth')
@@ -289,7 +289,7 @@ describe('订阅登录桥', () => {
     })
     const begin = await host.request('POST', '/dsh-models/auth/begin', { provider: 'openai-codex' })
     expect(begin.status).toBe(200)
-    // begin 是即答的：attempt 仍在进行。
+    // begin 是立即应答的：attempt 仍在进行。
     const directory = await host.request('GET', '/dsh-models/auth')
     expect(directory.body['attempt']).toEqual({ provider: 'openai-codex' })
     const events = await host.request('GET', '/dsh-models/auth/events?after=0')
@@ -307,7 +307,7 @@ describe('订阅登录桥', () => {
     expect((await host.request('POST', '/dsh-models/auth/answer', { value: 'late' })).status).toBe(409)
     expect((await host.request('POST', '/dsh-models/auth/answer', {})).status).toBe(400)
 
-    // 脚本 flow 结束（begin 兑现 authorized）后 outcome 入流，running 翻 false。
+    // 脚本 flow 结束（begin 以 authorized 结束）后 outcome 进入事件流，running 变为 false。
     const settled = await host.request('GET', '/dsh-models/auth/events?after=2')
     expect(settled.body['running']).toBe(false)
     expect((settled.body['events'] as Record<string, unknown>[]).at(-1)).toMatchObject({

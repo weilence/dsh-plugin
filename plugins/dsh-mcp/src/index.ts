@@ -24,7 +24,7 @@ import {
 import { ConfigError, extrasOf, mergeForEdit, normalizeDraft } from './mcpConfig'
 import { probeConfig } from './probe'
 import { collectLiveMcp } from './live'
-// 栅栏函数与 JSON 桥读写来自共享包（构建期内联）；HttpError 为路由与
+// 请求校验函数与 JSON 读写来自共享包（构建期内联）；HttpError 为路由与
 // readJsonBody 共用的业务错误类型，同一模块实例保证 instanceof 语义。
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import {
@@ -58,7 +58,7 @@ interface Layer {
   doc: Document
 }
 
-/** 组合出的一条受管 MCP 行：insert 声明 + 按序 fold 的裸覆盖。 */
+/** 组合出的一条受管 MCP 行：insert 声明 + 按序 fold 的覆盖行。 */
 interface ManagedRow {
   scope: McpScope
   insert: InsertRow
@@ -149,7 +149,7 @@ function scopeOfRequest(value: unknown): McpScope {
 
 export function apply(ctx: Context): void {
   // profileContext / loader / tools / hmr 都是可选访问：官方 web/desktop
-  // 组合均提供，缺席时按能力降级而不是拒绝加载。
+  // 组合均提供，不可用时按能力降级而不是拒绝加载。
   const profileContextOf = (): { name: string | null; patchPath: string; home: string } | undefined => {
     const profile = ctx.get('profileContext') as ProfileContextLike | undefined
     if (profile === undefined || typeof profile.patchPath !== 'string' || typeof profile.home !== 'string') {
@@ -271,14 +271,14 @@ export function apply(ctx: Context): void {
               throw new HttpError(status, errMsg(error))
             }
             // JSON 导入的高级键透传：已知键已被上方严格校验，这里只合并
-            // 消毒后的未知键（Loader 加载时的 schema 校验兜底）。
+            // 过滤后的未知键（非法键最终由 Loader 加载时的 schema 校验拒绝）。
             const extra = extrasOf(request.extra)
 
             const layers = await loadLayers(profile)
             const managed = composeManaged(layers)
             const editing = typeof request.id === 'string' && request.id.length > 0 ? request.id : undefined
 
-            // serverName 全局唯一（运行时按它预留命名空间，撞名行会失败）。
+            // serverName 全局唯一（运行时按它预留命名空间，重名行会加载失败）。
             const duplicate = managed.find(
               (row) => row.insert.id !== editing && serverNameOf(row.effectiveConfig) === draft.serverName,
             )
@@ -389,7 +389,7 @@ export function apply(ctx: Context): void {
               throw new HttpError(404, `没有找到 id 为「${request.id}」的 MCP 行（作用域 ${scope}）`)
 
             // 已有携带 disabled 的覆盖行时改最后一处（它才是生效声明），
-            // 否则在 insert 所在层追加官方形态的裸行。
+            // 否则在 insert 所在层追加官方形态的覆盖行。
             const bearing = [...row.overrides]
               .reverse()
               .find(({ row: candidate }) => candidate.disabled !== undefined)

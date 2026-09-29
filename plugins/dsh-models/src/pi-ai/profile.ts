@@ -6,7 +6,7 @@ import { normalizeModelEntry } from './normalize'
 /** 官方模型发现结果的目录投影：目录继承比较只关心这三个字段。 */
 export type DiscoveredModelFacts = Pick<LlmDiscoveredModel, 'name' | 'contextWindow' | 'maxTokens'>
 
-// schema 默认只把 providers 物化成 {}，因此 providers.<route> 存在就说明组合 base 或用户层写过它。
+// schema 默认只把 providers 写成 {}，因此 providers.<route> 存在就说明组合 base 或用户层写过它。
 export function providersRecordOf(root: unknown): Record<string, PiAiProviderEntry> {
   const providers = isRecord(root) ? root['providers'] : undefined
   const result: Record<string, PiAiProviderEntry> = {}
@@ -60,8 +60,8 @@ export interface RouteView {
   models: ModelRow[]
   compat: Record<string, unknown> | undefined
   /**
-   * 用户层自己写的 compat：编辑必须以它为起点，从合成值起步会把探测默认
-   * 物化进用户配置，之后目录升级不再生效。
+   * 用户层自己写的 compat：编辑必须以它为起点，从合成值起步会把探测默认值
+   * 写成显式用户配置，之后目录升级不再生效。
    */
   userCompat: Record<string, unknown> | undefined
 }
@@ -102,7 +102,7 @@ export function routeSource(declared: boolean, userProfile: PiAiProviderEntry | 
 }
 
 // 显式清单/手工 route：用户层数组原样；目录 route：安装目录全集套上用户
-// override，再补上 override 点名了目录没有的模型（供修复/删除）。
+// override，再补上 override 指定了而目录没有的模型（供修复/删除）。
 export function routeModelRows(
   source: RouteSource,
   userProfile: PiAiProviderEntry | undefined,
@@ -191,7 +191,7 @@ export function patchUserProfile(
 }
 
 // 官方语义「未设置的字段从同 id 目录模型取默认值」，因此只有条目明确写出
-// 的字段才参与比较（条目缺席的字段等于继承）。
+// 的字段才参与比较（条目未写出的字段等于继承）。
 export function entryMatchesCatalog(
   entry: PiAiModelEntry | undefined,
   catalogEntry: PiAiModelEntry | undefined,
@@ -245,8 +245,8 @@ export function removeModelProfile(
   })
 }
 
-// modelOverrides 不能点名目录未描述的模型，因此必须物化显式 models：目录
-// 条目按用户 override 折叠后逐个列出，再追加新条目（唯一触发物化的路径，
+// modelOverrides 不能显式指定目录未描述的模型，因此必须把 models 展开为显式清单：目录
+// 条目按用户 override 折叠后逐个列出，再追加新条目（唯一触发整份展开的路径，
 // UI 必须二次确认）。
 export function materializeWithNewModel(
   userProfile: PiAiProviderEntry | undefined,
@@ -267,13 +267,13 @@ export function materializeWithNewModel(
 export type AddModelPlan =
   | { kind: 'override'; profile: PiAiProviderEntry }
   | { kind: 'append'; profile: PiAiProviderEntry }
-  /** 物化整份目录并追加新模型（官方 modelOverrides 不能点名目录未描述的模型）。 */
+  /** 将整份目录展开为显式清单并追加新模型（官方 modelOverrides 不能显式指定目录未描述的模型）。 */
   | { kind: 'materialize'; profile: PiAiProviderEntry }
   | { kind: 'blocked'; reason: string }
 
 // 目录 route 新增目录已描述的模型只写 modelOverrides；新增目录未描述的模型
-// 必须物化整份 models，而物化要求先能读到当前继承的完整目录，否则会把
-// route 悄悄收窄成只有这一个模型——那种情况直接 blocked。
+// 必须把 models 整份展开，而展开要求先能读到当前继承的完整目录，否则会把
+// route 静默收窄成只有这一个模型——那种情况直接 blocked。
 export function planAddModel(input: {
   source: RouteSource
   userProfile: PiAiProviderEntry | undefined
@@ -298,7 +298,7 @@ export function planAddModel(input: {
   if (catalog.size === 0) {
     return {
       kind: 'blocked',
-      reason: '无法读取该 route 当前继承的模型目录；物化整份清单会把其余模型丢掉，已取消。请先刷新重试。',
+      reason: '无法读取该 route 当前继承的模型目录；整份展开会把其余模型丢掉，已取消。请先刷新重试。',
     }
   }
   return { kind: 'materialize', profile: materializeWithNewModel(userProfile, catalog, entry) }

@@ -58,7 +58,7 @@ describe('isExpectedHost', () => {
 })
 
 describe('isTrustedFetch', () => {
-  it('同源与头缺席（dsh-app: 协议）放行', () => {
+  it('同源与头缺失（dsh-app: 协议）放行', () => {
     expect(isTrustedFetch(req({ 'sec-fetch-site': 'same-origin' }))).toBe(true)
     expect(isTrustedFetch(req({}))).toBe(true)
     expect(isTrustedFetch(req({ 'sec-fetch-site': 'none' }))).toBe(true)

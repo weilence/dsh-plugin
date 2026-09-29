@@ -1,6 +1,6 @@
 # @weilence/dsh-notify
 
-回合完成 / 提问 / 审批等待时弹系统桌面通知的插件；host half 提供 desktop 窗口恢复桥。
+回合完成 / 提问 / 审批等待时弹系统桌面通知的插件；host half 提供 desktop 窗口恢复接口。
 
 ## 结构
 
@@ -12,8 +12,8 @@
 
 - **host half 即使功能上 no-op 也必须保留插件行**：浏览器插件名录由 dsh-client-modules 扫描宿主 Loader 已激活条目的 `dsh.client` 声明生成——没有 host 插件行，client bundle 进不了 `window.__DSH_BOOT__`。
 - 提问 / 审批监听走 `sessionStatus` 汇聚点，不直接 `$on` waterfall 事件：waterfall 监听器按注册顺序串行执行、官方 UI 的监听器阻塞到用户作答才返回，第三方插件排在链尾收不到。
-- 通知不带 tag（Windows / Chromium 的 tag 语义是同 tag 静默替换，会吞掉后续横幅）；前台浏览静默逐事件采样（标签页可见且窗口聚焦时不弹）。
-- 会话标题取 `sessions.list` 快照的 `displayTitle`，缺席回退「会话 + sessionId 前 8 位」。
+- 通知不带 tag（Windows / Chromium 的 tag 语义是同 tag 静默替换，会使后续横幅不再显示）；前台浏览静默按事件逐个判定（标签页可见且窗口聚焦时不弹）。
+- 会话标题取 `sessions.list` 快照的 `displayTitle`，缺失时回退「会话 + sessionId 前 8 位」。
 
 ## 陷阱
 

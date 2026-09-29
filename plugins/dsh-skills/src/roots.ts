@@ -44,8 +44,8 @@ export async function findProjectRoot(
 }
 
 /**
- * 列出当前作用域的全部可写根。cwd 缺席（全局作用域）时不列工作区根，
- * 与官方 provider「cwd 缺席则跳过项目根」的行为一致。
+ * 列出当前作用域的全部可写根。cwd 缺失（全局作用域）时不列工作区根，
+ * 与官方 provider「cwd 缺失则跳过项目根」的行为一致。
  */
 export async function managedRoots(cwd: string | undefined): Promise<ManagedRoot[]> {
   const roots: ManagedRoot[] = []

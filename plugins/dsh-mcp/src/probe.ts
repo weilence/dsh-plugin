@@ -2,7 +2,7 @@ import spawn from 'cross-spawn'
 import { errMsg } from '@dsh-plugins/shared'
 import type { CheckResponse, McpConfigDraft } from './shared'
 
-/** 握手探测默认超时：stdio 首次拉起可能含 npx 下载，留足余量。 */
+/** 握手探测默认超时：stdio 首次启动可能含 npx 下载，留足余量。 */
 export const PROBE_TIMEOUT_MS = 20_000
 
 // MCP 握手第一步：能应答 initialize 即证明服务器在线且讲 JSON-RPC。官方
@@ -53,9 +53,9 @@ function probeStdio(config: McpConfigDraft, timeoutMs: number): Promise<CheckRes
         cwd: config.cwd,
         env: { ...process.env, ...config.env },
         stdio: ['pipe', 'pipe', 'pipe'],
-        // 与官方 StdioClientTransport 同款 cross-spawn、无 shell：args 直传
+        // 与官方 StdioClientTransport 相同的 cross-spawn、无 shell：args 直传
         // 不经插值，Windows 上 npx 等 .cmd 的解析与转义由 cross-spawn 承担。
-        // posix 上独立进程组，收尾整组击杀兜住 npx 拉起的孙进程。
+        // posix 上独立进程组，收尾整组终止，连带清理 npx 启动的孙进程。
         detached: process.platform !== 'win32',
         windowsHide: process.platform === 'win32',
       })
@@ -115,7 +115,7 @@ function probeStdio(config: McpConfigDraft, timeoutMs: number): Promise<CheckRes
   })
 }
 
-/** 读 SSE 流直到出现应答或流结束；收到即 cancel，不陪服务器挂长连接。 */
+/** 读 SSE 流直到出现应答或流结束；收到即 cancel，不与服务器保持长连接。 */
 async function sseBodyText(body: ReadableStream<Uint8Array> | null): Promise<string> {
   if (body === null) return ''
   const reader = body.getReader()
@@ -178,7 +178,7 @@ async function probeHttp(config: McpConfigDraft, timeoutMs: number): Promise<Che
   }
 }
 
-/** 保存前的连接检查：按传输形态拉起 / 直连并等一个 initialize 应答。 */
+/** 保存前的连接检查：按传输形态启动子进程 / 直连并等一个 initialize 应答。 */
 export async function probeConfig(
   config: McpConfigDraft,
   timeoutMs = PROBE_TIMEOUT_MS,

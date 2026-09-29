@@ -80,7 +80,7 @@ function toolPrefixOf(serverName: string): string {
 }
 
 /**
- * 枚举当前 Loader 里所有 mcp-client 条目及其工具。loader / tools 缺席
+ * 枚举当前 Loader 里所有 mcp-client 条目及其工具。loader / tools 不可用
  * （组合未提供）时返回空列表。
  */
 export async function collectLiveMcp(

@@ -1,20 +1,19 @@
 # dsh-plugins
 
-[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) web 插件集。
-单仓多插件：一个 git 仓库、pnpm workspace 管理，各插件独立版本、独立发布到 npm。
+[DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) web 插件集。单仓多插件：一个 git 仓库、pnpm workspace 管理，各插件独立版本、独立发布到 npm。
 
-包名统一 `@weilence/*` scoped（weilence.com 域名空间）；仓库目录保持无 scope 短名。
+包名统一使用 `@weilence/*` scope（weilence.com 域名空间）；仓库目录保持不带 scope 的短名。
 
 ## 插件
 
-| 插件                                       | 包名                        | 功能                                                                                                                                                                                                       |
-| ------------------------------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [dsh-mcp](plugins/dsh-mcp)                 | `@weilence/dsh-mcp`         | 设置页「MCP 管理」：浏览 profile / 全局两层 patch 声明的 MCP 服务器与运行态（工具清单、连接失败摘要），新建、编辑、启停、删除（注释保留的 YAML 往返，HMR 在线生效）                                        |
-| [dsh-models](plugins/dsh-models)           | `@weilence/dsh-models`      | 设置页「模型目录」：浏览 [models.dev](https://models.dev)、把 Provider / 模型导入 `llm-pi-ai`，编辑能力与推理强度；host 侧带 ETag 感知的目录镜像与只读生效能力桥                                           |
-| [dsh-notify](plugins/dsh-notify)           | `@weilence/dsh-notify`      | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览静默；desktop 窗口恢复桥                                                                                                                               |
-| [dsh-remote](plugins/dsh-remote)           | `@weilence/dsh-remote`      | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端装配：tgz 推送安装、版本对齐本机）+ 端口转发直开、声明式勾选同步 skills / MCP / 插件（勾选=安装升级，未勾选且远端已有=删除） |
-| [dsh-skills](plugins/dsh-skills)           | `@weilence/dsh-skills`      | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级往返，未知字段保留）                                                           |
-| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | `@weilence/dsh-zhipu-tools` | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；输入框状态栏展示 5 小时 / 每周用量配额与重置倒计时                                                                                                  |
+| 插件                                       | 包名                        | 功能                                                                                                                                                                                                                                                   |
+| ------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [dsh-mcp](plugins/dsh-mcp)                 | `@weilence/dsh-mcp`         | 设置页「MCP 管理」：浏览 profile / 全局两层 patch 声明的 MCP 服务器与运行态（工具清单、连接失败摘要），新建、编辑、启停、删除（YAML round-trip 保留注释，HMR 在线生效）                                                                                |
+| [dsh-models](plugins/dsh-models)           | `@weilence/dsh-models`      | 设置页「模型」菜单（面板「模型目录」）：浏览 [models.dev](https://models.dev)、把 Provider / 模型导入 `llm-pi-ai`，编辑能力与推理强度，订阅账号（`openai-codex` 等 OAuth 型）可经面板登录；host 侧提供支持 ETag 的目录镜像、只读生效能力与订阅登录接口 |
+| [dsh-notify](plugins/dsh-notify)           | `@weilence/dsh-notify`      | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览时静默；desktop 窗口恢复接口                                                                                                                                                                       |
+| [dsh-remote](plugins/dsh-remote)           | `@weilence/dsh-remote`      | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容                                                                                |
+| [dsh-skills](plugins/dsh-skills)           | `@weilence/dsh-skills`      | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级 round-trip，未知字段保留）                                                                                                |
+| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | `@weilence/dsh-zhipu-tools` | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；输入框状态栏展示 5 小时 / 每周 / 工具调用三个窗口的用量配额与重置倒计时                                                                                                                         |
 
 各插件的功能、安装与配置说明见其目录内 README。
 
@@ -35,7 +34,7 @@ Node >= 20；包管理器固定为 pnpm（`packageManager` 字段 + corepack）�
 
 ## 发布
 
-一仓多包，标签带 scoped 包名前缀（见 `.github/workflows/publish.yml`）：
+一仓多包，发布标签以 scoped 包名为前缀（见 `.github/workflows/publish.yml`）：
 
 ```bash
 # 1. 改 plugins/<目录>/package.json 的 version 并提交
@@ -45,4 +44,4 @@ git push origin develop --tags
 # 4. npm stage approve <stage-id> --otp 上线
 ```
 
-新 scope 各包 v0.1.0 首发需手动 `npm publish` 一次（见 workflow 注释）；旧裸名包保留在 registry，不再更新。
+新 scope 各包 v0.1.0 首发需手动 `npm publish` 一次（见 workflow 注释）；改名前不带 scope 的旧包保留在 registry，不再更新。

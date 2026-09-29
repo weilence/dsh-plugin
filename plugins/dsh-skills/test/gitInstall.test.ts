@@ -8,7 +8,7 @@ import { cloneToTemp, discoverRepoSkills, gitUrlProblem, installCandidates } fro
 
 const execFileAsync = promisify(execFile)
 
-/** 在本地造一个 git 仓库并提交全部内容（测试稀疏克隆用）。 */
+/** 在本地创建一个 git 仓库并提交全部内容（测试稀疏克隆用）。 */
 async function gitInit(repo: string): Promise<void> {
   const git = (args: string[]): Promise<unknown> =>
     execFileAsync('git', ['-C', repo, '-c', 'user.email=t@t', '-c', 'user.name=t', ...args])
@@ -140,7 +140,7 @@ describe('discoverRepoSkills：marketplace / plugin.json 声明', () => {
 })
 
 describe('cloneToTemp：部分克隆 + 稀疏检出', () => {
-  it('只物化技能相关目录，marketplace 声明的插件目录也会补齐', async () => {
+  it('只检出技能相关目录，marketplace 声明的插件目录也会补齐', async () => {
     const repo = join(work, 'sparse-fixture')
     await write(join(repo, 'skills', 'alpha', 'SKILL.md'), skillMd('alpha', '标准位置技能'))
     await write(join(repo, 'docs', 'big.md'), '# 大文档，不应被检出')

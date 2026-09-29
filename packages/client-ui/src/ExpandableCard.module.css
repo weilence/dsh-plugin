@@ -124,7 +124,7 @@
   cursor: text;
 }
 
-/* 展开指示箭头（官方 .chevron / .chevronOpen 同款）：朝下 = 收起，
+/* 展开指示箭头（与官方 .chevron / .chevronOpen 一致）：朝下 = 收起，
    展开旋转 180°。 */
 .caret {
   display: inline-flex;
@@ -152,7 +152,7 @@
 }
 
 /* ── 拖拽插入标记：官方 workspace（dsh-client-ui-workspace Rows.module.css）
-   同款视觉，插入边界语义 ────────────────────────────────────────────
+   相同视觉，插入边界语义 ────────────────────────────────────────────
    12px 高的伪元素 = 左端 5×12 蓝色菱形箭头（55°/125° 两段渐变三角）+
    2px 横线（自 4px 起、右端留 4px），颜色 state-business-primary。
    标记画在「插入边界」上；卡片间 10px 空隙，绝对定位原点是 padding box

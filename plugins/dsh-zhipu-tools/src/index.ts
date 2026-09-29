@@ -42,8 +42,8 @@ const MCP_CLIENT_PLUGIN = {
 const KEY_REFS = ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'] as const
 
 export async function apply(ctx: Context) {
-  // 两个候选都缺席才是「未配置」；resolve 抛错是凭证服务故障，归并成
-  // 「未配置」会吞掉真实原因。
+  // 两个候选都缺失才是「未配置」；resolve 抛错是凭证服务故障，归并成
+  // 「未配置」会掩盖真实原因。
   async function resolveKey(): Promise<{ key: string | null; failure: string | undefined }> {
     const errors: string[] = []
     for (const name of KEY_REFS) {
@@ -99,7 +99,7 @@ export async function apply(ctx: Context) {
         kind: 'exact',
         path: '/dsh-zhipu-tools/usage',
         handler: async (req, res) => {
-          // 与 dsh-remote/dsh-mcp 的读路由同款栅栏：Host 匹配绑定地址（loopback 拼写等价）且仅放行 GET。
+          // 与 dsh-remote/dsh-mcp 的读路由相同的请求校验：Host 匹配绑定地址（loopback 拼写等价）且仅放行 GET。
           if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
             writeJson(res, 403, { ok: false, error: 'forbidden' })
             return

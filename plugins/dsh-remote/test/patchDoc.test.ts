@@ -23,7 +23,7 @@ const REMOTE_PATCH = `- insert:
 `
 
 describe('scanInserts', () => {
-  it('扫出 insert 行并跳过裸行', () => {
+  it('扫出 insert 行并跳过非 insert 行', () => {
     const inserts = scanInserts(parsePatchDoc(REMOTE_PATCH))
     expect(inserts).toHaveLength(1)
     expect(inserts[0]).toMatchObject({
@@ -92,7 +92,7 @@ describe('removeInsertRows', () => {
   it('移除后只剩空 insert 项时连同该项一起移除', () => {
     const doc = parsePatchDoc(REMOTE_PATCH)
     removeInsertRows(doc, new Set(['mcp-demo']))
-    // 剩下的 other-plugin 是裸行，insert 项已空 → 整项移除，不残留 `- insert: []`
+    // 剩下的 other-plugin 是非 insert 行，insert 项已空 → 整项移除，不残留 `- insert: []`
     expect(renderPatchDoc(doc)).not.toContain('insert')
   })
 })

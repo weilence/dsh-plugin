@@ -74,7 +74,7 @@ export function ExpandableCard(props: ExpandableCardProps) {
         onMouseUp={() => setDragArmed(true)}
         onClick={(event) => {
           // 拖选行内文本（描述行 URL 等）松开时也派发 click，选中即收起/展开
-          // 会让选择刚做完就翻面——选区锚点在本行头内的 click 只当选择，不切换。
+          // 会让选择刚完成就触发展开/收起——选区锚点在本行头内的 click 只当选择，不触发展开。
           const selection = window.getSelection()
           if (
             selection !== null &&
@@ -138,7 +138,7 @@ export function ExpandableCard(props: ExpandableCardProps) {
             {props.actions}
           </div>
         ) : null}
-        {/* 官方 .chevron / .chevronOpen 同款指示箭头 */}
+        {/* 与官方 .chevron / .chevronOpen 一致的指示箭头 */}
         <span className={props.open ? `${styles.caret} ${styles.caretOpen}` : styles.caret}>
           <IconChevronDownOutlineRegular />
         </span>

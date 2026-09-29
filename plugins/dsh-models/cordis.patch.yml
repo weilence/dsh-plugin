@@ -3,7 +3,7 @@
     - id: dsh-models
       name: '@weilence/dsh-models'
 # 禁用内置 Models 设置页（由本插件的「模型目录」替代）。name 用作目标守卫：
-# id 若不再指向该官方包，此行会被跳过并告警，而不是误伤其他行。
+# id 若不再指向该官方包，此行会被跳过并告警，不会误禁其他行。
 - id: ui-settings-models
   name: '@deepseek-ai/dsh-client-ui-settings-models'
   disabled: true

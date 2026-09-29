@@ -22,7 +22,7 @@ export function isLoopbackHostname(hostname: string) {
 }
 
 // loopback 绑定接受 localhost / 127.x / ::1 多种拼写；非 loopback 的 Host
-// 头一律拒绝——这是本同源桥不服务 DNS-rebinding 页面的依据。
+// 头一律拒绝——这是本同源接口不服务 DNS-rebinding 页面的依据。
 export function isExpectedHost(req: IncomingMessage, expectedHost: string) {
   const authority = req.headers.host
   if (!authority || /[\/@?#]/.test(authority)) return false
@@ -36,7 +36,7 @@ export function isExpectedHost(req: IncomingMessage, expectedHost: string) {
 }
 
 // 跨站请求（含预检外的简单 POST）不带可用的 sec-fetch-site 同源标记；
-// dsh-app: 自定义协议页面该头缺席，与 same-origin 同等放行。
+// dsh-app: 自定义协议页面该头缺失，与 same-origin 同等放行。
 export function isTrustedFetch(req: IncomingMessage): boolean {
   const site = req.headers['sec-fetch-site']
   return site === undefined || site === 'same-origin' || site === 'none'

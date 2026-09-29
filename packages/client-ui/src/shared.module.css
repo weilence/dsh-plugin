@@ -393,7 +393,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  /* 错误文案是报障复制目标；ExpandableCard 行头禁选，这里恢复（悬停 title 兜底全文）。 */
+  /* 错误文案是报障复制目标；ExpandableCard 行头禁选，这里恢复（悬停 title 显示全文）。 */
   user-select: text;
   cursor: text;
 }

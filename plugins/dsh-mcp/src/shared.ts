@@ -4,7 +4,7 @@ import type { FiberStatus } from './live'
 /** 官方 MCP client 插件的模块名（patch 行 `name` 字段的匹配值）。 */
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
 
-/** host 桥路由路径（client api.ts 复用，端点单源）。 */
+/** host 路由路径（client api.ts 复用，端点单源）。 */
 export const LIST_PATH = '/dsh-mcp/list'
 export const SAVE_PATH = '/dsh-mcp/save'
 export const CHECK_PATH = '/dsh-mcp/check'
@@ -83,8 +83,8 @@ export interface SaveRequest {
   config: McpConfigDraft
   /**
    * JSON 导入的未知键透传（reconnect / maxInstructionBytes 等高级键）。
-   * host 过滤掉与已知键同名的项后合并进写入配置，Loader 的 schema
-   * 校验兜底；表单模式不提交此字段。
+   * host 过滤掉与已知键同名的项后合并进写入配置，非法键由 Loader
+   * 加载时的 schema 校验拒绝；表单模式不提交此字段。
    */
   extra?: Record<string, unknown>
 }

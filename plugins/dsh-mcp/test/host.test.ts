@@ -1,4 +1,4 @@
-/** host 桥：守卫函数 + 假 ctx/webServer 上的五路由集成往返（临时目录落盘）。 */
+/** host 路由：守卫函数 + 假 ctx/webServer 上的五路由集成往返（临时目录落盘）。 */
 
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -35,7 +35,7 @@ describe('isExpectedHost', () => {
 })
 
 describe('isTrustedFetch', () => {
-  it('同源与头缺席（dsh-app: 协议）放行', () => {
+  it('同源与头缺失（dsh-app: 协议）放行', () => {
     expect(isTrustedFetch(req({ 'sec-fetch-site': 'same-origin' }))).toBe(true)
     expect(isTrustedFetch(req({}))).toBe(true)
     expect(isTrustedFetch(req({ 'sec-fetch-site': 'none' }))).toBe(true)
@@ -169,7 +169,7 @@ afterEach(async () => {
   await rm(harness.root, { recursive: true, force: true })
 })
 
-describe('list 桥', () => {
+describe('list 路由', () => {
   it('组合两层文件：home 层覆盖 disabled / config，行带作用域', async () => {
     await writeFile(join(harness.profileDir, 'cordis.patch.yml'), `# header\n${STDIO_DEMO}`)
     await writeFile(
@@ -233,7 +233,7 @@ describe('list 桥', () => {
   })
 })
 
-describe('save 桥', () => {
+describe('save 路由', () => {
   it('新建写入目标层并保留文件注释', async () => {
     await writeFile(join(harness.profileDir, 'cordis.patch.yml'), '# 用户手写注释\n[]\n')
     const response = await harness.request('POST', '/dsh-mcp/save', {
@@ -260,7 +260,7 @@ describe('save 桥', () => {
       config: { transport: 'stdio', serverName: 'demo', command: 'node' },
     })
     expect(clashName.status).toBe(409)
-    // 行 id 命名空间跨插件共享：mcp-<serverName> 撞上其他插件行的 id 也拒绝。
+    // 行 id 命名空间跨插件共享：mcp-<serverName> 与其他插件行的 id 冲突也拒绝。
     await writeFile(
       join(harness.profileDir, 'cordis.patch.yml'),
       `- insert:\n    - id: mcp-demo\n      name: someone-else\n`,
@@ -325,7 +325,7 @@ describe('save 桥', () => {
   })
 })
 
-describe('check 桥', () => {
+describe('check 路由', () => {
   it('坏配置 400', async () => {
     const response = await harness.request('POST', '/dsh-mcp/check', {
       config: { transport: 'stdio', serverName: 'x y', command: 'n' },
@@ -361,8 +361,8 @@ describe('check 桥', () => {
   })
 })
 
-describe('set-enabled 桥', () => {
-  it('无覆盖行时在 insert 层追加官方形态裸行', async () => {
+describe('set-enabled 路由', () => {
+  it('无覆盖行时在 insert 层追加官方形态覆盖行', async () => {
     await writeFile(join(harness.profileDir, 'cordis.patch.yml'), STDIO_DEMO)
     const response = await harness.request('POST', '/dsh-mcp/set-enabled', {
       scope: 'profile',
@@ -386,8 +386,8 @@ describe('set-enabled 桥', () => {
   })
 })
 
-describe('delete 桥', () => {
-  it('移除 insert 行与两层所有裸覆盖行', async () => {
+describe('delete 路由', () => {
+  it('移除 insert 行与两层所有覆盖行', async () => {
     await writeFile(join(harness.profileDir, 'cordis.patch.yml'), `# header\n${STDIO_DEMO}`)
     await writeFile(
       join(harness.homeDir, 'cordis.patch.yml'),

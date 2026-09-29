@@ -58,7 +58,7 @@ async function readBody(res: Response) {
 }
 
 // 导出仅为单测（纯函数，无 IO）。
-// 线格式（实测）：data.limits[] 条目形如
+// wire 格式（实测）：data.limits[] 条目形如
 //   { type: 'TOKENS_LIMIT', unit: 3, percentage }   → 5 小时窗口
 //   { type: 'TOKENS_LIMIT', unit: 6, percentage }   → 每周窗口
 //   { type: 'TIME_LIMIT',   unit: 5, percentage,
@@ -88,14 +88,14 @@ export function parseQuota(body: QuotaWireBody): QuotaWindow[] {
   return windows
 }
 
-// Authorization 裸 key；key 只留在 host half，绝不下发给 client。
-// unavailableReason 是 key 缺席的原因（默认未配置；凭证解析失败时由调用方传入真实原因）。
+// Authorization 头直接携带原始 key；key 只留在 host half，绝不下发给 client。
+// unavailableReason 是 key 缺失的原因（默认未配置；凭证解析失败时由调用方传入真实原因）。
 export function createUsageService(apiKey: string | null, unavailableReason = '未配置 zai-coding-cn 供应商') {
   let at = 0
   let status: UsageResult | null = null
   let inflight: Promise<UsageResult> | null = null
 
-  // force 绕过缓存读取（仍回写）；失败结果也缓存，防止打爆上游。
+  // force 绕过缓存读取（仍回写）；失败结果也缓存，避免压垮上游。
   async function fetchUsage(force: boolean): Promise<UsageResult> {
     const now = Date.now()
     if (!force && status) {

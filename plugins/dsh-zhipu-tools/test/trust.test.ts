@@ -63,7 +63,7 @@ async function setup(resolve: Resolve) {
   return { logs, request }
 }
 
-describe('/dsh-zhipu-tools/usage 栅栏', () => {
+describe('/dsh-zhipu-tools/usage 请求校验', () => {
   it('Host 匹配绑定地址（loopback 拼写等价）的 GET 放行', async () => {
     const { request } = await setup(async () => undefined)
     expect((await request('GET', '127.0.0.1:19387')).status).toBe(200)
@@ -82,7 +82,7 @@ describe('/dsh-zhipu-tools/usage 栅栏', () => {
 })
 
 describe('凭证解析', () => {
-  it('两个候选都缺席报「未配置」，用量桥透传该原因', async () => {
+  it('两个候选都缺失时报「未配置」，用量接口透传该原因', async () => {
     const { logs, request } = await setup(async () => undefined)
     expect(logs.some((line) => line.includes('未配置 zai-coding-cn 供应商'))).toBe(true)
     const res = await request('GET', '127.0.0.1:19387')

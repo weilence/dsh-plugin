@@ -4,7 +4,7 @@ import { effectiveModelsFor } from '../src/effective'
 import { writeJson } from '@dsh-plugins/shared/http'
 import { readEffectiveProvider } from '../src/index'
 
-/** 只读桥消费的 llm 面（官方 LlmRuntime 的结构子集）。 */
+/** 只读接口消费的 llm 面（官方 LlmRuntime 的结构子集）。 */
 function llmStub(overrides: {
   listModels?: (provider: string) => Promise<readonly { provider: string; id: string; name: string }[]>
   resolveModelInfo?: (provider: string, model: string) => Promise<unknown>
@@ -12,8 +12,8 @@ function llmStub(overrides: {
   return { llm: overrides } as unknown as Context
 }
 
-describe('生效能力只读桥', () => {
-  it('把 resolveModelInfo 的模态、容量、默认档映射成回包形状', async () => {
+describe('生效能力只读接口', () => {
+  it('把 resolveModelInfo 的模态、容量、默认档映射成响应形状', async () => {
     const ctx = llmStub({
       listModels: async () => [
         { provider: 'anthropic', id: 'a', name: 'A' },
@@ -56,7 +56,7 @@ describe('生效能力只读桥', () => {
           defaultEffort: 'high',
         },
       },
-      // 缺省字段一律不出现在回包里：客户端据此区分「未知」与「没有」。
+      // 缺省字段一律不出现在响应里：客户端据此区分「未知」与「没有」。
       { id: 'b', name: 'B' },
     ])
   })
@@ -94,7 +94,7 @@ describe('生效能力只读桥', () => {
     expect(readEffectiveProvider(req('/dsh-models/effective-models'))).toBeUndefined()
   })
 
-  it('回包统一 no-store JSON', () => {
+  it('响应统一 no-store JSON', () => {
     const headers: Record<string, string> = {}
     const res = {
       writeHead(_status: number, h: Record<string, string>) {

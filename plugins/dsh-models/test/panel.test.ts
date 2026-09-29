@@ -73,7 +73,7 @@ describe('官方 schema 选项内省', () => {
 })
 
 describe('面板行合成', () => {
-  it('目录 route 折叠目录事实 + 用户 override + 生效桥', () => {
+  it('目录 route 折叠目录事实 + 用户 override + 生效接口', () => {
     const rows = buildRoutes(
       {
         user: {

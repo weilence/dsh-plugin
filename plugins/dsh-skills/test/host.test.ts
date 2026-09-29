@@ -1,7 +1,7 @@
-// host 桥：假 ctx/webServer + 临时目录的路由集成往返——list（作用域根扫描
+// host 路由：假 ctx/webServer + 临时目录的路由集成往返——list（作用域根扫描
 // 与同名遮蔽）、file（根内放行 / 越界 403）、save（新建 / 重名 409 / 校验
 // 400）、delete（单文件与目录包 / 深路径拒绝）、守卫 403。Git 四路由由
-// gitInstall / gitUpdate 的真实仓库单测承载，不在桥层重复。
+// gitInstall / gitUpdate 的真实仓库单测承载，不在路由层重复。
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -47,7 +47,7 @@ function postReq(body: unknown, headers: Record<string, string> = HEADERS): Inco
   } as unknown as IncomingMessage
 }
 
-describe('dsh-skills 桥路由', () => {
+describe('dsh-skills 路由', () => {
   let home: string
   let handlers: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void> | void>
 

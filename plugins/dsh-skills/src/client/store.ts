@@ -91,7 +91,7 @@ export class SkillsStore {
     void this.refresh()
   }
 
-  // 页面打开时多个事件常常接连到来，加载进行中的触发只置脏标记，完成后
+  // 页面打开时多个事件常常接连到来，加载进行中的触发只标记 dirty，完成后
   // 至多补拉一次。
   refresh(): Promise<void> {
     if (this.refreshLoading) {
@@ -106,7 +106,7 @@ export class SkillsStore {
           await this.load()
         } while (this.refreshDirty)
       } catch {
-        // load 自行捕获错误；这里兜底，避免链条被 reject 污染。
+        // load 自行捕获错误；这里额外捕获，避免链条被 reject 污染。
       } finally {
         this.refreshLoading = false
       }

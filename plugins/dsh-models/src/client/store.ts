@@ -33,7 +33,7 @@ export interface AuthState {
 
 const EMPTY_AUTH: AuthState = { flows: {}, records: {}, attempt: null }
 
-/** 登录事件轮询间隔：人要开浏览器、输设备码，秒级延迟无感。 */
+/** 登录事件轮询间隔：授权需用户在浏览器输入设备码，秒级延迟不易感知。 */
 const AUTH_POLL_INTERVAL_MS = 700
 
 export interface PanelState {
@@ -152,7 +152,7 @@ export class PanelStore {
     }
   }
 
-  // 页面打开时多个事件常常接连到来，加载进行中的触发只置脏标记，完成后
+  // 页面打开时多个事件常常接连到来，加载进行中的触发只标记 dirty，完成后
   // 至多补拉一次。
   refresh(): Promise<void> {
     if (this.refreshLoading) {
@@ -167,7 +167,7 @@ export class PanelStore {
           await this.load()
         } while (this.refreshDirty)
       } catch {
-        // load 自行捕获错误；这里兜底，避免链条被 reject 污染。
+        // load 自行捕获错误；这里额外捕获，避免链条被 reject 污染。
       } finally {
         this.refreshLoading = false
       }
@@ -225,7 +225,7 @@ export class PanelStore {
         auth,
       })
       // 采纳 Host 报告的进行中登录（页面刷新 / 双开重挂）时启动轮询——必须
-      // 在 set 之后：循环读的是新快照；本地已在跑或尝试已结束时都不启动。
+      // 在 set 之后：循环读的是新快照；本地轮询已在进行或尝试已结束时都不启动。
       if (auth.attempt?.running === true && auth.attempt !== previousAttempt) this.startAuthPoll()
     } catch (error) {
       this.set({ status: 'error', error: errMsg(error) })
@@ -233,9 +233,9 @@ export class PanelStore {
   }
 
   // 登录目录与本地尝试态的合成：flow/records 以 Host 为准；attempt 归轮询
-  // 循环所有——本地仍在跑就保留，Host 报告仍有进行中的登录而本地没有（页面
+  // 循环所有——本地轮询仍在进行就保留，Host 报告仍有进行中的登录而本地没有（页面
   // 刷新 / 双开）则给出待重挂的尝试态（由 load 在 set 后启动轮询）。已结束
-  // 的本地尝试是纯回看反馈，刷新时丢弃，不沉淀成持久 UI 态。
+  // 的本地尝试只是即时的结果反馈，刷新时丢弃，不沉淀成持久 UI 态。
   private authStateOf(directory: AuthDirectory | null): AuthState {
     const flows = directory?.flows ?? {}
     const records = directory?.records ?? {}
@@ -297,7 +297,7 @@ export class PanelStore {
     }
   }
 
-  // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，running 翻 false
+  // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，running 变为 false
   // 即尝试结束（authorized 给提示并刷新记录状态，failed 的原因进错误区）。
   private startAuthPoll() {
     if (this.authPolling) return
@@ -512,7 +512,7 @@ export class PanelStore {
     }
   }
 
-  /** 编辑据此判断「新增会不会触发物化」，与写入看到的是同一份输入。 */
+  /** 编辑据此判断「新增会不会触发整份展开」，与写入看到的是同一份输入。 */
   catalogOf(provider: string): ReadonlyMap<string, DiscoveredModelFacts> {
     return this.catalogs.get(provider) ?? new Map()
   }

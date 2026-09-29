@@ -24,7 +24,7 @@ describe('写入规划路径', () => {
     expect(profile.models).toBeUndefined()
   })
 
-  it('新增目录未描述模型 → 物化完整 models 清单', () => {
+  it('新增目录未描述模型 → 展开完整 models 清单', () => {
     const plan = planAddModel({
       source: 'inherited',
       userProfile: undefined,
@@ -39,7 +39,7 @@ describe('写入规划路径', () => {
     expect(ids).toContain('gamma')
   })
 
-  it('物化时 modelOverrides 必须已清掉（官方 models / modelOverrides 互斥）', () => {
+  it('展开时 modelOverrides 必须已清掉（官方 models / modelOverrides 互斥）', () => {
     const plan = planAddModel({
       source: 'inherited',
       userProfile: undefined,

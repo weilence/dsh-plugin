@@ -14,7 +14,7 @@ export const STUB_INITIALIZER = `
   })
 `
 
-/** 以当前 node 为 stdio 桩服务器；probe 的 spawn 与官方同款（cross-spawn、args 直传），内联脚本原样到达。 */
+/** 以当前 node 为 stdio 桩服务器；probe 的 spawn 与官方一致（cross-spawn、args 直传），内联脚本原样到达。 */
 export const stdioConfig = (script: string): McpConfigDraft => ({
   transport: 'stdio',
   serverName: 'stub',

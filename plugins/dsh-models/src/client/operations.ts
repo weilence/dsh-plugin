@@ -28,10 +28,10 @@ export interface RouteDirectoryRow {
   error?: string
 }
 
-/** 一个模型通过 Host 解析出的当前生效能力（只读桥的 wire 契约）。 */
+/** 一个模型通过 Host 解析出的当前生效能力（只读接口的 wire 契约）。 */
 export type EffectiveModelFacts = EffectiveModelFactsWire
 
-/** 订阅登录面（host half auth 桥的 wire 契约）。 */
+/** 订阅登录面（host half auth 接口的 wire 契约）。 */
 export type AuthFlow = AuthFlowWire
 export type AuthRecord = AuthRecordWire
 export type AuthEvent = AuthEventWire
@@ -71,7 +71,7 @@ export interface PiAiOperations {
   storeCredential(ref: string, value: string): Promise<string | undefined>
   /**
    * 读订阅登录目录（哪些 Provider 带登录 flow、凭据记录现状、是否有进行
-   * 中的登录）。桥缺席（authorization 服务未挂）或不可达时返回 null——
+   * 中的登录）。接口不可用（authorization 服务未挂）或不可达时返回 null——
    * 面板只是不显示登录入口，主功能不受影响。
    */
   authDirectory(): Promise<AuthDirectory | null>
@@ -89,8 +89,8 @@ function remoteMessage(error: { message?: string } | undefined, fallback: string
   return error?.message || fallback
 }
 
-// 登录桥的 JSON 往返：非 2xx 时抛出服务端携带的原因。只有目录 GET 把 404
-// 归为「桥缺席」（返回 null）；POST 的 404 是业务拒绝（如无登录方式），必须
+// 登录接口的 JSON 往返：非 2xx 时抛出服务端携带的原因。只有目录 GET 把 404
+// 归为「接口不可用」（返回 null）；POST 的 404 是业务拒绝（如无登录方式），必须
 // 带原因抛出。
 async function authJson(path: string, init?: RequestInit): Promise<Record<string, unknown>> {
   const response = await fetch(path, { headers: { Accept: 'application/json' }, ...init })
@@ -99,7 +99,7 @@ async function authJson(path: string, init?: RequestInit): Promise<Record<string
   try {
     body = JSON.parse(text) as Record<string, unknown>
   } catch {
-    throw new Error(`登录桥返回了无效 JSON（HTTP ${response.status}）`)
+    throw new Error(`登录接口返回了无效 JSON（HTTP ${response.status}）`)
   }
   if (!response.ok) {
     if (response.status === 404 && init === undefined) return { absent: true }
@@ -256,7 +256,7 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
               : null,
         }
       } catch {
-        // 可选面：桥不可达等同无登录特性，不进面板错误区。
+        // 可选面：接口不可达等同无登录特性，不进面板错误区。
         return null
       }
     },
@@ -292,12 +292,12 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
   }
 }
 
-// 官方 Models 页同款规则（<ROUTE>_API_KEY）。
+// 与官方 Models 页相同的规则（<ROUTE>_API_KEY）。
 export function deriveKeyRef(provider: string) {
   return `${provider.toUpperCase().replace(/[^A-Z0-9]+/g, '_')}_API_KEY`
 }
 
-// HTTP header 可携带的可打印 ASCII；顺带拦下环境变量赋值式的粘贴。
+// HTTP header 可携带的可打印 ASCII；同时拦截环境变量赋值式的粘贴。
 export function validateApiKey(raw: string): string | undefined {
   const value = raw.trim()
   if (value.length === 0) return 'API Key 不能为空'

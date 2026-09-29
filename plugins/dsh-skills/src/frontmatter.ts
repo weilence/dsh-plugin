@@ -191,7 +191,7 @@ function booleanOf(text: string): boolean | undefined {
 /**
  * 把结构化草稿写回 frontmatter 文本：已知键原位替换 / 按需增删，未知行
  * （其他键、注释、空行）逐行保留。name 与 description 恒存在；whenToUse
- * 缺席即删除该键；两开关只在「关闭」时落盘对应键（与官方省略 = true 的
+ * 缺失即删除该键；两开关只在「关闭」时落盘对应键（与官方省略 = true 的
  * 缺省一致，保持文件最小）。
  */
 export function applyKnown(fm: string, draft: FrontmatterDraft): string {
@@ -206,7 +206,7 @@ export function applyKnown(fm: string, draft: FrontmatterDraft): string {
     if (isKnownKey) {
       const key = match[1]
       const block = BLOCK_SCALAR.exec((match[2] ?? '').trim())
-      // 吞掉该键的续行（块标量 / 缩进子结构），替换为单行新值。
+      // 跳过该键的续行（块标量 / 缩进子结构），替换为单行新值。
       let cursor = index + 1
       if ((match[2] ?? '').trim() === '' || block !== null) {
         while (cursor < lines.length) {
@@ -269,7 +269,7 @@ function renderKnownLine(key: string, draft: FrontmatterDraft): string | undefin
   return undefined
 }
 
-/** 是否可以不加引号直接落盘（保守判定，宁引勿裸）。 */
+/** 是否可以不加引号直接落盘（保守判定，存疑即加引号）。 */
 function isPlainSafe(value: string): boolean {
   if (value.length === 0) return false
   if (value !== value.trim()) return false
@@ -285,7 +285,7 @@ function isPlainSafe(value: string): boolean {
   return true
 }
 
-/** 标量序列化：安全裸值直写，否则 JSON 双引号（YAML 兼容）。 */
+/** 标量序列化：安全值不加引号直写，否则 JSON 双引号（YAML 兼容）。 */
 export function yamlScalar(value: string): string {
   if (isPlainSafe(value)) return value
   return JSON.stringify(value)

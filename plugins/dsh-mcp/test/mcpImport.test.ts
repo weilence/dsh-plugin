@@ -34,7 +34,7 @@ describe('parseMcpJsonText', () => {
     expect(second.draft.url).toBe('https://mcp.example.com/mcp')
   })
 
-  it('裸单服务器对象：从 command / URL 自动推导名称，无需手填', () => {
+  it('单个服务器对象：从 command / URL 自动推导名称，无需手填', () => {
     const byCommand = parseMcpJsonText(JSON.stringify({ command: 'uvx', args: ['mcp-server'] }))
     expect(byCommand.entries[0]?.serverName).toBe('uvx')
     expect(byCommand.entries[0]?.draft.transport).toBe('stdio')
@@ -66,7 +66,7 @@ describe('parseMcpJsonText', () => {
     expect(result.problems[0]?.name).toBe('bad')
   })
 
-  it('type 缺席时按 command / url 推断传输形态', () => {
+  it('type 缺失时按 command / url 推断传输形态', () => {
     const result = parseMcpJsonText(
       JSON.stringify({ mcpServers: { a: { command: 'x' }, b: { url: 'https://x/mcp' } } }),
     )

@@ -114,7 +114,7 @@ export function QuotaPill(props: QuotaPillProps) {
     </span>,
   ]
 
-  // Pill 传 onClick 渲染为 button，省略则为非交互 span（官方无数据 pill 同款退化）。
+  // Pill 传 onClick 渲染为 button，省略则为非交互 span（与官方无数据 pill 一致的退化形态）。
   const trigger =
     res === null ? (
       <Pill aria-label={aria.join('，')}>{label}</Pill>

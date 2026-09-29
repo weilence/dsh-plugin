@@ -37,7 +37,7 @@ const SAMPLE = `# 顶部注释：本层由用户维护
       name: someone-else
 `
 
-/** 仅 insert 声明（无裸覆盖行）的样例。 */
+/** 仅 insert 声明（无覆盖行）的样例。 */
 const STDIO_ONLY = `- insert:
     - id: mcp-demo
       name: '@deepseek-ai/dsh-mcp-client'
@@ -69,7 +69,7 @@ describe('parse / render 往返', () => {
 })
 
 describe('scanPatchDoc', () => {
-  it('分类 insert 行与裸覆盖行，读取 id/name/config/disabled', () => {
+  it('分类 insert 行与覆盖行，读取 id/name/config/disabled', () => {
     const scanned = scanPatchDoc(parsePatchDoc(SAMPLE))
     expect(scanned.inserts).toHaveLength(2)
     expect(scanned.inserts[0]).toMatchObject({
@@ -86,7 +86,7 @@ describe('scanPatchDoc', () => {
       reconnect: { enabled: true },
     })
     expect(scanned.inserts[1]).toMatchObject({ id: 'other-plugin', name: 'someone-else' })
-    // 裸行按 id 全量收集（ui-chat 也是裸行），命中哪些 mcp 行由调用方过滤。
+    // 覆盖行按 id 全量收集（ui-chat 也是覆盖行），命中哪些 mcp 行由调用方过滤。
     expect(scanned.overrides).toEqual([
       {
         patchIndex: 0,
@@ -134,7 +134,7 @@ describe('setInsertConfig / setOverrideConfig', () => {
     expect(renderPatchDoc(doc)).toContain('# 行间注释也应保留')
   })
 
-  it('替换裸行 config', () => {
+  it('替换覆盖行 config', () => {
     const doc = parsePatchDoc(SAMPLE)
     setOverrideConfig(doc, 2, { transport: 'stdio', serverName: 'demo', command: 'node' })
     const scanned = scanPatchDoc(parsePatchDoc(renderPatchDoc(doc)))
@@ -145,17 +145,17 @@ describe('setInsertConfig / setOverrideConfig', () => {
 })
 
 describe('setEnabledInDoc', () => {
-  it('已有裸行时改其 disabled（无变化时幂等返回 false）', () => {
+  it('已有覆盖行时改其 disabled（无变化时幂等返回 false）', () => {
     const doc = parsePatchDoc(SAMPLE)
     // SAMPLE 里 mcp-demo 已是 disabled: true：再停用是无变化。
     expect(setEnabledInDoc(doc, 'mcp-demo', false)).toBe(false)
-    // 启用：disabled 翻成 false。
+    // 启用：disabled 置为 false。
     expect(setEnabledInDoc(doc, 'mcp-demo', true)).toBe(true)
     const overridden = scanPatchDoc(doc).overrides.find((row) => row.id === 'mcp-demo')
     expect(overridden?.disabled).toBe(false)
   })
 
-  it('无裸行时追加官方形态 {id, disabled}', () => {
+  it('无覆盖行时追加官方形态 {id, disabled}', () => {
     const doc = parsePatchDoc(STDIO_ONLY)
     expect(setEnabledInDoc(doc, 'mcp-demo', false)).toBe(true)
     const text = renderPatchDoc(doc)
@@ -177,7 +177,7 @@ describe('removeInsertRow / removeOverridesOf', () => {
     expect(text).toContain('- id: mcp-demo\n  disabled: true')
   })
 
-  it('删除整体针对 id 的裸覆盖行', () => {
+  it('删除整体针对 id 的覆盖行', () => {
     const doc = parsePatchDoc(SAMPLE)
     removeOverridesOf(doc, 'mcp-demo')
     const text = renderPatchDoc(doc)

@@ -43,14 +43,14 @@ describe('route 来源状态', () => {
     expect(overridden.find((row) => row.id === 'beta')?.writeSite).toBe('catalog')
   })
 
-  it('modelOverrides 点名目录未描述的模型仍然展示（供修复/删除）', () => {
+  it('modelOverrides 显式指定目录未描述的模型仍然展示（供修复/删除）', () => {
     const rows = routeModelRows('overridden', { modelOverrides: { ghost: { id: 'ghost' } } }, catalog)
     expect(rows.map((row) => row.id)).toContain('ghost')
   })
 })
 
 describe('保存单个模型能力', () => {
-  it('目录 route 写 modelOverrides，不物化目录', () => {
+  it('目录 route 写 modelOverrides，不展开目录', () => {
     const row = {
       id: 'alpha',
       name: 'Alpha',
@@ -147,7 +147,7 @@ describe('删除与重置', () => {
   })
 })
 
-describe('目录未描述模型触发物化', () => {
+describe('目录未描述模型触发整份展开', () => {
   it('把目录折叠成显式清单，再追加新模型', () => {
     const next = materializeWithNewModel(
       { modelOverrides: { alpha: { id: 'alpha', reasoningEfforts: { low: 'low' } } } },

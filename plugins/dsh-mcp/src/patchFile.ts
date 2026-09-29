@@ -19,7 +19,7 @@ export interface InsertRow extends InsertAddress {
   disabled: boolean | undefined
 }
 
-/** 扫描出的裸覆盖行（不带 insert、带 id）。 */
+/** 扫描出的覆盖行（不带 insert、带 id）。 */
 export interface OverrideRow {
   patchIndex: number
   id: string
@@ -66,12 +66,12 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
 }
 
 /**
- * 扫描一个 patch 文档里的 insert 行与裸覆盖行。
+ * 扫描一个 patch 文档里的 insert 行与覆盖行。
  *
- * insert 行无论声明的目标 group 是谁都计入（`patch.insert[*]`）；裸行
+ * insert 行无论声明的目标 group 是谁都计入（`patch.insert[*]`）；覆盖行
  * 只要有 id 就计入，是否命中 mcp 行由调用方按 id 关联。
  */
-/** 扫描文档里的 insert 行与裸覆盖行（fold 序：后行整值覆盖前行）。 */
+/** 扫描文档里的 insert 行与覆盖行（fold 序：后行整值覆盖前行）。 */
 export function scanPatchDoc(document: Document): { inserts: InsertRow[]; overrides: OverrideRow[] } {
   const inserts: InsertRow[] = []
   const overrides: OverrideRow[] = []
@@ -126,7 +126,7 @@ export function setInsertConfig(document: Document, address: InsertAddress, conf
   document.setIn([address.patchIndex, 'insert', address.rowIndex, 'config'], document.createNode(config))
 }
 
-/** 替换一条裸覆盖行的 config（编辑时让所有声明处与面板一致）。 */
+/** 替换一条覆盖行的 config（编辑时让所有声明处与面板一致）。 */
 export function setOverrideConfig(document: Document, patchIndex: number, config: object): void {
   document.setIn([patchIndex, 'config'], document.createNode(config))
 }
@@ -144,11 +144,11 @@ export function removeInsertRow(document: Document, address: InsertAddress): voi
   }
 }
 
-/** 裸行键里属于条目本身的字段；只携带这些字段的覆盖行可整体移除。 */
+/** 覆盖行键里属于条目本身的字段；只携带这些字段的覆盖行可整体移除。 */
 const ENTRY_LEVEL_KEYS = new Set(['id', 'name', 'config', 'disabled', 'inject', 'group'])
 
 /**
- * 移除所有整体针对某 id 的裸覆盖行。携带条目级以外键（如顶层 group
+ * 移除所有整体针对某 id 的覆盖行。携带条目级以外键（如顶层 group
  * 结构键）的行保留，避免破坏用户手写的其他结构。
  */
 export function removeOverridesOf(document: Document, id: string): void {
@@ -166,7 +166,7 @@ export function removeOverridesOf(document: Document, id: string): void {
 
 /**
  * 停用 / 启用一个 id：镜像官方 writePluginEnabled 的落盘形态——找到最后
- * 一条不带 insert、id 匹配（且 name 缺席或与插件名一致）的裸行，改其
+ * 一条不带 insert、id 匹配（且 name 缺失或与插件名一致）的覆盖行，改其
  * disabled；没有则追加 `{ id, disabled }`。返回文档是否变化。
  */
 export function setEnabledInDoc(document: Document, id: string, enabled: boolean): boolean {

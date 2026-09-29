@@ -1,6 +1,6 @@
-// 订阅登录桥：把宿主 authorization seam（llm-pi-ai 已为每个带登录的目录
+// 订阅登录接口：把宿主 authorization seam（llm-pi-ai 已为每个带登录的目录
 // provider 注册 flow，如 openai-codex 的 ChatGPT 订阅 OAuth）转成面板可
-// 驱动的同源 HTTP 面。GUI 里没有任何官方表面触发这些 flow，本桥是唯一入口。
+// 驱动的同源 HTTP 面。GUI 里没有任何官方表面触发这些 flow，本接口是唯一入口。
 import { AuthorizationDeclinedError } from '@deepseek-ai/dsh-authorization'
 import type { AuthorizationInteraction, AuthorizationPrompt } from '@deepseek-ai/dsh-authorization'
 import {
@@ -147,7 +147,7 @@ export class AuthAttemptRelay implements AuthorizationInteraction {
     return true
   }
 
-  /** begin 落定（成功 / 取消 / 失败）后收口：清挂起问题、写 outcome 事件。 */
+  /** begin 结束（成功 / 取消 / 失败）后的清理：清挂起问题、写 outcome 事件。 */
   settle(status: 'authorized' | 'cancelled' | 'failed', error?: string) {
     if (this.settled) return
     this.settled = true
@@ -184,9 +184,9 @@ function providerOf(body: Record<string, unknown>): string {
 }
 
 /**
- * 注册订阅登录桥（5 个 exact 路由）。只在 authorization 服务在座时由
+ * 注册订阅登录接口（5 个 exact 路由）。只在 authorization 服务可用时由
  * index.ts 挂接；返回的清理函数同时撤销路由与仍在进行的登录尝试——插件的
- * interaction 回调一旦悬空，flow 会抱着 key 挂到进程结束。
+ * interaction 回调一旦悬空，flow 会持有 key 挂起直到进程结束。
  */
 export function applyAuthBridge(ctx: Context): () => void {
   let relay: AuthAttemptRelay | undefined
@@ -194,7 +194,7 @@ export function applyAuthBridge(ctx: Context): () => void {
   let attemptProvider: string | undefined
 
   const begin = (provider: string) => {
-    // 手写 route 的键不受记录语法约束（大写 / 点号），先挡下再寻址。
+    // 手写 route 的键不受记录语法约束（大写 / 点号），先拒绝再寻址。
     if (!isCredentialKeySegment(provider)) {
       throw new HttpError(404, `Provider「${provider}」的 ID 无法寻址凭据记录，不能订阅登录`)
     }
@@ -207,7 +207,7 @@ export function applyAuthBridge(ctx: Context): () => void {
     relay = next
     runningKey = key
     attemptProvider = provider
-    // begin 直到尝试结束才落定（人要开浏览器输码），先回包再让事件流接管；
+    // begin 的尝试直到结束才确定结果（用户需在浏览器输码），先返回响应再让事件流接管；
     // 预检已覆盖 NO_FLOW / UNKNOWN_METHOD / ALREADY_IN_FLIGHT，异步失败
     // （流程自身错误、NOT_COMMITTED）以 outcome 事件抵达面板。
     void ctx.authorization

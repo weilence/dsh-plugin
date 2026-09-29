@@ -68,7 +68,7 @@ export function buildRoute(inputs: RouteInputs): PanelRoute {
   }
 }
 
-// 生效桥（resolveModelInfo）是请求路径看到的真值，因此优先于目录展示值。
+// 生效接口（resolveModelInfo）是请求路径看到的真值，因此优先于目录展示值。
 function effectiveModelSummary(
   row: ModelRow,
   routeFacts: { defaultContextWindow?: unknown; defaultMaxTokens?: unknown },

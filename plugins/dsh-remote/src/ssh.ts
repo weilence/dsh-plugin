@@ -83,7 +83,7 @@ function classify(code: number | null, stderr: string, spawnError?: NodeJS.Errno
   )
 }
 
-// 宿主侧受信代码直 spawn（不经模型沙箱），认证完全复用用户 OpenSSH 配置。
+// 宿主侧受信代码直接 spawn（不经模型沙箱），认证完全复用用户 OpenSSH 配置。
 /** ssh 命令执行：连接级失败抛 SshFailure，命令级失败原样返回 code/stderr。 */
 export const sshExec: SshExec = (alias, command, options) =>
   new Promise<SshResult>((resolve, reject) => {
@@ -156,7 +156,7 @@ export function startSshForward(alias: string, localPort: number, remotePort: nu
   }
 }
 
-/** tar-over-ssh 单通道推送：本地 tar 打包 stdout 直灌远端 tar 解包 stdin。
+/** tar-over-ssh 单通道推送：本地 tar 打包的 stdout 直接写入远端 tar 解包的 stdin。
  *  names 指定时只打包根内的这些条目（skills 按勾选推送），缺省整根。 */
 export function tarOverSsh(
   alias: string,

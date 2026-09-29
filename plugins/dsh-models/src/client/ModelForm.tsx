@@ -18,11 +18,11 @@ export interface ModelFormProps {
   existingRows: readonly ModelRow[]
   /** 该行当前生效的能力事实（新建时为 undefined；用于 placeholder 显示默认值）。 */
   facts: EffectiveModelFacts | undefined
-  /** route 级默认容量（schema 默认值）；placeholder 的最后一级兜底。 */
+  /** route 级默认容量（schema 默认值）；placeholder 的最后一级回退。 */
   routeDefaults?: { contextWindow?: number; maxTokens?: number }
   /**
    * 该 route 安装目录里的模型 id（仅目录 route 有）。新建时若输入的 id 不在其中，
-   * 官方 `modelOverrides` 无法承载它，保存会物化整份 `models` 清单——提前给出明确警告。
+   * 官方 `modelOverrides` 无法承载它，保存会展开整份 `models` 清单——提前给出明确警告。
    */
   catalogIds?: ReadonlySet<string>
   busy: boolean
@@ -54,7 +54,7 @@ function effortModeValues(value: PiAiModelEntry['reasoningEfforts']): Partial<Re
 }
 
 // 只有用户层显式写过的字段才预填；没写的一律留空 = 继承，placeholder 显示
-// 当前生效的默认值——留空保存不会把继承值物化成显式配置。
+// 当前生效的默认值——留空保存不会把继承值写成显式配置。
 function initialDraft(row: ModelRow, facts: EffectiveModelFacts | undefined): Draft {
   const entry = row.userEntry
   const input = entry?.input ?? facts?.inputModalities
@@ -193,7 +193,7 @@ export function ModelForm(props: ModelFormProps) {
       !props.catalogIds.has(id.trim()) ? (
         <div className={styles.notice}>
           模型 <code className={styles.code}>{id.trim()}</code> 不在 pi-ai 安装目录里。官方{' '}
-          <code className={styles.code}>modelOverrides</code> 不能点名目录未描述的模型，因此保存会把该 route
+          <code className={styles.code}>modelOverrides</code> 不能指定目录未描述的模型，因此保存会把该 route
           固定为一份显式 <code className={styles.code}>models</code> 清单：以后 pi-ai
           升级新增的目录模型不会自动出现。
         </div>

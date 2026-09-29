@@ -34,7 +34,7 @@ async function requestPermission(): Promise<PermissionState> {
   }
 }
 
-// 标签页可见且窗口聚焦 = 用户正盯着本页；浏览器无法可靠感知窗口遮挡。
+// 标签页可见且窗口聚焦 = 用户正在查看本页；浏览器无法可靠感知窗口遮挡。
 const isPageViewing = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
 
 function showNotification(title: string, body: string, onClick?: () => void): void {
@@ -87,7 +87,7 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
           ? detail || '等待您的批准'
           : '模型处理已完成'
     // 点击通知聚焦页面并切换到对应会话（desktop 上 renderer 无法恢复最小化
-    // 窗口，由宿主侧桥接）。
+    // 窗口，由宿主侧代为恢复）。
     showNotification('DSH · ' + titleOf(ctx, sessionId), body, () => {
       try {
         ctx.uiWorkspace.openSession(sessionId as SessionId)
@@ -142,8 +142,8 @@ function NotifyPanel() {
         系统级桌面通知，点击通知可聚焦回本页面。事件经宿主 Remote 通道实时
         转发，无轮询；需要本页面保持打开（关闭期间的事件无接收方、不会补发，
         仍在等待的提问/审批会在页面重开后补通知）。首次使用请先授予通知
-        权限。您正停留在本页（标签页可见且聚焦）时不弹通知；事件发生时在 前台的，约 3
-        秒后复查一次，期间切走会补弹，仍在浏览则静默。
+        权限。您正在浏览本页（标签页可见且窗口聚焦）时不弹通知；这类事件约 3 秒
+        后复查一次——届时已切走则补弹，仍在浏览则静默。
       </p>
       <div className={styles.row}>
         <span className={styles.title}>完成通知</span>

@@ -23,7 +23,7 @@ export interface StoreFile {
 }
 
 // 注意：不得导出可变默认对象供展开复用——浅拷贝会共享 connections 数组
-// 引用，一次 push 污染所有“空库”读取方（回空路径必须字面量新建）。
+// 引用，一次 push 污染所有「空库」读取方（回空路径必须字面量新建）。
 
 /** 读取连接库；缺失 / 损坏 / 形状不对回空库。 */
 export async function readStore(homeDir: string): Promise<StoreFile> {
@@ -41,7 +41,7 @@ export async function readStore(homeDir: string): Promise<StoreFile> {
       ? record.connections
           .filter((item): item is RemoteConnection => isConnection(item))
           // 读入即归一到已知字段：旧库残字段（如已删除的 sync 勾选）剥离，
-          // 下次写盘落净形态
+          // 下次写盘即为干净形态
           .map((item) => ({
             id: item.id,
             label: item.label,

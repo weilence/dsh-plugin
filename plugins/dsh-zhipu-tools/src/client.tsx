@@ -10,7 +10,7 @@ interface SlotDefinition {
   inject?: (sessionId: string) => Record<string, unknown>
 }
 
-// model-selection 包的共享目录（宿主内常驻）；结构化声明，缺席时胶囊隐藏。
+// model-selection 包的共享目录（宿主内常驻）；结构化声明，不可用时胶囊隐藏。
 interface ModelDirectorySnapshotLike {
   status?: string
   current?: { provider?: string; model?: string } | null
