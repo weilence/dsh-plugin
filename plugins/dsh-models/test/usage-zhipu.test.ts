@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createUsageService, parseQuota, type QuotaWireBody } from '../src/usage'
+import { createUsageService, parseQuota, type QuotaWireBody } from '../src/usage/zhipu'
 
 function okBody(): QuotaWireBody {
   return {

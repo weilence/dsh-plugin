@@ -1,101 +1,46 @@
-import { describe, expect, it } from 'vitest'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/index'
 
-interface CapturedResponse {
-  status: number
-  body: Record<string, unknown>
-}
-
-function fakeRes(): { res: ServerResponse; done: Promise<CapturedResponse> } {
-  const captured: CapturedResponse = { status: 0, body: {} }
-  const res = {
-    writeHead(status: number) {
-      captured.status = status
-    },
-    end(payload?: Buffer) {
-      try {
-        captured.body = JSON.parse((payload ?? Buffer.alloc(0)).toString('utf8')) as Record<string, unknown>
-      } catch {
-        captured.body = {}
-      }
-    },
-  } as unknown as ServerResponse
-  return { res, done: Promise.resolve(captured) }
-}
-
-type Resolve = (name: string) => Promise<unknown>
-
-async function setup(resolve: Resolve) {
+function setup(resolve: (name: string) => Promise<unknown>) {
   const logs: string[] = []
-  const handlers = new Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>()
+  const plugin = vi.fn(async (_entry: unknown, _config: unknown) => {})
   const ctx = {
-    effect: (register: () => unknown) => register(),
-    webServer: {
-      host: '127.0.0.1',
-      register(options: {
-        path: string
-        handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
-      }) {
-        handlers.set(options.path, options.handler)
-        return () => handlers.delete(options.path)
-      },
-    },
     credentials: { resolve },
-    logger: {
-      error: (message: string) => logs.push(message),
-      info: (message: string) => logs.push(message),
-    },
+    plugin,
+    logger: { error: (message: string) => logs.push(message), info: (message: string) => logs.push(message) },
   }
-  await apply(ctx as never)
-  const request = async (method: string, host: string | undefined): Promise<CapturedResponse> => {
-    const handler = handlers.get('/dsh-zhipu-tools/usage')
-    if (handler === undefined) throw new Error('usage 路由未注册')
-    const req = {
-      headers: host === undefined ? {} : { host },
-      method,
-      url: '/dsh-zhipu-tools/usage',
-    } as unknown as IncomingMessage
-    const { res, done } = fakeRes()
-    await handler(req, res)
-    return done
-  }
-  return { logs, request }
+  return { ctx, plugin, logs }
 }
 
-describe('/dsh-zhipu-tools/usage 请求校验', () => {
-  it('Host 匹配绑定地址（loopback 拼写等价）的 GET 放行', async () => {
-    const { request } = await setup(async () => undefined)
-    expect((await request('GET', '127.0.0.1:19387')).status).toBe(200)
-    expect((await request('GET', 'localhost:3080')).status).toBe(200)
+describe('智谱 MCP 挂载', () => {
+  it('没有凭据时保持激活，不挂工具', async () => {
+    const { ctx, plugin, logs } = setup(async () => undefined)
+    await apply(ctx as never)
+    expect(plugin).not.toHaveBeenCalled()
+    expect(logs.some((line) => line.includes('未配置'))).toBe(true)
   })
 
-  it('Host 不匹配、缺 Host 或方法非 GET 一律 403', async () => {
-    const { request } = await setup(async () => undefined)
-    expect(await request('GET', 'example.com:80')).toMatchObject({
-      status: 403,
-      body: { ok: false, error: 'forbidden' },
+  it('按优先级解析 key，挂载两个官方工具', async () => {
+    const { ctx, plugin } = setup(async (name) =>
+      name === 'ZAI_CODING_CN_API_KEY' ? { value: 'secret' } : undefined,
+    )
+    await apply(ctx as never)
+    expect(plugin).toHaveBeenCalledTimes(2)
+    expect(plugin.mock.calls[0]?.[1]).toMatchObject({
+      serverName: 'zhipu_search',
+      headers: { Authorization: 'Bearer secret' },
     })
-    expect((await request('GET', undefined)).status).toBe(403)
-    expect((await request('POST', '127.0.0.1:19387')).status).toBe(403)
-  })
-})
-
-describe('凭证解析', () => {
-  it('两个候选都缺失时报「未配置」，用量接口透传该原因', async () => {
-    const { logs, request } = await setup(async () => undefined)
-    expect(logs.some((line) => line.includes('未配置 zai-coding-cn 供应商'))).toBe(true)
-    const res = await request('GET', '127.0.0.1:19387')
-    expect(res.body).toEqual({ ok: false, error: '未配置 zai-coding-cn 供应商' })
-  })
-
-  it('resolve 抛错按解析失败上报，错误携带真实原因而非「未配置」', async () => {
-    const { logs, request } = await setup(async () => {
-      throw new Error('凭证服务不可用')
+    expect(plugin.mock.calls[1]?.[1]).toMatchObject({
+      serverName: 'zhipu_reader',
+      headers: { Authorization: 'Bearer secret' },
     })
-    expect(logs.some((line) => line.includes('凭证解析失败') && line.includes('凭证服务不可用'))).toBe(true)
-    expect(logs.some((line) => line.includes('未配置'))).toBe(false)
-    const res = await request('GET', '127.0.0.1:19387')
-    expect(res.body.error).toContain('凭证服务不可用')
+  })
+
+  it('凭据解析失败携带具体原因', async () => {
+    const { ctx, logs } = setup(async () => {
+      throw new Error('凭据服务离线')
+    })
+    await apply(ctx as never)
+    expect(logs.some((line) => line.includes('凭据服务离线'))).toBe(true)
   })
 })

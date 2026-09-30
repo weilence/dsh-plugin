@@ -59,6 +59,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.87.1"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-authorization": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",

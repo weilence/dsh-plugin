@@ -4,6 +4,7 @@ import { readChoices } from '../pi-ai/choices'
 import { createOperations, type PiAiOperations } from './operations'
 import { PanelStore, type StoreContext } from './store'
 import { ModelCatalogSection } from './ModelCatalogSection'
+import { ProviderUsageChip, type ModelDirectories } from './usage/UsageChip'
 
 interface SlotServiceLike {
   inject(name: string, register: () => unknown): void
@@ -20,6 +21,7 @@ interface OfficialServices {
 }
 
 interface CordisLike extends SectionContext, OfficialServices {
+  modelDirectories?: ModelDirectories
   effect(body: () => (() => void) | void, label?: string): unknown
 }
 
@@ -36,6 +38,7 @@ export const inject: string[] = [
   'remote.credentials',
   'configForms',
   'settingsSchema',
+  'modelDirectories',
 ]
 
 export function apply(ctx: unknown) {
@@ -57,6 +60,17 @@ export function apply(ctx: unknown) {
   const store = new PanelStore({ ctx: services, operations, scope, getChoices })
   services.effect(() => store.start(), 'dsh-models: model catalog panel')
   const slots = services.slots
+  slots.inject('conversation.input.right', () =>
+    slots.register(
+      {
+        name: 'conversation.input.right',
+        id: 'dsh-models-usage',
+        order: 10,
+        inject: (sessionId: string) => ({ sessionId, directories: services.modelDirectories }),
+      },
+      ProviderUsageChip,
+    ),
+  )
   slots.inject('settings.section', () =>
     slots.register(
       {

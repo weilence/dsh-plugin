@@ -125,3 +125,14 @@
 .note {
   min-width: 0;
 }
+.billingRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.billingNote {
+  color: var(--dsw-alias-label-tertiary);
+  margin-top: 10px;
+}

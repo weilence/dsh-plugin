@@ -1,13 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
-import type {} from '@deepseek-ai/dsh-host-webserver'
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
 import type { StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import { errMsg } from '@dsh-plugins/shared'
-import { isExpectedHost, writeJson } from '@dsh-plugins/shared/http'
-import { createUsageService } from './usage'
 
-export const inject: string[] = ['webServer', 'credentials', 'tools']
+export const inject: string[] = ['credentials', 'tools']
 
 // serverName → 模型侧工具名 mcp__<serverName>__<rawName>；
 // 须匹配 in-box 的 /^[A-Za-z0-9_-]{1,32}$/ 且全局唯一。
@@ -42,8 +39,8 @@ const MCP_CLIENT_PLUGIN = {
 const KEY_REFS = ['ZAI_CODING_CN_API_KEY', 'ZAI_API_KEY'] as const
 
 export async function apply(ctx: Context) {
-  // 两个候选都缺失才是「未配置」；resolve 抛错是凭证服务故障，归并成
-  // 「未配置」会掩盖真实原因。
+  // 两个候选都缺席才是「未配置」；resolve 抛错是凭证服务故障，归并成
+  // 「未配置」会吞掉真实原因。
   async function resolveKey(): Promise<{ key: string | null; failure: string | undefined }> {
     const errors: string[] = []
     for (const name of KEY_REFS) {
@@ -91,28 +88,4 @@ export async function apply(ctx: Context) {
       }
     }
   }
-
-  const usage = createUsageService(apiKey, failure)
-  ctx.effect(
-    () =>
-      ctx.webServer.register({
-        kind: 'exact',
-        path: '/dsh-zhipu-tools/usage',
-        handler: async (req, res) => {
-          // 与 dsh-remote/dsh-mcp 的读路由相同的请求校验：Host 匹配绑定地址（loopback 拼写等价）且仅放行 GET。
-          if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
-            writeJson(res, 403, { ok: false, error: 'forbidden' })
-            return
-          }
-          try {
-            const url = new URL(req.url ?? '/', 'http://dsh.internal')
-            const force = url.searchParams.get('force') === '1'
-            writeJson(res, 200, await usage.fetchUsage(force))
-          } catch (error) {
-            writeJson(res, 500, { ok: false, error: errMsg(error) })
-          }
-        },
-      }),
-    'dsh-zhipu-tools: /dsh-zhipu-tools/usage route',
-  )
 }

@@ -8,10 +8,12 @@ import { isExpectedHost, writeJson } from '@dsh-plugins/shared/http'
 import { applyAuthBridge } from './auth'
 import { effectiveModelsFor } from './effective'
 import { CatalogMirror } from './mirror'
+import { createProviderUsageService, isUsageProvider } from './usage'
 
 export const inject: string[] = ['webServer']
 export const CATALOG_PATH = '/dsh-models/catalog'
 export const EFFECTIVE_PATH = '/dsh-models/effective-models'
+export const USAGE_PATH = '/dsh-models/usage'
 
 export function etagMatches(header: string | string[] | undefined, etag: string) {
   const raw = Array.isArray(header) ? header.join(',') : header
@@ -90,7 +92,34 @@ function apply(ctx: Context) {
     'dsh-models: catalog bridge',
   )
 
-  // 只读能力接口是可选面：llm 服务不可用时目录接口照常工作，面板把「生效能力」
+  const usage = createProviderUsageService(ctx)
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: USAGE_PATH,
+        handler: async (req, res) => {
+          if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET') {
+            writeJson(res, 403, { error: 'forbidden' })
+            return
+          }
+          try {
+            const url = new URL(req.url ?? '/', 'http://dsh.internal')
+            const provider = url.searchParams.get('provider') ?? ''
+            if (!isUsageProvider(provider)) {
+              writeJson(res, 400, { error: `Provider「${provider}」没有用量适配器` })
+              return
+            }
+            writeJson(res, 200, await usage.read(provider, url.searchParams.get('force') === '1'))
+          } catch (error) {
+            writeJson(res, 500, { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-models: provider usage bridge',
+  )
+
+  // 只读能力桥是可选面：llm 服务缺席时目录桥照常工作，面板把「生效能力」
   // 显示为未知，而不是让整个插件不激活。
   ctx.inject(['llm'], (llmCtx) =>
     llmCtx.effect(
@@ -129,8 +158,8 @@ function apply(ctx: Context) {
     ),
   )
 
-  // 订阅登录接口同样是可选面：authorization 服务不可用（无登录型 provider 的
-  // 组合）时目录接口照常，面板不显示任何登录入口。
+  // 订阅登录桥同样是可选面：authorization 服务缺席（无登录型 provider 的
+  // 组合）时目录桥照常，面板不显示任何登录入口。
   ctx.inject(['authorization'], (authCtx) =>
     authCtx.effect(() => applyAuthBridge(authCtx), 'dsh-models: auth bridge'),
   )
