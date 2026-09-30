@@ -14,7 +14,7 @@
 | [dsh-prompts](plugins/dsh-prompts)         | `@weilence/dsh-prompts`     | 设置页「全局提示词」：查看、创建、编辑和删除用户级 `AGENTS.md`，通过文件版本检查避免覆盖外部修改                                                                                    |
 | [dsh-remote](plugins/dsh-remote)           | `@weilence/dsh-remote`      | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容             |
 | [dsh-skills](plugins/dsh-skills)           | `@weilence/dsh-skills`      | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级 round-trip，未知字段保留）                             |
-| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | `@weilence/dsh-zhipu-tools` | 智谱 Coding Plan 工具集：挂载官方 MCP 搜索 / 读页工具；用量展示由 `dsh-models` 承载                                                                                                 |
+| [dsh-zhipu-tools](plugins/dsh-zhipu-tools) | `@weilence/dsh-zhipu-tools` | 设置页「智谱搜索」开关：把 `web_search` 后端切为智谱（默认不替换，写用户 patch 层），另挂载智谱搜索 / 读页 MCP 工具；用量展示由 `dsh-models` 承载                                   |
 
 各插件的功能、安装与配置说明见其目录内 README。
 

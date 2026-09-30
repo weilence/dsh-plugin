@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
-  "version": "0.1.0",
-  "description": "DSH 插件：挂载智谱 Coding Plan 官方搜索与网页阅读 MCP 工具；用量展示由 dsh-models 承载。",
+  "version": "0.2.0",
+  "description": "DSH 插件：设置页开关式把 web_search 切换为智谱搜索提供者（默认不替换，写入用户 patch 层），并挂载官方搜索 / 网页阅读 MCP 工具；用量由 dsh-models 展示。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -16,7 +16,8 @@
     "client": {
       "platform": "web",
       "inject": [
-        "@deepseek-ai/dsh-client-runtime"
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
   },
@@ -62,21 +63,34 @@
     "registry": "https://registry.npmjs.org/"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-mcp-client": ">=0.2.0-rc.2 <0.3.0"
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-mcp-client": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-web": ">=0.2.0-rc.2 <0.3.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
   },
   "devDependencies": {
+    "@dsh-plugins/client-ui": "workspace:*",
     "@dsh-plugins/shared": "workspace:*",
     "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-mcp-client": "catalog:",
+    "@deepseek-ai/dsh-web": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "lightningcss": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yaml": "^2.9.0"
   }
 }
