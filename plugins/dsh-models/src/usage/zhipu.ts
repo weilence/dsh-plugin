@@ -1,8 +1,9 @@
 import { errMsg } from '@dsh-plugins/shared'
+import type { UsageWindowLabel } from './types'
 
 export interface QuotaWindow {
   id: string
-  label: string
+  label: UsageWindowLabel
   /** API percentage（已用百分比，0-100）；展示时换算为剩余。 */
   usedPct: number | null
   resetMs: number | null
@@ -43,11 +44,12 @@ function clampPct(v: number | null) {
   return Math.min(100, Math.max(0, v))
 }
 
-function labelFor(type: string, unit: number | null) {
-  if (type === 'TOKENS_LIMIT' && unit === 3) return '5 小时'
-  if (type === 'TOKENS_LIMIT' && unit === 6) return '每周'
-  if (type === 'TIME_LIMIT') return '工具调用'
-  return type
+// wire 观察事实：TOKENS_LIMIT 的 unit 3 = 5 小时窗口、6 = 每周窗口；TIME_LIMIT 是工具调用按次窗口。
+function labelFor(type: string, unit: number | null): UsageWindowLabel {
+  if (type === 'TIME_LIMIT') return { kind: 'toolCalls' }
+  if (type === 'TOKENS_LIMIT' && unit === 3) return { kind: 'window', windowMins: 300 }
+  if (type === 'TOKENS_LIMIT' && unit === 6) return { kind: 'window', windowMins: 10080 }
+  return { kind: 'text', text: type }
 }
 
 // fetch 对 4xx/5xx 不抛错；体积超限拒绝解析。

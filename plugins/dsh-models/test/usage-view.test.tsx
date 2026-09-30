@@ -1,7 +1,8 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { footerNote, formatReset, UsageDetails } from '../src/client/usage/UsageChip'
+import { UsageDetails, footerNote } from '../src/client/usage/UsageChip'
+import { formatReset, providerName } from '../src/client/usage/locales'
 import type { ProviderUsage } from '../src/usage/types'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({}))
@@ -10,26 +11,25 @@ function html(result: ProviderUsage | null, locale = 'zh') {
   return renderToStaticMarkup(createElement(UsageDetails, { result, locale }))
 }
 
+const ZHIPU_QUOTA: ProviderUsage = {
+  kind: 'quota',
+  provider: 'zai-coding-cn',
+  windows: [
+    { id: '5h', label: { kind: 'window', windowMins: 300 }, usedPct: 25, resetMs: null },
+    { id: 'week', label: { kind: 'window', windowMins: 10080 }, usedPct: null, resetMs: null },
+    { id: 'tools', label: { kind: 'toolCalls' }, usedPct: 90, resetMs: null },
+  ],
+  queriedAt: 0,
+}
+
 describe('按 Provider 显示真实用量语义', () => {
   it('智谱与 Codex 的已用百分比换算剩余，不把未知值当零', () => {
-    expect(
-      html({
-        kind: 'quota',
-        provider: 'zai-coding-cn',
-        label: '智谱',
-        windows: [
-          { id: '5h', label: '5 小时', usedPct: 25, resetMs: null },
-          { id: 'week', label: '每周', usedPct: null, resetMs: null },
-        ],
-        queriedAt: 0,
-      }),
-    ).toContain('75%')
+    expect(html(ZHIPU_QUOTA)).toContain('75%')
     expect(
       html({
         kind: 'quota',
         provider: 'openai-codex',
-        label: 'Codex',
-        windows: [{ id: 'primary', label: '5 小时', usedPct: 90, resetMs: null }],
+        windows: [{ id: 'p', label: { kind: 'window', windowMins: 300 }, usedPct: 90, resetMs: null }],
         queriedAt: 0,
       }),
     ).toContain('10%')
@@ -37,8 +37,7 @@ describe('按 Provider 显示真实用量语义', () => {
       html({
         kind: 'quota',
         provider: 'zai-coding-cn',
-        label: '智谱',
-        windows: [{ id: 'unknown', label: '未知', usedPct: null, resetMs: null }],
+        windows: [{ id: 'u', label: { kind: 'text', text: '未知' }, usedPct: null, resetMs: null }],
         queriedAt: 0,
       }),
     ).not.toContain('100%')
@@ -48,10 +47,9 @@ describe('按 Provider 显示真实用量语义', () => {
     const content = html({
       kind: 'quota',
       provider: 'openai-codex',
-      label: 'Codex',
       windows: [
-        { id: 'primary', label: '5 小时', usedPct: 100, resetMs: null },
-        { id: 'secondary', label: '每周', usedPct: 63, resetMs: null },
+        { id: 'p', label: { kind: 'window', windowMins: 300 }, usedPct: 100, resetMs: null },
+        { id: 's', label: { kind: 'window', windowMins: 10080 }, usedPct: 63, resetMs: null },
       ],
       queriedAt: 0,
     })
@@ -63,15 +61,48 @@ describe('按 Provider 显示真实用量语义', () => {
     expect(content).not.toContain('默认限额')
   })
 
+  it('窗口标签跟随宿主语言，未知条目原样回退', () => {
+    expect(html(ZHIPU_QUOTA)).toContain('工具调用')
+    const en = html(ZHIPU_QUOTA, 'en')
+    expect(en).toContain('5 hours')
+    expect(en).toContain('Weekly')
+    expect(en).toContain('Tool calls')
+    expect(
+      html(
+        {
+          ...ZHIPU_QUOTA,
+          windows: [{ id: 'u', label: { kind: 'text', text: 'NEW_LIMIT' }, usedPct: null, resetMs: null }],
+        },
+        'en',
+      ),
+    ).toContain('NEW_LIMIT')
+    expect(providerName('zai-coding-cn', 'zh')).toBe('智谱')
+    expect(providerName('zai-coding-cn', 'en')).toBe('Zhipu')
+    expect(providerName('example', 'en')).toBe('example')
+  })
+
+  it('英文重置时间用紧凑时长，窄列放得下', () => {
+    const reset = (ms: number) =>
+      html(
+        {
+          kind: 'quota',
+          provider: 'zai-coding-cn',
+          windows: [{ id: 'w', label: { kind: 'window', windowMins: 300 }, usedPct: 0, resetMs: ms }],
+          queriedAt: 0,
+        },
+        'en',
+      )
+    expect(reset(Date.now() + 3 * 3_600_000)).toContain('resets in 3h')
+  })
+
   it('Copilot 展示套餐剩余额度，不再显示账单历史记录', () => {
-    const content = html({
+    const quota: ProviderUsage = {
       kind: 'quota',
       provider: 'github-copilot',
-      label: 'Copilot',
       windows: [
         {
           id: 'premium_interactions',
-          label: '高级请求',
+          label: { kind: 'premiumRequests' },
           usedPct: 30,
           resetMs: null,
           remaining: 210,
@@ -79,38 +110,52 @@ describe('按 Provider 显示真实用量语义', () => {
         },
       ],
       queriedAt: 0,
-    })
+    }
+    const content = html(quota)
     expect(content).toContain('高级请求')
     expect(content).toContain('70%')
     expect(content).toContain('剩余 210 / 300')
     expect(content).not.toContain('计费')
+    const en = html(quota, 'en')
+    expect(en).toContain('Premium requests')
+    expect(en).toContain('210 / 300 left')
   })
 
   it('无限额度不显示伪造的百分比或余额', () => {
-    const content = html({
+    const quota: ProviderUsage = {
       kind: 'quota',
       provider: 'github-copilot',
-      label: 'Copilot',
       windows: [
-        { id: 'premium_interactions', label: '高级请求', usedPct: null, resetMs: null, unlimited: true },
+        {
+          id: 'premium_interactions',
+          label: { kind: 'premiumRequests' },
+          usedPct: null,
+          resetMs: null,
+          unlimited: true,
+        },
       ],
       queriedAt: 0,
-    })
-    expect(content).toContain('不限量')
-    expect(content).not.toContain('剩余 0')
+    }
+    expect(html(quota)).toContain('不限量')
+    expect(html(quota)).not.toContain('剩余 0')
+    expect(html(quota, 'en')).toContain('Unlimited')
   })
 
   it('脚注显示查询时间和 Copilot 私有接口数据来源', () => {
+    expect(footerNote({ kind: 'quota', provider: 'openai-codex', windows: [], queriedAt: 0 }, 'zh')).toMatch(
+      /^更新于 \d{2}:\d{2}$/,
+    )
     expect(
-      footerNote({ kind: 'quota', provider: 'openai-codex', label: 'Codex', windows: [], queriedAt: 0 }),
-    ).toMatch(/^更新于 \d{2}:\d{2}$/)
-    expect(
-      footerNote({ kind: 'quota', provider: 'github-copilot', label: 'Copilot', windows: [], queriedAt: 0 }),
+      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, 'zh'),
     ).toMatch(/^GitHub 私有接口 · 更新于 \d{2}:\d{2}$/)
-    expect(footerNote(null)).toBe('仅当前 Provider 显示')
+    expect(footerNote(null, 'zh')).toBe('仅当前 Provider 显示')
+    expect(footerNote(null, 'en')).toBe('Only shown for the current provider')
+    expect(
+      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, 'en'),
+    ).toMatch(/^GitHub private API · Updated \d{2}:\d{2}$/)
   })
 
-  it('重置时间跟随宿主语言：中文走 dayjs zh-cn，英文走 dayjs en，过期与缺失显示 —', () => {
+  it('重置时间跟随宿主语言：中文走 dayjs zh-cn，英文走紧凑时长，过期与缺失显示 —', () => {
     const now = new Date(2026, 9, 1, 9).getTime()
     expect(formatReset(now + 60_000, 'zh', now)).toBe('1 分钟内重置')
     expect(formatReset(now + 3 * 3_600_000, 'zh', now)).toBe('3 小时内重置')
@@ -118,18 +163,21 @@ describe('按 Provider 显示真实用量语义', () => {
     expect(formatReset(now + 40 * 86_400_000, 'zh', now)).toBe('1 个月内重置')
     expect(formatReset(now - 60_000, 'zh', now)).toBe('—')
     expect(formatReset(null, 'zh', now)).toBe('—')
-    expect(formatReset(now + 3 * 3_600_000, 'en', now)).toBe('resets in 3 hours')
+    expect(formatReset(now + 45_000, 'en', now)).toBe('resets in 45s')
+    expect(formatReset(now + 90 * 60_000, 'en', now)).toBe('resets in 2h')
+    expect(formatReset(now + 3 * 3_600_000, 'en', now)).toBe('resets in 3h')
+    expect(formatReset(now + 6 * 86_400_000, 'en', now)).toBe('resets in 6d')
+    expect(formatReset(now + 17 * 86_400_000, 'en', now)).toBe('resets in 2w')
+    expect(formatReset(now + 40 * 86_400_000, 'en', now)).toBe('resets in 1mo')
     expect(formatReset(now - 60_000, 'en', now)).toBe('—')
   })
 
   it('缺凭据时显示查询原因', () => {
     expect(
-      html({
-        kind: 'unavailable',
-        provider: 'github-copilot',
-        label: 'Copilot',
-        error: 'Copilot 尚未登录 GitHub',
-      }),
+      html({ kind: 'unavailable', provider: 'github-copilot', error: 'Copilot 尚未登录 GitHub' }),
     ).toContain('Copilot 尚未登录 GitHub')
+    expect(html({ kind: 'unavailable', provider: 'github-copilot', error: 'missing token' }, 'en')).toContain(
+      '<dt>Reason</dt>',
+    )
   })
 })

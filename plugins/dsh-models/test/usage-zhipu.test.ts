@@ -25,7 +25,11 @@ afterEach(() => {
 describe('parseQuota', () => {
   it('正常三窗口：标签、已用百分比、重置时间', () => {
     const windows = parseQuota(okBody())
-    expect(windows.map((w) => w.label)).toEqual(['5 小时', '每周', '工具调用'])
+    expect(windows.map((w) => w.label)).toEqual([
+      { kind: 'window', windowMins: 300 },
+      { kind: 'window', windowMins: 10080 },
+      { kind: 'toolCalls' },
+    ])
     expect(windows.map((w) => w.usedPct)).toEqual([25, 40, 7])
     expect(windows[0].resetMs).toBe(1730000000000)
     expect(windows.map((w) => w.id)).toEqual(['TOKENS_LIMIT#3', 'TOKENS_LIMIT#6', 'TIME_LIMIT#5'])
@@ -34,7 +38,7 @@ describe('parseQuota', () => {
   it('未知 type 原样保留，label 回退为 type', () => {
     const windows = parseQuota({ data: { limits: [{ type: 'NEW_LIMIT', unit: 9 }] } })
     expect(windows).toHaveLength(1)
-    expect(windows[0].label).toBe('NEW_LIMIT')
+    expect(windows[0].label).toEqual({ kind: 'text', text: 'NEW_LIMIT' })
     expect(windows[0].usedPct).toBeNull()
     expect(windows[0].resetMs).toBeNull()
   })

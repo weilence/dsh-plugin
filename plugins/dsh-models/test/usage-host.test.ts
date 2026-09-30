@@ -89,7 +89,7 @@ describe('Provider 用量 Host 路由', () => {
     const { request } = setup()
     expect(await request(`${USAGE_PATH}?provider=zai-coding-cn`)).toMatchObject({
       status: 200,
-      body: { kind: 'unavailable', label: '智谱', error: expect.stringContaining('未配置') },
+      body: { kind: 'unavailable', error: expect.stringContaining('未配置') },
     })
   })
 
@@ -149,7 +149,11 @@ describe('Provider 用量 Host 路由', () => {
     const response = await request(`${USAGE_PATH}?provider=openai-codex`)
     expect(response.body).toMatchObject({
       kind: 'quota',
-      windows: [{ label: '5 小时' }, { label: '每周' }, { label: 'Reviews · 5 小时' }],
+      windows: [
+        { label: { kind: 'window', windowMins: 300, role: 'primary' } },
+        { label: { kind: 'window', windowMins: 10080, role: 'secondary' } },
+        { label: { kind: 'window', windowMins: 300, role: 'primary', bucketName: 'Reviews' } },
+      ],
     })
   })
 
@@ -169,7 +173,7 @@ describe('Provider 用量 Host 路由', () => {
       status: 200,
       body: {
         kind: 'quota',
-        windows: [{ label: '高级请求', usedPct: 30, remaining: 210, entitlement: 300 }],
+        windows: [{ label: { kind: 'premiumRequests' }, usedPct: 30, remaining: 210, entitlement: 300 }],
       },
     })
     expect(read).toHaveBeenCalledOnce()

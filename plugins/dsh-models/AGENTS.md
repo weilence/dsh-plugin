@@ -8,10 +8,10 @@
 - `src/auth.ts`：订阅登录接口——`AuthAttemptRelay`（flow 交互 ↔ 事件缓冲中继，seq 跨尝试单调递增）+ 5 个 exact 路由：`GET /dsh-models/auth`（flow 目录 + grant 记录现状 + 进行中尝试）、`POST …/auth/begin`（预检 NO_FLOW / 404 / 409 后立即应答，异步结果走事件流）、`GET …/auth/events?after=`、`POST …/auth/answer`、`POST …/auth/cancel`。dispose 撤回仍在进行的尝试——悬空的 interaction 会让 flow 持有的 key 挂起直到进程结束。
 - `src/mirror.ts`：models.dev 目录镜像（GET + If-None-Match、6 小时周期、退避重试、快照持久化到 `$DSH_HOME/cache/dsh-models/`）。
 - `src/effective.ts`：只读能力接口（`ctx.llm.resolveModelInfo` 的面板投影，与会话模型选择器同一事实源）。
-- `src/usage/`：`GET /dsh-models/usage?provider=` 的 Provider 分型用量查询；智谱配额由 Host 缓存，Codex 直接读取 ChatGPT 限额，Copilot 复用模型登录的 GitHub OAuth 凭据查询私有套餐额度接口。只向浏览器返回展示数据，不下发凭据。
+- `src/usage/`：`GET /dsh-models/usage?provider=` 的 Provider 分型用量查询；智谱配额由 Host 缓存，Codex 直接读取 ChatGPT 限额，Copilot 复用模型登录的 GitHub OAuth 凭据查询私有套餐额度接口。只向浏览器返回展示数据（窗口标签是语义事实非文案，`UsageWindowLabel`），不下发凭据。
 - `src/catalog/`：models.dev wire 解析与映射（parse / map / matching / types）。
 - `src/pi-ai/`：纯逻辑层——route 状态判定与写入候选（profile / ops）、官方格式归一化与校验（normalize / validate）、schema 内省（choices / view）、类型（types）。
-- `src/client/usage/`：会话输入框右侧的用量胶囊与详情，随当前 Provider 切换并按实际数据语义展示；重置时间文案跟随宿主语言——语言环境取 `ctx.locale` 服务面（client `inject` 声明 `'locale'`，`dsh.client.inject` 注入 `@deepseek-ai/dsh-client-locale`），dayjs 以实例 locale 渲染（`zh`→`zh-cn`，其余回退 `en`）。
+- `src/client/usage/`：会话输入框右侧的用量胶囊与详情，随当前 Provider 切换并按实际数据语义展示；全部展示文案跟随宿主语言——语言环境取 `ctx.locale` 服务面（client `inject` 声明 `'locale'`，`dsh.client.inject` 注入 `@deepseek-ai/dsh-client-locale`），词典在 `locales.ts`（zh/en，其余回退 en）；中文重置时间用 dayjs 实例 locale（`zh`→`zh-cn`）渲染，其余语言用紧凑时长（`resets in 3h`）保证窄列不截断。展开态不使用 Pill 的 active 填充，与官方模型选择触发器一致。
 - `src/client/`：面板——`index.ts` 接线、store / operations 状态层；ModelCatalogSection 在 CardList 首行挂 CreateProviderForm，新建内置 / 自定义 Provider 并复用 ModelsDevImport；已配置 Provider 展开后由 RouteEditor / ModelForm 行内编辑。带 oauth flow 的 Provider 由 ModelCatalogSection 统一渲染 SignInCard（`signInView(provider)` 返回 `{ card, replacesApiKey }` 传给两个表单；store 轮询 700ms 折叠事件，attempt 状态由轮询循环持有）。CardList 与 ExpandableCard 来自 `@dsh-plugins/client-ui`。面板根经 `useWideSettingsDialog()`（同包）加宽宿主设置弹窗。
 
 ## 改动约定

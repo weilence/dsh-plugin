@@ -4,14 +4,14 @@ import { errMsg } from '@dsh-plugins/shared'
 import { COPILOT_CREDENTIAL_KEY, readCopilotQuota } from './copilot'
 import { CODEX_CREDENTIAL_KEY, readCodexQuota } from './codex'
 import { createUsageService as createZhipuUsageService } from './zhipu'
-import { USAGE_PROVIDERS, type ProviderUsage } from './types'
+import { USAGE_PROVIDERS, type ProviderUsage, type UsageProviderId, type UsageWindowLabel } from './types'
 
 export type { ProviderUsage } from './types'
 
-export type UsageProvider = keyof typeof USAGE_PROVIDERS
+export type UsageProvider = UsageProviderId
 
 export function isUsageProvider(value: string): value is UsageProvider {
-  return Object.hasOwn(USAGE_PROVIDERS, value)
+  return (USAGE_PROVIDERS as readonly string[]).includes(value)
 }
 
 export function createProviderUsageService(ctx: Context) {
@@ -56,7 +56,6 @@ export function createProviderUsageService(ctx: Context) {
     return {
       kind: 'quota',
       provider: 'zai-coding-cn',
-      label: '智谱',
       windows: value.windows,
       queriedAt: value.queriedAt,
     }
@@ -67,26 +66,16 @@ export function createProviderUsageService(ctx: Context) {
     return {
       kind: 'quota',
       provider: 'openai-codex',
-      label: 'Codex',
       windows: value.windows.map((window) => {
         const bucketId = window.bucketId ?? 'codex'
-        const duration =
-          window.windowMins === 300
-            ? '5 小时'
-            : window.windowMins === 10080
-              ? '每周'
-              : window.windowMins
-                ? `${window.windowMins} 分钟`
-                : window.kind === 'primary'
-                  ? '主窗口'
-                  : '次窗口'
-        const bucketName = bucketId === 'codex' ? null : (window.bucketName ?? bucketId)
-        return {
-          id: `${bucketId}:${window.kind}`,
-          label: bucketName ? `${bucketName} · ${duration}` : duration,
-          usedPct: window.usedPct,
-          resetMs: window.resetMs,
+        const bucketName = bucketId === 'codex' ? undefined : (window.bucketName ?? bucketId)
+        const label: UsageWindowLabel = {
+          kind: 'window',
+          windowMins: window.windowMins ?? null,
+          role: window.kind,
+          ...(bucketName === undefined ? {} : { bucketName }),
         }
+        return { id: `${bucketId}:${window.kind}`, label, usedPct: window.usedPct, resetMs: window.resetMs }
       }),
       queriedAt: Date.now(),
     }
@@ -97,11 +86,10 @@ export function createProviderUsageService(ctx: Context) {
     return {
       kind: 'quota',
       provider: 'github-copilot',
-      label: 'Copilot',
       windows: [
         {
           id: 'premium_interactions',
-          label: '高级请求',
+          label: { kind: 'premiumRequests' },
           usedPct: quota.remainingPct === null ? null : 100 - quota.remainingPct,
           resetMs: quota.resetMs,
           remaining: quota.remaining,
@@ -120,7 +108,7 @@ export function createProviderUsageService(ctx: Context) {
       try {
         return await readZhipu(force)
       } catch (error) {
-        return { kind: 'unavailable', provider, label: USAGE_PROVIDERS[provider], error: errMsg(error) }
+        return { kind: 'unavailable', provider, error: errMsg(error) }
       }
     }
     const hit = cached.get(provider)
@@ -132,7 +120,7 @@ export function createProviderUsageService(ctx: Context) {
       try {
         return provider === 'openai-codex' ? await readCodex() : await readCopilot()
       } catch (error) {
-        return { kind: 'unavailable', provider, label: USAGE_PROVIDERS[provider], error: errMsg(error) }
+        return { kind: 'unavailable', provider, error: errMsg(error) }
       }
     })()
     const shared = (async (): Promise<ProviderUsage> => {
@@ -141,8 +129,8 @@ export function createProviderUsageService(ctx: Context) {
         return {
           kind: 'unavailable',
           provider,
-          label: USAGE_PROVIDERS[provider],
-          error: `${USAGE_PROVIDERS[provider]} 授权已更新，请重新查询。`,
+          // host 不知道宿主语言，异常态提示保留中文，展示名用 provider id。
+          error: `${provider} 授权已更新，请重新查询。`,
         }
       }
       cached.set(provider, { value, at: Date.now() })
