@@ -398,6 +398,33 @@ describe('RemoteEngine', () => {
     expect(state.lastSync.skills).toBeNull()
   })
 
+  it('connect 重连先杀旧转发：句柄覆盖前必须 kill，否则 ssh 进程无主泄漏', async () => {
+    // 实测事故：error 阶段重连时旧 forward 仍挂在 runtime 上，runConnect 直接
+    // 覆盖句柄 → 旧 ssh -N -L 进程失去引用，累积成无主转发
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
+        if (command.includes('.pid')) return { code: 0, stdout: '4242\n', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(fake.forwardCount()).toBe(0) // 首次连接：无旧转发可杀
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(fake.forwardCount()).toBe(1) // 重连杀掉了旧转发
+  })
+
   it('connect：远端实例仍存活时复用（不叠加新 nohup 实例）', async () => {
     makeEngine({
       respond: (command) => {

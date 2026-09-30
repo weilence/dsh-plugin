@@ -460,6 +460,10 @@ export class RemoteEngine {
     try {
       const alias = connection.sshAlias
       const runtime = this.runtimeOf(id)
+      // 重连先杀旧转发：error 阶段重连时旧句柄仍在（fail 不清 forward），不杀
+      // 会被新 forward 覆盖句柄，泄漏为无主 ssh 进程（实测累积过 4 个）
+      runtime.forward?.kill()
+      runtime.forward = null
       runtime.running = null
 
       // 部署段先行（幂等，已装齐时直接跳过）；装配完成进入启动段（阶段驱动面板 pill）
@@ -546,6 +550,15 @@ export class RemoteEngine {
   startDisconnect(id: string): void {
     const connection = this.beginOp(id, { kind: 'disconnect', step: 'stop-forward' }, 'stopping')
     void this.runDisconnect(connection)
+  }
+
+  /** 宿主卸载插件（含退出）时杀掉全部本地转发；远端实例不动（仍在远端运行，
+   *  下次连接按 pid 复用）。 */
+  dispose(): void {
+    for (const runtime of this.runtimes.values()) {
+      runtime.forward?.kill()
+      runtime.forward = null
+    }
   }
 
   private async runDisconnect(connection: RemoteConnection): Promise<void> {

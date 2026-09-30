@@ -42,6 +42,7 @@
 - 连接轮询按尝试次数上限（180s / 2s）而非按总时长设 deadline——测试注入的即时 delay 会让按总时长的循环真实等待全部时长。
 - 健康检查只验证「隧道上取到任何 HTTP 响应」：远端对无凭据 `GET /` 应答 401（index 由 browser-auth 保护），按状态码判定存活会把正常的隧道误判为失败（实际发生过）；pid 存活时 start 复用旧实例，重试连接不会累积 nohup 孤儿进程。
 - 同步 MCP / 插件安装写入后依赖远端实例的 HMR 在线应用；实例未运行时，写入的内容在下次启动时生效；宿主未启用 HMR 时需断开重连（重启实例会换 token，不做自动重启）——面板与弹窗不显示关于生效时机的提示。
+- 本地转发（`ssh -N -L` 子进程）不随宿主进程退出而亡，生命周期两处兜底缺一即泄漏：runConnect 开头杀旧句柄（fail 不清 forward，error 阶段重连会覆盖句柄）；`ctx.effect` 挂 `engine.dispose()` 在插件卸载 / 宿主退出时杀全部转发（实测：error 重连累积 4 个 + 宿主退出孤儿 1 个）。排查：`ps -axo pid,ppid,command | grep 'ssh .*-N .*-L'` 对照 GET /dsh-remote/state 的 `running.localPort`，活跃转发以外的都是泄漏。
 - `yaml` 是 host half 唯一内联的 node_modules 依赖（`host.bundle: ['yaml']`）；新增运行时依赖须显式进 bundle。
 - host half 变更需重启宿主；client half 刷新页面即生效。
 

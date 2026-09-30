@@ -230,7 +230,11 @@ function statusOf(error: unknown): number {
 }
 
 export function apply(ctx: Context): void {
-  applyWithEngine(ctx, makeEngine(ctx))
+  const engine = makeEngine(ctx)
+  // 宿主卸载插件（含退出）时杀掉全部本地转发——spawn 的 ssh 子进程不随父进程
+  // 退出而亡，不清理会留下无主转发（实测泄漏过）
+  ctx.effect(() => () => engine.dispose())
+  applyWithEngine(ctx, engine)
 }
 
 /** 路由挂载（engine 注入口：host.test.ts 用假引擎依赖驱动集成往返）。 */
