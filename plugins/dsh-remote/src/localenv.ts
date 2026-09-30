@@ -4,6 +4,8 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
+import type { ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import {
   MCP_PLUGIN_NAME,
@@ -246,29 +248,13 @@ async function readLayer(source: 'profile' | 'home', file: string): Promise<Loca
   }
 }
 
-export interface ProfileContextLike {
-  name?: unknown
-  patchPath?: unknown
-  home?: unknown
-}
-
 /** 防御式读取 profileContext（不可用时返回 undefined）。 */
-export function profileContextOf(ctx: { get(name: string): unknown }):
-  | {
-      name: string | null
-      patchPath: string
-      home: string
-    }
-  | undefined {
-  const profile = ctx.get('profileContext') as ProfileContextLike | undefined
-  if (profile === undefined || typeof profile.patchPath !== 'string' || typeof profile.home !== 'string') {
-    return undefined
-  }
-  return {
-    name: typeof profile.name === 'string' ? profile.name : null,
-    patchPath: profile.patchPath,
-    home: profile.home,
-  }
+export function profileContextOf(
+  ctx: Context,
+): { name: string; patchPath: string; home: string } | undefined {
+  const profile = ctx.get('profileContext') as ProfileContext | undefined
+  if (profile === undefined) return undefined
+  return { name: profile.name, patchPath: profile.patchPath, home: profile.home }
 }
 
 /** 读两层本机 patch（profile 层经 profileContext；home 层回退到 DSH_HOME）。 */

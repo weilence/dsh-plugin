@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import type {
+  ModelDirectory,
+  ModelDirectoryResolver,
+  ModelDirectoryState,
+} from '@deepseek-ai/dsh-client-ui-model-selection/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
 import 'dayjs/locale/zh-cn'
@@ -18,19 +24,7 @@ import { USAGE_PROVIDERS, type ProviderUsage, type UsageWindow } from '../../usa
 import pill from './usage-pill.module.css'
 import panel from './usage-panel.module.css'
 
-interface ModelDirectory {
-  store: {
-    getSnapshot(): { current?: { provider?: string } | null }
-    subscribe(listener: () => void): () => void
-  }
-  load?(): Promise<unknown>
-}
-
-export interface ModelDirectories {
-  directoryFor(sessionId: string): ModelDirectory
-}
-
-const EMPTY: { current?: { provider?: string } | null } = {}
+const EMPTY: ModelDirectoryState | null = null
 
 dayjs.extend(relativeTime)
 
@@ -44,17 +38,17 @@ function useActiveLocale(locale: LocaleRuntime): string {
   return useSyncExternalStore(subscribe, () => locale.getLocale().active)
 }
 
-function useProvider(directories: ModelDirectories | undefined, sessionId: string) {
-  const directory = directories?.directoryFor(sessionId)
+function useProvider(directories: ModelDirectoryResolver | undefined, sessionId: SessionId) {
+  const directory: ModelDirectory | undefined = directories?.directoryFor(sessionId)
   useEffect(() => {
-    void directory?.load?.().catch(() => {})
+    void directory?.load().catch(() => {})
   }, [directory])
   const subscribe = useCallback(
     (listener: () => void) => directory?.store.subscribe(listener) ?? (() => {}),
     [directory],
   )
   const snapshot = useSyncExternalStore(subscribe, () => directory?.store.getSnapshot() ?? EMPTY)
-  return snapshot.current?.provider ?? null
+  return snapshot?.current?.provider ?? null
 }
 
 async function fetchUsage(provider: string, force: boolean): Promise<ProviderUsage> {
@@ -318,8 +312,8 @@ export function ProviderUsageChip({
   directories,
   locale,
 }: {
-  sessionId: string
-  directories?: ModelDirectories
+  sessionId: SessionId
+  directories?: ModelDirectoryResolver
   locale: LocaleRuntime
 }) {
   const provider = useProvider(directories, sessionId)

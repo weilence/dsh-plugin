@@ -1,31 +1,15 @@
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import type { ConfigForms, SettingsSchemaService } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { readChoices } from '../pi-ai/choices'
 import { createOperations, type PiAiOperations } from './operations'
-import { PanelStore, type StoreContext } from './store'
+import { PanelStore } from './store'
 import { ModelCatalogSection } from './ModelCatalogSection'
-import { ProviderUsageChip, type ModelDirectories } from './usage/UsageChip'
-
-interface SlotServiceLike {
-  inject(name: string, register: () => unknown): void
-  register(options: Record<string, unknown>, component: unknown): unknown
-}
-
-interface SectionContext extends StoreContext {
-  slots: SlotServiceLike
-}
-
-interface OfficialServices {
-  configForms: Pick<ConfigForms, 'get' | 'describe'>
-  settingsSchema: Pick<SettingsSchemaService, 'rehydrate'>
-}
-
-interface CordisLike extends SectionContext, OfficialServices {
-  modelDirectories?: ModelDirectories
-  locale: LocaleRuntime
-  effect(body: () => (() => void) | void, label?: string): unknown
-}
+import { ProviderUsageChip } from './usage/UsageChip'
 
 interface Injected {
   store: PanelStore
@@ -45,42 +29,38 @@ export const inject: string[] = [
   'locale',
 ]
 
-export function apply(ctx: unknown) {
-  // 与官方服务面对接的唯一断言点：Cordis 经 module augmentation 提供全部
-  // 服务，本插件只消费使用的成员，其余代码走本地结构化类型。
-  const services = ctx as CordisLike
-  const operations = createOperations(services as unknown as Parameters<typeof createOperations>[0])
-  const scope = services.configForms.get('llm-pi-ai')
+export function apply(ctx: ClientContext) {
+  const operations = createOperations(ctx)
+  const scope = ctx.configForms.get('llm-pi-ai')
   const getChoices = () => {
     try {
-      const view = services.configForms.describe().getSnapshot().view
+      const view = ctx.configForms.describe().getSnapshot().view
       const row = view?.namespaces.find((entry) => entry.ns === 'llm-pi-ai')
-      if (row !== undefined) return readChoices(services.settingsSchema.rehydrate(row.schema))
+      if (row !== undefined) return readChoices(ctx.settingsSchema.rehydrate(row.schema))
     } catch {
       // 镜像不可用，走 FALLBACK_CHOICES。
     }
     return readChoices(undefined)
   }
-  const store = new PanelStore({ ctx: services, operations, scope, getChoices })
-  services.effect(() => store.start(), 'dsh-models: model catalog panel')
-  const slots = services.slots
-  slots.inject('conversation.input.right', () =>
-    slots.register(
+  const store = new PanelStore({ ctx, operations, scope, getChoices })
+  ctx.effect(() => store.start(), 'dsh-models: model catalog panel')
+  ctx.slots.inject('conversation.input.right', () =>
+    ctx.slots.register(
       {
         name: 'conversation.input.right',
         id: 'dsh-models-usage',
         order: 10,
-        inject: (sessionId: string) => ({
+        inject: (sessionId: SessionId) => ({
           sessionId,
-          directories: services.modelDirectories,
-          locale: services.locale,
+          directories: ctx.modelDirectories,
+          locale: ctx.locale,
         }),
       },
       ProviderUsageChip,
     ),
   )
-  slots.inject('settings.section', () =>
-    slots.register(
+  ctx.slots.inject('settings.section', () =>
+    ctx.slots.register(
       {
         name: 'settings.section',
         id: 'dsh-models',

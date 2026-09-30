@@ -9,7 +9,7 @@
 - `src/live.ts` + `src/index.ts` 开关路由：读态以 Loader 内省的运行时生效值为准（不可用时降级两层文件折叠）。来源判定注意：宿主把所有层（bundle patch、用户层、`--patch`）摊平进同一个根 include 树（app-boot 单一 bootstrap include），**树形结构区分不出 CLI 来源**——判定规则为：文件有同 id 行 = file（就地改）；include 子树或进程无 `--patch` = bundle（home 覆盖）；摊平 + 无文件行 + 进程带 `--patch` = cli（置灰）；无条目或行被停用 = 置灰说明。`--patch` 在场但文件已有行的组合按 file 处理，真被覆盖由写入后的运行时比对暴露。写入走两层用户 patch（见根「两层用户 patch 约定」）；无 HMR 的宿主面板提示重启。
 - `src/shared.ts`：双端 wire 类型；`src/client/`：设置面板（Switch + 状态元信息 + 等待生效/被覆盖/需重启提示），`projectSwitch` 纯投影可单测。
 - `src/index.ts` MCP 挂载：搜索 MCP 向模型暴露 `search_query` 之外的域过滤、时效等参数，与 provider 互不替代；Reader 没有 `web_fetch` 所需的真实状态码等事实，不能冒充抓取提供者。凭据仅在 `ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`，解析故障直接报错。
-- 依赖：`@modelcontextprotocol/client` 是运行时直接依赖；`yaml` 经 host.bundle 内联（编辑 patch 文件）；`@deepseek-ai/dsh-web`、`dsh-mcp-client` 由宿主提供；通用 patch 原语来自 `@dsh-plugins/shared/patch`。
+- 依赖：`@modelcontextprotocol/client` 是运行时直接依赖；`yaml` 与 `@deepseek-ai/cordis-plugin-loader`（live.ts 判定 bundle 子树）经 host.bundle 内联；`@deepseek-ai/dsh-web`、`dsh-mcp-client` 由宿主提供；通用 patch 原语来自 `@dsh-plugins/shared/patch`。
 
 ## 陷阱
 

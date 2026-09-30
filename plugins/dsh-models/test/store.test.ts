@@ -59,17 +59,17 @@ function operationsStub(overrides: Partial<PiAiOperations> = {}) {
 
 function contextStub() {
   const handlers = new Map<string, Set<() => void>>()
-  const ctx: StoreContext = {
+  const ctx = {
     remote: { $on: () => () => {} },
-    on(name, listener) {
-      const set = handlers.get(name) ?? new Set()
+    on(name: string, listener: () => void) {
+      const set = handlers.get(name) ?? new Set<() => void>()
       set.add(listener)
       handlers.set(name, set)
+      return () => {
+        handlers.get(name)?.delete(listener)
+      }
     },
-    off(name, listener) {
-      handlers.get(name)?.delete(listener)
-    },
-  }
+  } as unknown as StoreContext
   return ctx
 }
 

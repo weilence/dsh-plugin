@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 // Type-only：ctx.webServer 的 Context 声明合并（host-webserver 契约类型）。
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -125,12 +126,6 @@ export async function apply(ctx: Context) {
 
 // ---- 搜索替换开关：读写两层用户 patch 的 web 行，读态以运行时为准 ----
 
-interface ProfileContextLike {
-  name?: unknown
-  patchPath?: unknown
-  home?: unknown
-}
-
 interface SwitchLayer {
   scope: 'profile' | 'home'
   file: string
@@ -138,10 +133,8 @@ interface SwitchLayer {
 }
 
 function profileContextOf(ctx: Context): { patchPath: string; home: string } | undefined {
-  const profile = ctx.get('profileContext') as ProfileContextLike | undefined
-  if (profile === undefined || typeof profile.patchPath !== 'string' || typeof profile.home !== 'string') {
-    return undefined
-  }
+  const profile = ctx.get('profileContext') as ProfileContext | undefined
+  if (profile === undefined) return undefined
   return { patchPath: profile.patchPath, home: profile.home }
 }
 

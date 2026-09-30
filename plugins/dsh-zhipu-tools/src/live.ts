@@ -1,20 +1,5 @@
+import { Group, type Entry, type Loader } from '@deepseek-ai/cordis-plugin-loader'
 import { WEB_ROW_ID } from './switchPatch'
-
-// 官方类型未入本仓库 catalog：经结构化最小接口防御式读取，偏差时降级。
-interface EntryLike {
-  options?: { id?: unknown; name?: unknown; config?: unknown }
-  disabled?: boolean
-  parent?: unknown
-}
-
-interface GroupLike {
-  subtree?: unknown
-  parent?: unknown
-}
-
-interface LoaderLike {
-  entries(): IterableIterator<EntryLike>
-}
 
 /** 生效配置里 web 行的来源层。 */
 export type WebOrigin = 'bundle' | 'file' | 'cli' | 'missing'
@@ -48,14 +33,14 @@ export type LiveWebLookup = { introspectable: false } | { introspectable: true; 
  * - missing：组合里没有 web 行。
  */
 export function lookupLiveWeb(
-  loader: LoaderLike | undefined,
+  loader: Loader | undefined,
   fileHasWebRow: boolean,
   cliPatch = hasCliPatchArg(),
 ): LiveWebLookup {
   if (loader === undefined) return { introspectable: false }
   try {
     for (const entry of loader.entries()) {
-      const options = entry.options ?? {}
+      const options = entry.options
       if (options.id !== WEB_ROW_ID) continue
       const inSubtree = inSubtreeOf(entry)
       return {
@@ -80,13 +65,10 @@ export function providerOf(entry: LiveWebEntry): string | null {
   return typeof provider === 'string' && provider.length > 0 ? provider : null
 }
 
-function inSubtreeOf(entry: EntryLike): boolean {
-  let group = entry.parent as GroupLike | undefined
-  while (group !== undefined && group !== null) {
-    if (group.subtree !== undefined) return true
-    group = group.parent as GroupLike | undefined
-  }
-  return false
+function inSubtreeOf(entry: Entry): boolean {
+  // bundle 声明的行由 cordis-plugin-group 的 Group 挂载（子树的直接属主），
+  // 根树（profile / overlay 层）的属主不是 Group。
+  return entry.parent instanceof Group
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

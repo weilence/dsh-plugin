@@ -1,35 +1,11 @@
+import { Group, type Entry, type Loader } from '@deepseek-ai/cordis-plugin-loader'
+import type { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { MCP_PLUGIN_NAME } from './shared'
 
 // FiberState 枚举的源序（cordis）：fiber.state 是数字，按序映射为名字。
 const FIBER_STATES = ['pending', 'loading', 'active', 'failed', 'disposed', 'unloading'] as const
 
 export type FiberStatus = (typeof FIBER_STATES)[number]
-
-// 官方类型未入本仓库 catalog：全部经结构化最小接口防御式读取，偏差时降级。
-interface FiberLike {
-  state: number
-  await(): Promise<unknown>
-}
-
-interface EntryLike {
-  options?: { id?: unknown; name?: unknown; config?: unknown }
-  disabled?: boolean
-  fiber?: FiberLike
-  parent?: unknown
-}
-
-interface GroupLike {
-  subtree?: unknown
-  parent?: unknown
-}
-
-interface LoaderLike {
-  entries(): IterableIterator<EntryLike>
-}
-
-interface ToolsLike {
-  schemas(): { name: unknown }[]
-}
 
 /** 一条 mcp-client 实例的运行态快照。 */
 export interface LiveMcpRow {
@@ -46,16 +22,13 @@ export interface LiveMcpRow {
   inSubtree: boolean
 }
 
-function statusOf(fiber: FiberLike | undefined): FiberStatus | 'absent' {
+function statusOf(fiber: Entry['fiber']): FiberStatus | 'absent' {
   if (fiber === undefined) return 'absent'
   return FIBER_STATES[fiber.state] ?? 'pending'
 }
 
 /** FAILED fiber 已结算：await() 立即重抛启动错误，取其消息做摘要。 */
-async function errorOf(
-  fiber: FiberLike | undefined,
-  status: FiberStatus | 'absent',
-): Promise<string | undefined> {
+async function errorOf(fiber: Entry['fiber'], status: FiberStatus | 'absent'): Promise<string | undefined> {
   if (fiber === undefined || status !== 'failed') return undefined
   try {
     await fiber.await()
@@ -66,13 +39,10 @@ async function errorOf(
   }
 }
 
-function inSubtreeOf(entry: EntryLike): boolean {
-  let group = entry.parent as GroupLike | undefined
-  while (group !== undefined && group !== null) {
-    if (group.subtree !== undefined) return true
-    group = group.parent as GroupLike | undefined
-  }
-  return false
+function inSubtreeOf(entry: Entry): boolean {
+  // bundle 声明的行由 cordis-plugin-group 的 Group 挂载（子树的直接属主），
+  // 根树（profile / overlay 层）的属主不是 Group。
+  return entry.parent instanceof Group
 }
 
 function toolPrefixOf(serverName: string): string {
@@ -84,21 +54,21 @@ function toolPrefixOf(serverName: string): string {
  * （组合未提供）时返回空列表。
  */
 export async function collectLiveMcp(
-  loader: LoaderLike | undefined,
-  tools: ToolsLike | undefined,
+  loader: Loader | undefined,
+  tools: ToolRuntime | undefined,
 ): Promise<LiveMcpRow[]> {
   if (loader === undefined) return []
   let toolNames: string[] = []
   if (tools !== undefined) {
     try {
-      toolNames = tools.schemas().flatMap((schema) => (typeof schema.name === 'string' ? [schema.name] : []))
+      toolNames = tools.schemas().map((schema) => schema.name)
     } catch {
       toolNames = []
     }
   }
   const rows: LiveMcpRow[] = []
   for (const entry of loader.entries()) {
-    const options = entry.options ?? {}
+    const options = entry.options
     if (options.name !== MCP_PLUGIN_NAME) continue
     if (typeof options.id !== 'string' || options.id.length === 0) continue
     const config = (

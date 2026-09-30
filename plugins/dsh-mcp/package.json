@@ -51,6 +51,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
+    "@deepseek-ai/cosmokit": "catalog:",
     "cross-spawn": "^7.0.6"
   },
   "repository": {
@@ -63,19 +64,23 @@
   },
   "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-mcp#readme",
   "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.4 <5.0.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2 <0.3.0"
   },
   "devDependencies": {
-    "@dsh-plugins/client-ui": "workspace:*",
-    "@dsh-plugins/shared": "workspace:*",
-    "@dsh-plugins/tsdown-config": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/cordis-plugin-loader": "catalog:",
+    "@deepseek-ai/dsh-app-boot": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-mcp-client": "catalog:",
+    "@deepseek-ai/dsh-tools": "catalog:",
+    "@dsh-plugins/client-ui": "workspace:*",
+    "@dsh-plugins/shared": "workspace:*",
+    "@dsh-plugins/tsdown-config": "workspace:*",
     "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

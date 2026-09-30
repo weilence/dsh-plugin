@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import type { ProfileContext } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { errMsg } from '@dsh-plugins/shared'
 import {
@@ -45,12 +46,6 @@ import {
 } from './patchFile'
 
 export const inject: string[] = ['webServer']
-
-interface ProfileContextLike {
-  name?: unknown
-  patchPath?: unknown
-  home?: unknown
-}
 
 interface Layer {
   scope: McpScope
@@ -150,16 +145,10 @@ function scopeOfRequest(value: unknown): McpScope {
 export function apply(ctx: Context): void {
   // profileContext / loader / tools / hmr 都是可选访问：官方 web/desktop
   // 组合均提供，不可用时按能力降级而不是拒绝加载。
-  const profileContextOf = (): { name: string | null; patchPath: string; home: string } | undefined => {
-    const profile = ctx.get('profileContext') as ProfileContextLike | undefined
-    if (profile === undefined || typeof profile.patchPath !== 'string' || typeof profile.home !== 'string') {
-      return undefined
-    }
-    return {
-      name: typeof profile.name === 'string' ? profile.name : null,
-      patchPath: profile.patchPath,
-      home: profile.home,
-    }
+  const profileContextOf = (): { name: string; patchPath: string; home: string } | undefined => {
+    const profile = ctx.get('profileContext') as ProfileContext | undefined
+    if (profile === undefined) return undefined
+    return { name: profile.name, patchPath: profile.patchPath, home: profile.home }
   }
 
   ctx.effect(

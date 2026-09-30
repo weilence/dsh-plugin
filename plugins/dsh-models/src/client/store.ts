@@ -1,3 +1,4 @@
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { loadCatalog } from '../catalog/parse'
@@ -70,12 +71,8 @@ const INITIAL: PanelState = {
 /** configForms 快照的最小消费面（官方 ConfigForm 的读侧）。 */
 export type ConfigFormLike = Pick<ConfigForm<unknown>, 'getSnapshot' | 'subscribe'>
 
-/** 事件订阅面（remote 与 cordis 的并集，够用即可）。 */
-export interface StoreContext {
-  remote: { $on?(name: string, listener: () => void): () => void }
-  on(name: string, listener: () => void): void
-  off(name: string, listener: () => void): void
-}
+/** store 消费的官方服务面：remote 事件与 cordis 生命周期订阅。 */
+export type StoreContext = Pick<ClientContext, 'remote' | 'on'>
 
 const CONFLICT_MESSAGE = '配置已被其他窗口或外部文件修改；请刷新后重试。'
 
@@ -128,22 +125,20 @@ export class PanelStore {
 
   start(): () => void {
     const disposers: Array<() => void> = [this.scope.subscribe(() => void this.refresh())]
-    if (this.ctx.remote.$on) {
-      disposers.push(this.ctx.remote.$on('settings/document-updated', () => void this.refresh()))
-      disposers.push(this.ctx.remote.$on('llm/adapters-updated', () => void this.refresh()))
-      disposers.push(
-        this.ctx.remote.$on('credentials/reference-updated', () => {
-          this.credentialCache.clear()
-          void this.refresh()
-        }),
-      )
-      // OAuth 授权记录（grant）的写入 / 刷新 / 删除走 record 事件：登录成功
-      // 或令牌轮换后立即更新「已授权」状态。
-      disposers.push(this.ctx.remote.$on('credentials/record-updated', () => void this.refreshAuth()))
+    const onDocumentUpdated = () => void this.refresh()
+    const onAdaptersUpdated = () => void this.refresh()
+    const onReferenceUpdated = () => {
+      this.credentialCache.clear()
+      void this.refresh()
     }
-    const onReset = () => void this.refresh()
-    this.ctx.on('connection/reset', onReset)
-    disposers.push(() => this.ctx.off('connection/reset', onReset))
+    // OAuth 授权记录（grant）的写入 / 刷新 / 删除走 record 事件：登录成功
+    // 或令牌轮换后立即更新「已授权」状态。
+    const onRecordUpdated = () => void this.refreshAuth()
+    disposers.push(this.ctx.remote.$on('settings/document-updated', onDocumentUpdated))
+    disposers.push(this.ctx.remote.$on('llm/adapters-updated', onAdaptersUpdated))
+    disposers.push(this.ctx.remote.$on('credentials/reference-updated', onReferenceUpdated))
+    disposers.push(this.ctx.remote.$on('credentials/record-updated', onRecordUpdated))
+    disposers.push(this.ctx.on('connection/reset', () => void this.refresh()))
     void this.refresh()
     return () => {
       this.disposed = true

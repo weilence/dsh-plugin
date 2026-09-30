@@ -8,7 +8,7 @@
 - `src/patchFile.ts`：编辑 cordis.patch.yml 且保留注释（insert / 覆盖行 / 启停 / 删除 / 原子落盘）。
 - `src/mcpConfig.ts`：配置校验与编辑合并（对齐官方 mcp-client Config schema）。
 - `src/probe.ts`：保存前的连接检查（stdio 经 cross-spawn 启动子进程——与官方 StdioClientTransport 相同、args 直接传递不经 shell 插值；HTTP 直接发送 initialize 握手，超时可注入）。
-- `src/live.ts`：Loader / 工具注册表运行态内省（结构化最小接口，防御式读取，服务不可用时降级）。
+- `src/live.ts`：Loader / 工具注册表运行态内省（官方 `Loader` / `ToolRuntime` 类型，服务不可用时降级）。
 - `src/shared.ts`：双端 wire 类型与常量。
 - `src/client/`：settings.section 面板；服务器为可展开卡片——点击行即可在行内新建 / 编辑 / 查看（McpServerForm / McpServerView，编辑弹窗已移除）；JSON 粘贴无解析/导入步骤，「保存」一次完成解析、连接检查与整批落盘。HTTP 封装自定义头 `x-dsh-mcp`。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。
 
@@ -21,7 +21,7 @@
 
 ## 陷阱
 
-- `yaml` 是 host half 唯一内联的 node_modules 依赖（devDependency + `host.bundle`）；`cross-spawn` 是生产依赖，构建期自动外置、运行期由已安装插件自带的 node_modules 解析。新增内联依赖须声明 devDependency 并显式进 bundle，否则构建期报错而非运行期崩溃。
+- host half 内联的 node_modules 依赖（devDependency + `host.bundle`）：`yaml`（patch 编辑）与 `@deepseek-ai/cordis-plugin-loader`（live.ts 判定 bundle 子树，其对 cordis / cosmokit 的引用自动外置——cordis 由宿主供给、cosmokit 在 dependencies 里随安装解析）；`cross-spawn` 是生产依赖，自动外置。新增内联依赖须声明 devDependency 并显式进 bundle，否则构建期报错而非运行期崩溃。
 - stdio 探测的 spawn 不用 `node:child_process` 直接 spawn 加 `shell: true` 的做法：shell 会把 command 与 args 拼成一条 cmd 命令行，带空格路径（Program Files 下的 node）与内联脚本（`-e` 的引号 / 括号）全部失真，且命令不存在时 Windows 报 exit 1 而非 ENOENT；cross-spawn 与官方 mcp-client（MCP SDK）同源，两平台行为一致。
 - MCP SDK（client 2.x）握手首步是 `server/discover` 探测且无超时：静默忽略未知方法的自制服务器会永远停在「连接中」。排查连接问题先看服务器是否对每个带 id 的请求都有响应。
 - 连接检查默认 20s 超时：stdio 首次 npx 下载可能超时（属预期，可跳过检查），勿据此直接判断配置错误；stdio 探测会再启动一个实例，绑定固定端口的服务器可能因此检查失败。

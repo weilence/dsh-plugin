@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { Group } from '@deepseek-ai/cordis-plugin-loader'
 import { apply } from '../src/index'
 import { isExpectedHost, isTrustedFetch } from '@dsh-plugins/shared/http'
 import { parsePatchDoc, scanPatchDoc } from '../src/patchFile'
@@ -205,7 +206,8 @@ describe('list 路由', () => {
             },
             disabled: false,
             fiber: { state: 2, await: async () => {} },
-            parent: { subtree: {}, parent: {} },
+            // bundle 行挂在 cordis-plugin-group 的 Group 子树下（官方判定方式）。
+            parent: Object.create(Group.prototype),
           },
           {
             options: { id: 'mcp-overlay', name: '@deepseek-ai/dsh-mcp-client', config: { serverName: 'ov' } },
