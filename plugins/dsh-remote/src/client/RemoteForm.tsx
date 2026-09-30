@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IssueList, TextField } from '@dsh-plugins/client-ui'
 import type { ConnRow, SaveRequest } from '../shared'
+import type { RemoteT } from './locales'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -20,10 +21,10 @@ function initialDraft(row: ConnRow | undefined): DraftState {
   }
 }
 
-function validateDraft(draft: DraftState): string[] {
+function validateDraft(draft: DraftState, t: RemoteT): string[] {
   const issues: string[] = []
-  if (draft.label.trim().length === 0) issues.push('显示名不能为空')
-  if (draft.sshAlias.trim().length === 0) issues.push('sshAlias 不能为空（~/.ssh/config 里的主机别名）')
+  if (draft.label.trim().length === 0) issues.push(t('form.labelRequired'))
+  if (draft.sshAlias.trim().length === 0) issues.push(t('form.aliasRequired'))
   return issues
 }
 
@@ -31,6 +32,7 @@ export function RemoteForm(props: {
   mode: 'create' | 'edit'
   row?: ConnRow
   store: RemoteStore
+  t: RemoteT
   busy: boolean
   error: string | null
   onDone(): void
@@ -38,7 +40,7 @@ export function RemoteForm(props: {
 }) {
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props.row))
   const [touched, setTouched] = useState(false)
-  const issues = validateDraft(draft)
+  const issues = validateDraft(draft, props.t)
   const patch = (partial: Partial<DraftState>): void => setDraft((previous) => ({ ...previous, ...partial }))
 
   const submit = async (): Promise<void> => {
@@ -56,17 +58,17 @@ export function RemoteForm(props: {
     <div className={styles.formBody}>
       <div className={styles.grid}>
         <TextField
-          label="显示名"
+          label={props.t('form.label')}
           value={draft.label}
           onChange={(label) => patch({ label })}
           autoFocus={props.mode === 'create'}
-          placeholder="如：开发机 A"
+          placeholder={props.t('form.labelPlaceholder')}
         />
         <TextField
-          label="SSH 别名"
+          label={props.t('form.sshAlias')}
           value={draft.sshAlias}
           onChange={(sshAlias) => patch({ sshAlias })}
-          placeholder="~/.ssh/config 主机别名"
+          placeholder={props.t('form.sshAliasPlaceholder')}
         />
       </div>
 
@@ -79,10 +81,10 @@ export function RemoteForm(props: {
 
       <div className={styles.formActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-          取消
+          {props.t('cancel')}
         </Button>
         <Button variant="primary" disabled={props.busy} onClick={() => void submit()}>
-          {props.busy ? '保存中…' : '保存'}
+          {props.busy ? props.t('form.saving') : props.t('save')}
         </Button>
       </div>
     </div>

@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AuthAttemptState, AuthState } from './store'
 import type { AuthFlow, AuthSequencedEvent } from './operations'
+import type { ModelsT } from './locales'
 import { fieldInputCls } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SignInCard.module.css'
@@ -63,6 +64,7 @@ export function SignInCard(props: {
   auth: AuthState
   /** oauth-only 时为 true：提示行说明不使用 API Key，且表单已隐藏 Key 字段。 */
   replacesApiKey: boolean
+  t: ModelsT
   onBegin(provider: string): void
   onAnswer(value: string): void
   onDecline(): void
@@ -70,6 +72,7 @@ export function SignInCard(props: {
   /** 退出登录：删除该 Provider 的凭据记录，卡片回到未登录态。 */
   onSignOut(provider: string): void
 }) {
+  const { t } = props
   const { auth } = props
   const mine: AuthAttemptState | null =
     auth.attempt !== null && auth.attempt.provider === props.provider && auth.attempt.running
@@ -98,7 +101,7 @@ export function SignInCard(props: {
     }
     const declineButton = (
       <Button variant="outline" onClick={props.onDecline}>
-        拒绝
+        {t('signin.decline')}
       </Button>
     )
     // 问题收敛为一行：标签在上，输入/选择自适应占宽，提交与拒绝贴右相邻。
@@ -121,7 +124,7 @@ export function SignInCard(props: {
               </select>
             </div>
             <Button variant="primary" disabled={selectValue.length === 0} onClick={submit}>
-              提交
+              {t('submit')}
             </Button>
             {declineButton}
           </div>
@@ -141,7 +144,7 @@ export function SignInCard(props: {
               />
             </div>
             <Button variant="primary" onClick={submit}>
-              提交
+              {t('submit')}
             </Button>
             {declineButton}
           </div>
@@ -152,19 +155,19 @@ export function SignInCard(props: {
   return (
     <section className={styles.section}>
       <h3 className={styles.sectionTitle}>
-        账号登录
+        {t('signin.title')}
         {record !== undefined ? (
           <>
             {' '}
             <StateDot className={styles.inlineDot} state={authorized ? 'done' : 'warning'} />
-            {authorized ? '已授权' : '未授权'}
+            {authorized ? t('signin.authorized') : t('signin.unauthorized')}
           </>
         ) : null}
       </h3>
       <div className={styles.notice}>
         {props.replacesApiKey
-          ? `该 Provider 通过账号登录（${props.flow.label}），不使用 API Key。`
-          : `该 Provider 支持账号登录（${props.flow.label}）；也可继续使用 API Key。`}
+          ? t('signin.replacesKey', { flow: props.flow.label })
+          : t('signin.alsoKey', { flow: props.flow.label })}
       </div>
       {mine !== null ? (
         // 进行中的事件流、问题和取消按钮放在同一个区域；已结束的过程不再重放。
@@ -177,7 +180,7 @@ export function SignInCard(props: {
           {promptForm}
           <div className={local.attemptActions}>
             <Button variant="outline" onClick={props.onCancel}>
-              取消登录
+              {t('signin.cancelLogin')}
             </Button>
           </div>
         </div>
@@ -190,7 +193,7 @@ export function SignInCard(props: {
               className={styles.dangerGhost}
               onClick={() => props.onSignOut(props.provider)}
             >
-              退出登录
+              {t('signin.signOut')}
             </Button>
           ) : (
             <Button
@@ -198,7 +201,7 @@ export function SignInCard(props: {
               disabled={auth.attempt?.running === true}
               onClick={() => props.onBegin(props.provider)}
             >
-              登录
+              {t('signin.signIn')}
             </Button>
           )}
         </div>

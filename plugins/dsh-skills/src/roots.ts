@@ -2,7 +2,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
-import { sourceLabel, type RootId, type RootInfo } from './shared'
+import type { RootId, RootInfo } from './shared'
 
 /** 一个待判定的可写根（present 标志由调用方补充）。 */
 export interface ManagedRoot {
@@ -150,7 +150,6 @@ export async function rootInfos(roots: readonly ManagedRoot[]): Promise<RootInfo
   return Promise.all(
     roots.map(async (root) => ({
       id: root.id,
-      label: sourceLabel(root.id),
       path: root.path,
       present: await isPresentDir(root.path),
     })),

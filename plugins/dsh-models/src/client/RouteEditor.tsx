@@ -25,6 +25,8 @@ import {
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { validateProviderReasoning } from '../pi-ai/validate'
 import { effortsLabel, type PanelRoute } from '../pi-ai/view'
+import type { ModelsT, PanelMessage } from './locales'
+import { messageText } from './locales'
 import { deriveKeyRef, validateApiKey } from './operations'
 import type { SignInView } from './SignInCard'
 import { ModelForm } from './ModelForm'
@@ -59,6 +61,7 @@ export interface RouteEditorProps {
    * 返回登录卡；replacesApiKey 时隐藏 API Key 字段（oauth-only）。
    */
   signInView?: (provider: string) => SignInView | null
+  t: ModelsT
   onLoadModelsDev(): Promise<ModelsDevCatalog | null>
   onDirtyChange(dirty: boolean): void
   onCancel(): void
@@ -102,9 +105,9 @@ const CREATING_ROW_KEY = '\u0000creating'
 
 // 只标注用户覆盖过的模型：纯目录继承是默认态，手写 route 与显式清单是
 // route 级事实（弹窗标题已表达），逐行重复没有信息量。
-function draftRowLabel(source: PanelRoute['source'], row: ModelRow): string | undefined {
+function draftRowLabel(source: PanelRoute['source'], row: ModelRow, t: ModelsT): string | undefined {
   if (source === 'declared' || source === 'explicit') return undefined
-  return row.userEntry === undefined ? undefined : '覆盖'
+  return row.userEntry === undefined ? undefined : t('editor.overrideBadge')
 }
 
 type ModelEdit = { creating: boolean; row: ModelRow }
@@ -117,7 +120,7 @@ function inheritsConnection(profile: PiAiProviderEntry | undefined): boolean {
 }
 
 export function RouteEditor(props: RouteEditorProps) {
-  const { route } = props
+  const { route, t } = props
   const [draftProfile, setDraftProfile] = useState<PiAiProviderEntry>(() =>
     route.userProfile === undefined ? {} : (structuredClone(route.userProfile) as PiAiProviderEntry),
   )
@@ -125,7 +128,7 @@ export function RouteEditor(props: RouteEditorProps) {
   const [key, setKey] = useState('')
   const [modelEdit, setModelEdit] = useState<ModelEdit | undefined>(undefined)
   const [touched, setTouched] = useState(false)
-  const [localError, setLocalError] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<PanelMessage | null>(null)
   const [fetching, setFetching] = useState(false)
   /** 获取模型的结果反馈：显示在按钮旁边（弹窗顶部的提示区滚动在外，看不见）。 */
   const [fetchStatus, setFetchStatus] = useState<{ kind: 'ok' | 'info' | 'error'; text: string } | undefined>(
@@ -173,30 +176,27 @@ export function RouteEditor(props: RouteEditorProps) {
     return next
   }, [draftProfile, providerDraft, key, keyRef, inheritedConnection])
 
-  const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
+  const keyErrorKey = key.trim().length > 0 ? validateApiKey(key) : undefined
+  const keyError = keyErrorKey === undefined ? undefined : t(keyErrorKey)
   const dirty = !jsonEqual(candidate, route.userProfile ?? {}) || key.trim().length > 0
   useEffect(() => props.onDirtyChange(dirty), [dirty, props.onDirtyChange])
 
   const issues = useMemo(() => {
     const list: string[] = []
     const reasoningIssue = validateProviderReasoning(providerDraft.reasoning, props.choices.thinkingLevels)
-    if (reasoningIssue !== undefined) list.push(reasoningIssue.message)
+    if (reasoningIssue !== undefined) list.push(messageText(reasoningIssue.message, t))
     if (!inheritedConnection) {
-      if (route.declared && providerDraft.api.trim().length === 0) list.push('手写 route 必须指定 API 协议')
+      if (route.declared && providerDraft.api.trim().length === 0) list.push(t('editor.declaredApiRequired'))
       if (route.declared && providerDraft.baseURL.trim().length === 0) {
-        list.push('手写 route 必须指定 Endpoint')
+        list.push(t('editor.declaredEndpointRequired'))
       }
       if (providerDraft.baseURL.trim().length > 0 && !/^https?:\/\//i.test(providerDraft.baseURL.trim())) {
-        list.push('Endpoint 必须是可解析的 HTTP 或 HTTPS URL')
+        list.push(t('editor.endpointInvalid'))
       }
     }
     // 目录 route 删光模型同样得到空 models：与手写 route 一律拦在保存前。
     if (modelEntries(candidate).length === 0 && (candidate.models !== undefined || route.declared)) {
-      list.push(
-        route.declared
-          ? '手写 route 至少要有一个模型'
-          : '模型清单为空：保存前至少要有一个模型；不需要该 Provider 时请取消编辑并删除',
-      )
+      list.push(route.declared ? t('editor.declaredModelRequired') : t('editor.emptyModels'))
     }
     // 混协议目录 route 的目录外模型无法解析协议，保存必被 Host 拒绝——提前
     // 拦下并点名，避免用户在死路的错误信息里猜原因。
@@ -207,10 +207,12 @@ export function RouteEditor(props: RouteEditorProps) {
       catalog: catalogIds,
     })
     if (blockedForeign !== undefined) {
-      const shown = blockedForeign.slice(0, 3).join('、')
+      const shown = blockedForeign.slice(0, 3).join(', ')
       list.push(
-        `${blockedForeign.length} 个模型不在 pi-ai 安装目录（${shown}${blockedForeign.length > 3 ? ' 等' : ''}），` +
-          '且该 Provider 的目录模型协议不统一，无法为目录外模型指定协议；请删除这些行，等 pi-ai 目录收录后再获取',
+        t('editor.foreignBlocked', {
+          count: blockedForeign.length,
+          shown: `${shown}${blockedForeign.length > 3 ? '…' : ''}`,
+        }),
       )
     }
     if (keyError !== undefined) list.push(keyError)
@@ -224,6 +226,7 @@ export function RouteEditor(props: RouteEditorProps) {
     inheritedConnection,
     catalogIds,
     props.choices.thinkingLevels,
+    t,
   ])
 
   const rowOf = (id: string) => route.rows.find((row) => row.id === id)
@@ -248,7 +251,6 @@ export function RouteEditor(props: RouteEditorProps) {
     const ok = await props.onSave(candidate, key.trim().length > 0 ? key.trim() : undefined)
     if (ok) props.onExit()
   }
-
   /**
    * 模型表单实时应用：每次有效修改立即折叠进草稿，文件写入由外层「保存」
    * 统一完成。新增模式支持边输入边改名：id 变化时先移除上一次应用的旧条目，
@@ -306,7 +308,7 @@ export function RouteEditor(props: RouteEditorProps) {
   const fetchModels = async () => {
     const baseURL = providerDraft.baseURL.trim() || route.baseURL || ''
     if (!catalogRoute && baseURL.length === 0) {
-      setFetchStatus({ kind: 'error', text: '没有可用的 Endpoint；请先在连接里填写' })
+      setFetchStatus({ kind: 'error', text: t('editor.noEndpoint') })
       return
     }
     const api = providerDraft.api.trim() || route.api || undefined
@@ -318,7 +320,7 @@ export function RouteEditor(props: RouteEditorProps) {
         const metadataCatalog = props.modelsDev ?? (await props.onLoadModelsDev())
         const providerModels = providerCatalogModels(metadataCatalog, route.provider)
         if (providerModels === undefined) {
-          setFetchStatus({ kind: 'error', text: 'models.dev 未收录该 Provider，无法获取更新的模型清单' })
+          setFetchStatus({ kind: 'error', text: t('editor.providerNotInCatalog') })
           return
         }
         entries = providerModels
@@ -350,7 +352,7 @@ export function RouteEditor(props: RouteEditorProps) {
           entry,
         })
         if (plan.kind === 'blocked') {
-          setFetchStatus({ kind: 'error', text: plan.reason })
+          setFetchStatus({ kind: 'error', text: messageText(plan.reason, t) })
           return
         }
         profile = plan.profile
@@ -363,13 +365,13 @@ export function RouteEditor(props: RouteEditorProps) {
       const sourceLabel = catalogRoute ? 'models.dev' : 'Endpoint'
       setFetchStatus(
         added === 0
-          ? { kind: 'info', text: `没有新增模型：${sourceLabel} 返回的 id 都已存在` }
+          ? { kind: 'info', text: t('editor.fetchNoNew', { source: sourceLabel }) }
           : {
               kind: 'ok',
               text:
                 skipped > 0
-                  ? `获取成功：从 ${sourceLabel} 新增 ${added} 个模型，跳过 ${skipped} 个已存在`
-                  : `获取成功：从 ${sourceLabel} 新增 ${added} 个模型`,
+                  ? t('editor.fetchOkSkipped', { source: sourceLabel, added, skipped })
+                  : t('editor.fetchOk', { source: sourceLabel, added }),
             },
       )
     } catch (error) {
@@ -431,6 +433,7 @@ export function RouteEditor(props: RouteEditorProps) {
         routeDefaults={routeDefaults}
         catalogIds={route.declared ? undefined : catalogIds}
         busy={props.busy}
+        t={t}
         onChange={applyModelLive}
         onLookupMetadata={lookupMetadata}
       />
@@ -448,8 +451,14 @@ export function RouteEditor(props: RouteEditorProps) {
     return [
       { label: 'ctx', value: ctx === undefined ? '—' : formatTokenCount(ctx) },
       { label: 'out', value: out === undefined ? '—' : formatTokenCount(out) },
-      { label: '模态', value: input === undefined || input.length === 0 ? '—' : input.join('+') },
-      { label: '推理', value: entry === undefined ? '默认' : effortsLabel(entry) },
+      {
+        label: t('editor.modalities'),
+        value: input === undefined || input.length === 0 ? '—' : input.join('+'),
+      },
+      {
+        label: t('editor.reasoningColumn'),
+        value: entry === undefined ? t('efforts.default') : effortsLabel(entry, t),
+      },
     ]
   }
 
@@ -457,7 +466,7 @@ export function RouteEditor(props: RouteEditorProps) {
 
   const modelCard = (row: ModelRow): Omit<ExpandableCardProps, 'dragging' | 'dropLine' | 'dragHandlers'> => {
     const expanded = row.id === editingId
-    const badge = draftRowLabel(draftSource, row)
+    const badge = draftRowLabel(draftSource, row, t)
     return {
       open: expanded,
       // 再点一次行头收起；点其他卡片切换编辑目标（改动已实时进草稿，无丢失）。
@@ -475,7 +484,7 @@ export function RouteEditor(props: RouteEditorProps) {
           // 只改草稿，保存时才真正写入：无需二次确认。
           onClick={() => removeModel(row)}
         >
-          删除
+          {t('panel.delete')}
         </Button>
       ),
       children: expanded ? modelForm : undefined,
@@ -489,9 +498,9 @@ export function RouteEditor(props: RouteEditorProps) {
         key={CREATING_ROW_KEY}
         open
         onToggle={() => switchModelEdit(undefined)}
-        title={creatingApplied !== undefined ? creatingApplied.name : '新模型'}
+        title={creatingApplied !== undefined ? creatingApplied.name : t('editor.newModelTitle')}
         meta={creatingApplied !== undefined ? creatingApplied.id : undefined}
-        badge={<Tag>新增</Tag>}
+        badge={<Tag>{t('editor.newBadge')}</Tag>}
         info={creatingApplied !== undefined ? modelInfo(creatingApplied) : undefined}
         actions={
           creatingApplied !== undefined ? (
@@ -502,7 +511,7 @@ export function RouteEditor(props: RouteEditorProps) {
               disabled={props.busy}
               onClick={() => removeModel(creatingApplied)}
             >
-              删除
+              {t('panel.delete')}
             </Button>
           ) : undefined
         }
@@ -520,9 +529,7 @@ export function RouteEditor(props: RouteEditorProps) {
 
   return (
     <div className={styles.inlineEditor}>
-      {!props.writable ? (
-        <div className={styles.notice}>当前 Settings Provider 不可写；可继续编辑，但无法保存。</div>
-      ) : null}
+      {!props.writable ? <div className={styles.notice}>{t('editor.readOnlyNotice')}</div> : null}
       {route.error ? <div className={styles.error}>{route.error}</div> : null}
 
       <div className={styles.editorMain}>
@@ -532,7 +539,7 @@ export function RouteEditor(props: RouteEditorProps) {
               <TextField
                 label={
                   <>
-                    新的 API Key
+                    {t('editor.newApiKey')}
                     {props.keyConfigured !== undefined ? (
                       <>
                         {' '}
@@ -540,14 +547,14 @@ export function RouteEditor(props: RouteEditorProps) {
                           className={styles.inlineDot}
                           state={props.keyConfigured ? 'done' : 'warning'}
                         />
-                        {props.keyConfigured ? '已配置' : '未配置'}
+                        {props.keyConfigured ? t('editor.keyConfigured') : t('editor.keyMissing')}
                       </>
                     ) : null}
                   </>
                 }
                 type="password"
                 autoComplete="off"
-                placeholder="留空则不修改"
+                placeholder={t('editor.keyPlaceholder')}
                 value={key}
                 disabled={props.busy}
                 error={keyError}
@@ -555,7 +562,7 @@ export function RouteEditor(props: RouteEditorProps) {
               />
             ) : null}
             <TextField
-              label="显示名"
+              label={t('editor.displayName')}
               value={providerDraft.displayName}
               disabled={props.busy}
               placeholder={route.displayName || route.provider}
@@ -563,7 +570,7 @@ export function RouteEditor(props: RouteEditorProps) {
             />
             {inheritedConnection ? null : (
               <TextField
-                label="Endpoint（baseURL）"
+                label={t('editor.endpoint')}
                 value={providerDraft.baseURL}
                 disabled={props.busy}
                 placeholder={route.baseURL ?? 'https://gateway.example/v1'}
@@ -572,7 +579,7 @@ export function RouteEditor(props: RouteEditorProps) {
             )}
             {inheritedConnection ? null : (
               <SelectField
-                label="API 协议"
+                label={t('editor.apiProtocol')}
                 value={providerDraft.api}
                 disabled={props.busy}
                 options={props.choices.protocols.map((protocol) => ({
@@ -583,18 +590,18 @@ export function RouteEditor(props: RouteEditorProps) {
               />
             )}
             <SelectField
-              label="默认推理等级（reasoning，可选）"
+              label={t('editor.defaultReasoning')}
               value={providerDraft.reasoning}
               disabled={props.busy}
               options={[
-                { value: '', label: '继承默认' },
+                { value: '', label: t('editor.inheritDefault') },
                 ...props.choices.thinkingLevels.map((level) => ({ value: level, label: level })),
                 ...(providerDraft.reasoning.length > 0 &&
                 !props.choices.thinkingLevels.some((level) => level === providerDraft.reasoning)
                   ? [
                       {
                         value: providerDraft.reasoning,
-                        label: `未知等级：${providerDraft.reasoning}`,
+                        label: t('editor.unknownReasoning', { level: providerDraft.reasoning }),
                         disabled: true,
                       },
                     ]
@@ -607,13 +614,11 @@ export function RouteEditor(props: RouteEditorProps) {
         </section>
 
         <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
+          <h3 className={styles.sectionTitle}>{t('editor.models', { count: rows.length })}</h3>
           {/* 删除目录内模型 / 新增目录外模型都会把草稿翻成显式清单：目录升级不再
               自动生效，提示必须持续可见而不是只在触发的那一下闪现。 */}
           {(route.source === 'inherited' || route.source === 'overridden') && draftSource === 'explicit' ? (
-            <div className={styles.notice}>
-              本次保存会把该 route 固定为一份显式模型清单；之后 pi-ai 目录升级新增的模型不会再自动出现。
-            </div>
+            <div className={styles.notice}>{t('editor.explicitNotice')}</div>
           ) : null}
           <CardList
             items={displayRows}
@@ -626,10 +631,10 @@ export function RouteEditor(props: RouteEditorProps) {
               creatingCard === undefined ? (
                 <div className={styles.empty}>
                   {route.declared
-                    ? '手写 route 至少需要一个模型'
+                    ? t('editor.declaredNeedsModel')
                     : route.active
-                      ? '该 route 当前没有模型'
-                      : '该 route 未激活或未配置模型'}
+                      ? t('editor.routeNoModels')
+                      : t('editor.routeInactive')}
                 </div>
               ) : null
             }
@@ -646,7 +651,7 @@ export function RouteEditor(props: RouteEditorProps) {
                   : switchModelEdit({ creating: true, row: BLANK_ROW })
               }
             >
-              新增模型
+              {t('editor.newModel')}
             </Button>
             <Button
               variant="outline"
@@ -655,7 +660,7 @@ export function RouteEditor(props: RouteEditorProps) {
                 void fetchModels()
               }}
             >
-              {fetching ? '获取中…' : '获取模型'}
+              {fetching ? t('import.fetching') : t('import.fetch')}
             </Button>
           </div>
           {fetchStatus !== undefined ? (
@@ -677,14 +682,14 @@ export function RouteEditor(props: RouteEditorProps) {
 
       {/* 保存相关反馈贴着动作区：表单长时顶部的提示区在视口外，点了保存看不见被拦的原因。 */}
       {props.error ? <div className={styles.error}>{props.error}</div> : null}
-      {localError ? <div className={styles.error}>{localError}</div> : null}
+      {localError ? <div className={styles.error}>{messageText(localError, t)}</div> : null}
       {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
       <div className={styles.editorActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-          取消
+          {t('cancel')}
         </Button>
         <Button variant="primary" disabled={props.busy || !props.writable} onClick={() => void save()}>
-          {props.busy ? '保存中…' : '保存'}
+          {props.busy ? t('editor.saving') : t('editor.save')}
         </Button>
       </div>
     </div>

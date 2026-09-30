@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
 import type { RootId, RootInfo, SaveRequest, SkillFormat, SkillRow } from '../shared'
-import { SKILL_NAME_PATTERN, sourceLabel } from '../shared'
+import { SKILL_NAME_PATTERN } from '../shared'
 import { bodyForEditor, parseKnown, splitFrontmatter } from '../frontmatter'
 import type { SkillsStore } from './store'
+import type { SkillsT } from './locales'
+import { rootOptionLabel, sourceLabelT } from './locales'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SkillsSection.module.css'
 
@@ -18,6 +20,7 @@ export interface SkillFormProps {
   busy: boolean
   error: string | null
   store: SkillsStore
+  t: SkillsT
   /** 保存成功后回调（父级收起卡片）。 */
   onDone(): void
   /** 取消编辑（父级收起卡片，未保存的草稿丢弃）。 */
@@ -35,12 +38,8 @@ interface DraftState {
   body: string
 }
 
-const CREATE_PLACEHOLDER = `# 指南标题（可选）
-
-一步一步的操作说明……`
-
 export function SkillForm(props: SkillFormProps) {
-  const { mode, skill, store } = props
+  const { mode, skill, store, t } = props
   const [loaded, setLoaded] = useState<string | null>(mode === 'create' ? '' : null)
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props))
   const [touched, setTouched] = useState(false)
@@ -72,8 +71,9 @@ export function SkillForm(props: SkillFormProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const issues = validateDraft(draft, mode, props.skills)
+  const issues = validateDraft(draft, mode, props.skills, t)
   const busy = props.busy || loaded === null
+  const bodyPlaceholder = `${t('form.bodyPlaceholderTitle')}\n\n${t('form.bodyPlaceholderBody')}`
 
   const submit = async (): Promise<void> => {
     setTouched(true)
@@ -99,25 +99,22 @@ export function SkillForm(props: SkillFormProps) {
       {mode === 'create' ? (
         <div className={styles.grid}>
           <SelectField
-            label="目标根"
+            label={t('form.targetRoot')}
             value={draft.rootId}
-            options={props.roots.map((root) => ({
-              value: root.id,
-              label: `${root.label}（${root.path}）`,
-            }))}
+            options={props.roots.map((root) => ({ value: root.id, label: rootOptionLabel(root, t) }))}
             onChange={(rootId) => setDraft((previous) => ({ ...previous, rootId: rootId as RootId }))}
           />
           <SelectField
-            label="形态"
+            label={t('form.format')}
             value={draft.format}
             options={[
-              { value: 'flat', label: '单文件（<name>.md）' },
-              { value: 'bundle', label: '目录包（<name>/SKILL.md，可带资源）' },
+              { value: 'flat', label: t('form.formatFlat') },
+              { value: 'bundle', label: t('form.formatBundle') },
             ]}
             onChange={(format) => setDraft((previous) => ({ ...previous, format: format as SkillFormat }))}
           />
           <TextField
-            label="名称（kebab-case）"
+            label={t('form.nameLabel')}
             value={draft.name}
             placeholder="my-skill"
             autoFocus
@@ -126,25 +123,25 @@ export function SkillForm(props: SkillFormProps) {
         </div>
       ) : (
         <div className={styles.grid}>
-          <TextField label="名称（编辑时不可改）" value={draft.name} disabled onChange={() => {}} />
+          <TextField label={t('form.nameLocked')} value={draft.name} disabled onChange={() => {}} />
           <div className={styles.field}>
-            <span className={styles.label}>目标</span>
+            <span className={styles.label}>{t('form.target')}</span>
             <span className={styles.hintLine}>{skill?.path}</span>
           </div>
         </div>
       )}
       <TextField
-        label="描述（必填，模型路由依据）"
+        label={t('form.descriptionLabel')}
         wide
         value={draft.description}
-        placeholder="一句话说明这个技能做什么、什么时候用"
+        placeholder={t('form.descriptionPlaceholder')}
         onChange={(description) => setDraft((previous) => ({ ...previous, description }))}
       />
       <TextField
-        label="适用时机（可选 whenToUse）"
+        label={t('form.whenToUseLabel')}
         wide
         value={draft.whenToUse}
-        placeholder="补充路由提示：什么情况下应该选用这个技能"
+        placeholder={t('form.whenToUsePlaceholder')}
         onChange={(whenToUse) => setDraft((previous) => ({ ...previous, whenToUse }))}
       />
       <div className={styles.checkRow}>
@@ -152,23 +149,23 @@ export function SkillForm(props: SkillFormProps) {
           <Switch
             checked={draft.modelInvocable}
             onChange={(checked) => setDraft((previous) => ({ ...previous, modelInvocable: checked }))}
-            label="允许模型调用"
+            label={t('form.modelInvocable')}
           />
-          允许模型调用（进入 skill 工具目录）
+          {t('form.modelInvocableHint')}
         </label>
         <label className={styles.check}>
           <Switch
             checked={draft.userInvocable}
             onChange={(checked) => setDraft((previous) => ({ ...previous, userInvocable: checked }))}
-            label="允许用户调用"
+            label={t('form.userInvocable')}
           />
-          允许用户 /命令调用
+          {t('form.userInvocableHint')}
         </label>
       </div>
       <TextAreaField
-        label="正文（Markdown 指令）"
+        label={t('form.bodyLabel')}
         value={draft.body}
-        placeholder={CREATE_PLACEHOLDER}
+        placeholder={bodyPlaceholder}
         spellCheck={false}
         minHeight={260}
         onChange={(body) => setDraft((previous) => ({ ...previous, body }))}
@@ -181,10 +178,10 @@ export function SkillForm(props: SkillFormProps) {
       ) : null}
       <div className={styles.formActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-          取消
+          {t('cancel')}
         </Button>
         <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-          {props.busy ? '保存中…' : '保存'}
+          {props.busy ? t('form.saving') : t('save')}
         </Button>
       </div>
     </div>
@@ -205,18 +202,23 @@ function initialDraft(props: SkillFormProps): DraftState {
   }
 }
 
-function validateDraft(draft: DraftState, mode: 'create' | 'edit', known: readonly SkillRow[]): string[] {
+function validateDraft(
+  draft: DraftState,
+  mode: 'create' | 'edit',
+  known: readonly SkillRow[],
+  t: SkillsT,
+): string[] {
   const issues: string[] = []
   // 名称检查只在新建做：编辑时名称锁定，无效名称的修复 = 删除后新建。
   if (mode === 'create') {
     if (!SKILL_NAME_PATTERN.test(draft.name)) {
-      issues.push('名称需为 kebab-case：小写字母 / 数字 / 连字符，如 commit-message-style')
+      issues.push(t('validate.nameKebabCase'))
     } else if (known.some((skill) => skill.name === draft.name && skill.rootId === draft.rootId)) {
       // 同根同名会直接产生文件冲突（host 侧 409）；跨根同名是合法的遮蔽用法，不拦截。
-      issues.push(`目标根里已存在同名技能「${draft.name}」`)
+      issues.push(t('validate.duplicateName', { name: draft.name }))
     }
   }
-  if (draft.description.trim().length === 0) issues.push('描述不能为空')
+  if (draft.description.trim().length === 0) issues.push(t('validate.descriptionRequired'))
   return issues
 }
 
@@ -226,8 +228,9 @@ export function SkillView(props: {
   busy: boolean
   error: string | null
   store: SkillsStore
+  t: SkillsT
 }) {
-  const { skill, store } = props
+  const { skill, store, t } = props
   const [loaded, setLoaded] = useState<string | null>(null)
 
   useEffect(() => {
@@ -247,20 +250,28 @@ export function SkillView(props: {
   return (
     <div className={styles.section}>
       <div className={styles.metaGrid}>
-        <MetaItem label="名称" value={skill.name} />
-        <MetaItem label="来源" value={sourceLabel(skill.source)} />
+        <MetaItem label={t('view.name')} value={skill.name} />
+        <MetaItem label={t('view.source')} value={sourceLabelT(skill.source, t)} />
         {skill.git !== undefined ? (
           <MetaItem
-            label="Git 仓库"
-            value={`${skill.git.url}（${skill.git.dir}，安装于 ${skill.git.installedAt.slice(0, 10)}）`}
+            label={t('view.gitRepo')}
+            value={t('view.gitRepoValue', {
+              url: skill.git.url,
+              dir: skill.git.dir,
+              date: skill.git.installedAt.slice(0, 10),
+            })}
             wide
           />
         ) : null}
-        <MetaItem label="描述" value={skill.description} wide />
-        {skill.whenToUse !== undefined ? <MetaItem label="适用时机" value={skill.whenToUse} wide /> : null}
+        <MetaItem label={t('view.description')} value={skill.description} wide />
+        {skill.whenToUse !== undefined ? (
+          <MetaItem label={t('view.whenToUse')} value={skill.whenToUse} wide />
+        ) : null}
         <MetaItem
-          label="调用策略"
-          value={`${skill.modelInvocable ? '模型可调用' : '模型不可调用'} · ${skill.userInvocable ? '用户可调用' : '用户不可调用'}`}
+          label={t('view.invocation')}
+          value={`${skill.modelInvocable ? t('view.modelInvocable') : t('view.modelNotInvocable')} · ${
+            skill.userInvocable ? t('view.userInvocable') : t('view.userNotInvocable')
+          }`}
         />
       </div>
       {props.error ? (
@@ -268,7 +279,13 @@ export function SkillView(props: {
           {props.error}
         </div>
       ) : null}
-      <TextAreaField label="原文" value={loaded ?? '加载中…'} readOnly minHeight={320} spellCheck={false} />
+      <TextAreaField
+        label={t('view.raw')}
+        value={loaded ?? t('loading')}
+        readOnly
+        minHeight={320}
+        spellCheck={false}
+      />
     </div>
   )
 }

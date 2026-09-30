@@ -4,11 +4,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { UsageDetails, footerNote } from '../src/client/usage/UsageChip'
 import { formatReset, providerName } from '../src/client/usage/locales'
 import type { ProviderUsage } from '../src/usage/types'
+import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({}))
 
-function html(result: ProviderUsage | null, locale = 'zh') {
-  return renderToStaticMarkup(createElement(UsageDetails, { result, locale }))
+function html(result: ProviderUsage | null, active: 'zh' | 'en' = 'zh') {
+  return renderToStaticMarkup(createElement(UsageDetails, { result, t: makeT(active), active }))
 }
 
 const ZHIPU_QUOTA: ProviderUsage = {
@@ -142,16 +143,18 @@ describe('按 Provider 显示真实用量语义', () => {
   })
 
   it('脚注显示查询时间和 Copilot 私有接口数据来源', () => {
-    expect(footerNote({ kind: 'quota', provider: 'openai-codex', windows: [], queriedAt: 0 }, 'zh')).toMatch(
-      /^更新于 \d{2}:\d{2}$/,
-    )
+    const zh = makeT('zh')
+    const en = makeT('en')
     expect(
-      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, 'zh'),
+      footerNote({ kind: 'quota', provider: 'openai-codex', windows: [], queriedAt: 0 }, zh, 'zh'),
+    ).toMatch(/^更新于 \d{2}:\d{2}$/)
+    expect(
+      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, zh, 'zh'),
     ).toMatch(/^GitHub 私有接口 · 更新于 \d{2}:\d{2}$/)
-    expect(footerNote(null, 'zh')).toBe('仅当前 Provider 显示')
-    expect(footerNote(null, 'en')).toBe('Only shown for the current provider')
+    expect(footerNote(null, zh, 'zh')).toBe('仅当前 Provider 显示')
+    expect(footerNote(null, en, 'en')).toBe('Only shown for the current provider')
     expect(
-      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, 'en'),
+      footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, en, 'en'),
     ).toMatch(/^GitHub private API · Updated \d{2}:\d{2}$/)
   })
 
@@ -172,12 +175,52 @@ describe('按 Provider 显示真实用量语义', () => {
     expect(formatReset(now - 60_000, 'en', now)).toBe('—')
   })
 
-  it('缺凭据时显示查询原因', () => {
+  it('缺凭据时按原因码翻译摘要并保留原始详情，未知详情原样展示', () => {
+    const en = makeT('en')
+    // 已知码：英文摘要 + 中文原始详情并存（详情是 Host 事实，不翻译）。
     expect(
-      html({ kind: 'unavailable', provider: 'github-copilot', error: 'Copilot 尚未登录 GitHub' }),
-    ).toContain('Copilot 尚未登录 GitHub')
-    expect(html({ kind: 'unavailable', provider: 'github-copilot', error: 'missing token' }, 'en')).toContain(
-      '<dt>Reason</dt>',
-    )
+      html(
+        {
+          kind: 'unavailable',
+          provider: 'github-copilot',
+          code: 'not_signed_in',
+          detail: 'Copilot 尚未登录',
+        },
+        'en',
+      ),
+    ).toContain('Account sign-in required')
+    expect(
+      html(
+        {
+          kind: 'unavailable',
+          provider: 'github-copilot',
+          code: 'not_signed_in',
+          detail: 'Copilot 尚未登录',
+        },
+        'en',
+      ),
+    ).toContain('Copilot 尚未登录')
+    expect(
+      html({ kind: 'unavailable', provider: 'github-copilot', code: 'not_configured', detail: '' }, 'en'),
+    ).toContain('No credential configured')
+    // unknown：详情即主文案，不猜不吞。
+    expect(
+      html({ kind: 'unavailable', provider: 'x', code: 'unknown', detail: 'missing token' }, 'en'),
+    ).toContain('<dt>Reason</dt>')
+    expect(
+      html({ kind: 'unavailable', provider: 'x', code: 'unknown', detail: 'missing token' }, 'en'),
+    ).toContain('missing token')
+    const zh = makeT('zh')
+    expect(
+      html(
+        {
+          kind: 'unavailable',
+          provider: 'openai-codex',
+          code: 'authorization_changed',
+          detail: 'credentials/record-updated during openai-codex query',
+        },
+        'zh',
+      ),
+    ).toContain('授权已更新，请重新查询')
   })
 })

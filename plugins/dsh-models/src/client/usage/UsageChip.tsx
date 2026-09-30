@@ -17,18 +17,18 @@ import {
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { toneStyles } from '@dsh-plugins/client-ui/tone'
-import type { UsageStrings } from './locales'
-import { formatReset, providerName, usageStrings, windowName } from './locales'
-import { USAGE_PROVIDERS, type ProviderUsage, type UsageWindow } from '../../usage/types'
+import { formatReset, intlLocale, providerName, windowName } from './locales'
+import type { ModelsT } from '../locales'
+import {
+  USAGE_PROVIDERS,
+  type ProviderUsage,
+  type UsageFailureCode,
+  type UsageWindow,
+} from '../../usage/types'
 import pill from './usage-pill.module.css'
 import panel from './usage-panel.module.css'
 
 const EMPTY: ModelDirectoryState | null = null
-
-function useActiveLocale(locale: LocaleRuntime): string {
-  const subscribe = useCallback((listener: () => void) => locale.subscribe(listener), [locale])
-  return useSyncExternalStore(subscribe, () => locale.getLocale().active)
-}
 
 function useProvider(directories: ModelDirectoryResolver | undefined, sessionId: SessionId) {
   const directory: ModelDirectory | undefined = directories?.directoryFor(sessionId)
@@ -43,20 +43,21 @@ function useProvider(directories: ModelDirectoryResolver | undefined, sessionId:
   return snapshot?.current?.provider ?? null
 }
 
-async function fetchUsage(
-  provider: string,
-  force: boolean,
-  lookupFailed: UsageStrings['lookupFailed'],
-): Promise<ProviderUsage> {
+// 用量事实与展示语言无关：失败摘要按 code 在渲染期翻译，请求与轮询只随
+// provider 变化，切换语言不重新查询。
+async function fetchUsage(provider: string, force: boolean): Promise<ProviderUsage> {
   const url = `/dsh-models/usage?provider=${encodeURIComponent(provider)}${force ? '&force=1' : ''}`
   const response = await fetch(url)
   const result = (await response.json()) as ProviderUsage & { error?: unknown }
-  if (!response.ok)
-    throw new Error(typeof result.error === 'string' ? result.error : lookupFailed(response.status))
+  if (!response.ok) {
+    const detail =
+      typeof result.error === 'string' && result.error.length > 0 ? result.error : `HTTP ${response.status}`
+    throw new Error(detail)
+  }
   return result
 }
 
-function useUsage(provider: string, locale: string) {
+function useUsage(provider: string) {
   const [result, setResult] = useState<ProviderUsage | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const latestRequest = useRef(0)
@@ -65,20 +66,21 @@ function useUsage(provider: string, locale: string) {
       const sequence = ++latestRequest.current
       if (force) setRefreshing(true)
       try {
-        const next = await fetchUsage(provider, force, usageStrings(locale).lookupFailed)
+        const next = await fetchUsage(provider, force)
         if (latestRequest.current === sequence) setResult(next)
       } catch (error) {
         if (latestRequest.current === sequence)
           setResult({
             kind: 'unavailable',
             provider,
-            error: error instanceof Error ? error.message : String(error),
+            code: 'unknown',
+            detail: error instanceof Error ? error.message : String(error),
           })
       } finally {
         if (latestRequest.current === sequence) setRefreshing(false)
       }
     },
-    [provider, locale],
+    [provider],
   )
   useEffect(() => {
     void request(false)
@@ -106,28 +108,45 @@ function formatPct(value: number | null) {
   return value === null ? '—' : Math.round(value * 10) / 10 + '%'
 }
 
-function formatQueriedAt(ms: number) {
-  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+function formatQueriedAt(ms: number, active: string) {
+  return new Date(ms).toLocaleTimeString(intlLocale(active), {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
 }
+
+/** 已知原因码 → 翻译摘要并保留原始详情；unknown 的详情就是主文案，不猜不吞。 */
+function failureText(code: UsageFailureCode, detail: string, t: ModelsT) {
+  if (code === 'unknown') return detail
+  // 四个已知码与词典键一一对应（usage.failure.<code>）；unknown 已提前返回。
+  const summary = FAILURE_KEY[code]
+  return detail.length === 0 ? t(summary) : `${t(summary)} · ${detail}`
+}
+
+const FAILURE_KEY = {
+  not_configured: 'usage.failure.not_configured',
+  not_signed_in: 'usage.failure.not_signed_in',
+  unsupported_account: 'usage.failure.unsupported_account',
+  authorization_changed: 'usage.failure.authorization_changed',
+} as const
 
 /** Host 缓存下查询时间可能滞后；Copilot 额度来自未公开接口。 */
-export function footerNote(result: ProviderUsage | null, locale: string): string {
-  const t = usageStrings(locale)
+export function footerNote(result: ProviderUsage | null, t: ModelsT, active: string): string {
   if (result?.kind === 'quota')
-    return `${result.provider === 'github-copilot' ? t.githubPrivateApi : ''}${t.updatedAt(formatQueriedAt(result.queriedAt))}`
-  return t.currentProviderOnly
+    return `${result.provider === 'github-copilot' ? t('usage.githubPrivateApi') : ''}${t('usage.updatedAt', { time: formatQueriedAt(result.queriedAt, active) })}`
+  return t('usage.currentProviderOnly')
 }
 
-function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; locale: string }) {
-  const t = usageStrings(locale)
+function WindowGrid({ windows, t, active }: { windows: readonly UsageWindow[]; t: ModelsT; active: string }) {
   return (
     <div className={panel.windows}>
       {windows.map((window) => {
         const left = remainingPct(window.usedPct)
         const color = remainingTone(left)
-        const name = windowName(window.label, locale)
-        const reset = formatReset(window.resetMs, locale)
-        const pct = window.unlimited ? t.unlimited : formatPct(left)
+        const name = windowName(window.label, t)
+        const reset = formatReset(window.resetMs, active)
+        const pct = window.unlimited ? t('usage.unlimited') : formatPct(left)
         return (
           <div key={window.id} className={panel.window}>
             <div className={panel.windowName} title={name}>
@@ -138,7 +157,7 @@ function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; loca
             </div>
             {window.remaining != null && window.entitlement != null ? (
               <div className={panel.windowValue}>
-                {t.remainingQuota(window.remaining, window.entitlement)}
+                {t('usage.remainingQuota', { remaining: window.remaining, entitlement: window.entitlement })}
               </div>
             ) : null}
             <div className={panel.bar}>
@@ -154,13 +173,20 @@ function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; loca
   )
 }
 
-export function UsageDetails({ result, locale }: { result: ProviderUsage | null; locale: string }) {
-  const t = usageStrings(locale)
-  if (result?.kind === 'quota') return <WindowGrid windows={result.windows} locale={locale} />
+export function UsageDetails({
+  result,
+  t,
+  active,
+}: {
+  result: ProviderUsage | null
+  t: ModelsT
+  active: string
+}) {
+  if (result?.kind === 'quota') return <WindowGrid windows={result.windows} t={t} active={active} />
   return (
     <dl className={panel.details}>
-      <dt>{result === null ? t.status : t.reason}</dt>
-      <dd>{result === null ? t.loading : result.error}</dd>
+      <dt>{result === null ? t('usage.status') : t('usage.reason')}</dt>
+      <dd>{result === null ? t('usage.loading') : failureText(result.code, result.detail, t)}</dd>
     </dl>
   )
 }
@@ -168,37 +194,39 @@ export function UsageDetails({ result, locale }: { result: ProviderUsage | null;
 function UsageSummary({
   label,
   result,
-  locale,
+  t,
+  active,
 }: {
   label: string
   result: ProviderUsage | null
-  locale: string
+  t: ModelsT
+  active: string
 }) {
-  const t = usageStrings(locale)
   if (result?.kind === 'unavailable')
-    return <span className={toneStyles.err}>{t.usageUnavailable(label)}</span>
+    return <span className={toneStyles.err}>{t('usage.unavailable', { name: label })}</span>
   if (result?.kind === 'quota')
     return (
       <>
         {label}
         {result.windows.map((window) => {
           const left = remainingPct(window.usedPct)
-          const name = windowName(window.label, locale)
-          const pct = window.unlimited ? t.unlimited : formatPct(left)
+          const name = windowName(window.label, t)
+          const pct = window.unlimited ? t('usage.unlimited') : formatPct(left)
           return (
-            <span key={window.id} className={pill.sep} title={t.remainingOf(name, pct)}>
+            <span key={window.id} className={pill.sep} title={t('usage.remainingOf', { name, pct })}>
               {name} <span className={remainingTone(left)}>{pct}</span>
             </span>
           )
         })}
       </>
     )
-  return <>{t.usage(label)}…</>
+  return <>{t('usage.title', { name: label })}…</>
 }
 
-function UsagePill({ provider, locale: store }: { provider: string; locale: LocaleRuntime }) {
-  const locale = useActiveLocale(store)
-  const { result, refreshing, refresh } = useUsage(provider, locale)
+function UsagePill({ provider, locale, t }: { provider: string; locale: LocaleRuntime; t: ModelsT }) {
+  // 展示语言在渲染期读取：slot outlet 订阅 locale revision，语言切换即重绘。
+  const active = locale.getLocale().active
+  const { result, refreshing, refresh } = useUsage(provider)
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLSpanElement>(null)
   const surface = useRef<HTMLDivElement>(null)
@@ -220,27 +248,26 @@ function UsagePill({ provider, locale: store }: { provider: string; locale: Loca
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [open])
-  const label = providerName(provider, locale)
-  const t = usageStrings(locale)
+  const label = providerName(provider, active)
   const content = (
     <>
       <IconGaugeOutlineRegular />
       <span className={pill.label}>
-        <UsageSummary label={label} result={result} locale={locale} />
+        <UsageSummary label={label} result={result} t={t} active={active} />
       </span>
     </>
   )
   return (
     <span ref={anchor} className={pill.anchor}>
       {result === null ? (
-        <Pill aria-label={t.usageLoading(label)}>{content}</Pill>
+        <Pill aria-label={t('usage.titleLoading', { name: label })}>{content}</Pill>
       ) : (
         // 展开态不加 active 填充，与模型选择触发器一致：静止无填充，悬停才有 hover 底色。
         <Pill
           type="button"
           aria-haspopup="dialog"
           aria-expanded={open}
-          aria-label={t.usage(label)}
+          aria-label={t('usage.title', { name: label })}
           onClick={() => setOpen(!open)}
         >
           {content}
@@ -252,17 +279,17 @@ function UsagePill({ provider, locale: store }: { provider: string; locale: Loca
             ref={surface}
             className={[panel.panel, pos === null && panel.measure].filter(Boolean).join(' ')}
             role="dialog"
-            aria-label={t.usage(label)}
+            aria-label={t('usage.title', { name: label })}
             style={pos ?? undefined}
           >
             <div className={panel.title}>
               <span className={panel.titleLabel}>
                 <IconGaugeOutlineRegular />
-                {t.usage(label)}
+                {t('usage.title', { name: label })}
               </span>
             </div>
             <div className={panel.titleRule} aria-hidden />
-            <UsageDetails result={result} locale={locale} />
+            <UsageDetails result={result} t={t} active={active} />
             <div className={panel.footerRule} aria-hidden />
             <div className={panel.footer}>
               <Button
@@ -273,9 +300,9 @@ function UsagePill({ provider, locale: store }: { provider: string; locale: Loca
                 disabled={refreshing || result === null}
                 onClick={refresh}
               >
-                {refreshing ? t.refreshing : t.refresh}
+                {refreshing ? t('usage.refreshing') : t('usage.refresh')}
               </Button>
-              <span className={panel.note}>{footerNote(result, locale)}</span>
+              <span className={panel.note}>{footerNote(result, t, active)}</span>
             </div>
           </MenuSurface>,
           document.body,
@@ -288,12 +315,14 @@ export function ProviderUsageChip({
   sessionId,
   directories,
   locale,
+  t,
 }: {
   sessionId: SessionId
   directories?: ModelDirectoryResolver
   locale: LocaleRuntime
+  t: ModelsT
 }) {
   const provider = useProvider(directories, sessionId)
   if (provider === null || !(USAGE_PROVIDERS as readonly string[]).includes(provider)) return null
-  return <UsagePill key={provider} provider={provider} locale={locale} />
+  return <UsagePill key={provider} provider={provider} locale={locale} t={t} />
 }

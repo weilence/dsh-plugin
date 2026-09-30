@@ -3,18 +3,19 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, SelectField, TextField, type PickItem } from '@dsh-plugins/client-ui'
 import type { GitInstallResponse, GitScanResponse, GitSkillCandidate, RootId, RootInfo } from '../shared'
 import type { SkillsStore } from './store'
+import type { SkillsT } from './locales'
+import { rootOptionLabel } from './locales'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SkillsSection.module.css'
 
 const styles = { ...shared, ...local }
 
-const ORIGIN_LABELS: Record<GitSkillCandidate['origin'], string> = {
-  marketplace: 'marketplace 声明',
-  plugin: 'plugin.json 声明',
-  skills: 'skills/',
-  agents: '.agents/skills',
-  claude: '.claude/skills',
-  root: '仓库根',
+/** origin 的展示词：三个标准技能目录是仓库路径事实原样展示，声明类与根走词典。 */
+function originLabelOf(origin: GitSkillCandidate['origin'], t: SkillsT): string {
+  if (origin === 'marketplace') return t('origin.marketplace')
+  if (origin === 'plugin') return t('origin.plugin')
+  if (origin === 'root') return t('origin.root')
+  return { skills: 'skills/', agents: '.agents/skills', claude: '.claude/skills' }[origin]
 }
 
 export function GitInstallDialog(props: {
@@ -26,8 +27,10 @@ export function GitInstallDialog(props: {
   /** 正在复制安装（安装按钮文案用）。 */
   installing: boolean
   error: string | null
+  t: SkillsT
   onClose(): void
 }) {
+  const { t } = props
   const [url, setUrl] = useState('')
   const [scan, setScan] = useState<GitScanResponse | null>(null)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
@@ -46,9 +49,7 @@ export function GitInstallDialog(props: {
     const response = await props.store.gitScan(url)
     if (response === null) return
     if (response.skills.length === 0) {
-      setScanError(
-        '仓库里没有发现技能。支持根 SKILL.md、skills/（含分类子目录）、.agents/skills/、.claude/skills/ 与 .claude-plugin/marketplace.json 声明的位置。',
-      )
+      setScanError(t('git.scanEmpty'))
       return
     }
     setScan(response)
@@ -80,22 +81,23 @@ export function GitInstallDialog(props: {
     scan?.skills.map((skill) => ({
       key: skill.dir,
       title: skill.name,
-      titleMeta: `${ORIGIN_LABELS[skill.origin]} · ${skill.dir}`,
-      lines: [skill.description.length > 0 ? skill.description : '（无描述）'],
-      ...(skill.problem !== undefined ? { problem: `不可安装：${skill.problem}` } : {}),
+      titleMeta: `${originLabelOf(skill.origin, t)} · ${skill.dir}`,
+      lines: [skill.description.length > 0 ? skill.description : t('pill.noDescription')],
+      ...(skill.problem !== undefined ? { problem: t('git.notInstallable', { reason: skill.problem }) } : {}),
     })) ?? []
 
   return (
     <Dialog
-      title="从 Git 仓库安装技能"
-      description="整目录复制 · 同名冲突不覆盖"
+      title={t('git.title')}
+      description={t('git.description')}
+      closeLabel={t('close')}
       onClose={() => {
         if (!props.busy) props.onClose()
       }}
       actions={
         <>
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>
-            {done ? '关闭' : '取消'}
+            {done ? t('close') : t('cancel')}
           </Button>
           {!done ? (
             <Button
@@ -103,7 +105,7 @@ export function GitInstallDialog(props: {
               disabled={props.busy || picked.size === 0}
               onClick={() => void doInstall()}
             >
-              {props.installing ? '安装中…' : `安装选中（${picked.size}）`}
+              {props.installing ? t('git.installing') : t('git.installSelected', { count: picked.size })}
             </Button>
           ) : null}
         </>
@@ -111,7 +113,7 @@ export function GitInstallDialog(props: {
     >
       <div className={styles.section}>
         <TextField
-          label="仓库地址（https:// · ssh:// · git@host:owner/repo）"
+          label={t('git.urlLabel')}
           wide
           value={url}
           placeholder="https://github.com/anthropics/skills"
@@ -120,7 +122,7 @@ export function GitInstallDialog(props: {
           addon={
             !done
               ? {
-                  label: props.scanning ? '克隆扫描中…' : '扫描',
+                  label: props.scanning ? t('git.scanning') : t('git.scan'),
                   onClick: () => void doScan(),
                   disabled: props.busy || url.trim().length === 0,
                 }
@@ -132,9 +134,9 @@ export function GitInstallDialog(props: {
             会把这次程序性滚动当作外部交互，把刚打开的下拉立即收掉。 */}
         {!done ? (
           <SelectField
-            label="安装到（同名冲突不覆盖）"
+            label={t('git.installTo')}
             value={rootId}
-            options={props.roots.map((root) => ({ value: root.id, label: `${root.label}（${root.path}）` }))}
+            options={props.roots.map((root) => ({ value: root.id, label: rootOptionLabel(root, t) }))}
             onChange={(value) => setRootId(value as RootId)}
           />
         ) : null}
@@ -156,7 +158,9 @@ export function GitInstallDialog(props: {
           <>
             {result.installed.length > 0 ? (
               <div className={styles.bodyField}>
-                <span className={styles.label}>已安装 {result.installed.length} 个</span>
+                <span className={styles.label}>
+                  {t('git.installedCount', { count: result.installed.length })}
+                </span>
                 <ul className={styles.pickList}>
                   {result.installed.map((row) => (
                     <li key={row.path} className={styles.pickMeta}>
@@ -168,23 +172,22 @@ export function GitInstallDialog(props: {
             ) : null}
             {result.conflicts.length > 0 ? (
               <IssueList
-                issues={result.conflicts.map((row) => ({ message: `同名冲突（未覆盖）：${row.path}` }))}
+                issues={result.conflicts.map((row) => ({
+                  message: t('git.conflict', { path: row.path }),
+                }))}
               />
             ) : null}
             {result.failed.length > 0 ? (
               <IssueList
-                issues={result.failed.map((row) => ({ message: `${row.name} 安装失败：${row.error}` }))}
+                issues={result.failed.map((row) => ({
+                  message: t('git.installFailed', { name: row.name, error: row.error }),
+                }))}
               />
             ) : null}
           </>
         ) : null}
 
-        <p className={styles.hint}>
-          host 用部分克隆 + 稀疏检出只拉取技能相关目录（skills/、.agents/skills/、.claude-plugin/
-          及清单声明的插件目录，docs 等其余内容不落盘；复用本机 git
-          凭据，私有仓库可用），扫描后整目录复制到目标根；
-          临时目录随即删除。同名技能已存在时不覆盖，请先删除或换目标根。
-        </p>
+        <p className={styles.hint}>{t('git.hint')}</p>
       </div>
     </Dialog>
   )

@@ -7,6 +7,7 @@ import {
 } from './types'
 import { isRecord } from './record'
 import { normalizeModelEntry } from './normalize'
+import type { PanelMessage } from '../client/locales'
 
 /** 官方模型发现结果的目录投影：目录继承比较只关心这三个字段。 */
 export type DiscoveredModelFacts = Pick<LlmDiscoveredModel, 'name' | 'contextWindow' | 'maxTokens'>
@@ -293,7 +294,7 @@ export type AddModelPlan =
   | { kind: 'append'; profile: PiAiProviderEntry }
   /** 将整份目录展开为显式清单并追加新模型（官方 modelOverrides 不能显式指定目录未描述的模型）。 */
   | { kind: 'materialize'; profile: PiAiProviderEntry }
-  | { kind: 'blocked'; reason: string }
+  | { kind: 'blocked'; reason: PanelMessage }
 
 // 目录 route 新增目录已描述的模型只写 modelOverrides；新增目录未描述的模型
 // 必须把 models 整份展开，而展开要求先能读到当前继承的完整目录，否则会把
@@ -322,7 +323,7 @@ export function planAddModel(input: {
   if (catalog.size === 0) {
     return {
       kind: 'blocked',
-      reason: '无法读取该 route 当前继承的模型目录；整份展开会把其余模型丢掉，已取消。请先刷新重试。',
+      reason: { key: 'plan.catalogUnreadable' },
     }
   }
   return { kind: 'materialize', profile: materializeWithNewModel(userProfile, catalog, entry) }

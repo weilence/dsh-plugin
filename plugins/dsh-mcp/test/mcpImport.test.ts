@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ConfigError, extrasOf, parseMcpJsonText } from '../src/mcpConfig'
+import { messageText } from '../src/client/locales'
+import { makeT } from './i18n'
 
 describe('parseMcpJsonText', () => {
   it('解析 mcpServers 包装的多个服务器并透传未知键', () => {
@@ -89,7 +91,7 @@ describe('parseMcpJsonText', () => {
       }),
     )
     expect(result.entries).toHaveLength(0)
-    expect(result.problems[0]?.message).toContain('占位符')
+    expect(messageText(result.problems[0]!.message, makeT())).toContain('占位符')
   })
 
   it('非法 serverName 键与缺少必填字段进入 problems', () => {
@@ -99,7 +101,11 @@ describe('parseMcpJsonText', () => {
       }),
     )
     expect(result.entries).toHaveLength(0)
-    expect(result.problems).toHaveLength(3)
+    expect(result.problems.map((problem) => messageText(problem.message, makeT()))).toEqual([
+      '名称「bad name!」需匹配 ^[A-Za-z0-9_-]{1,32}$',
+      'stdio 服务器缺少 command',
+      'HTTP 服务器缺少 url',
+    ])
   })
 
   it('跨传输形态的专属键被忽略并给出提示', () => {
@@ -111,12 +117,21 @@ describe('parseMcpJsonText', () => {
     expect(result.entries[0]?.extras.command).toBeUndefined()
   })
 
-  it('顶层结构问题抛 ConfigError', () => {
+  it('顶层结构问题抛带词典描述子的 ConfigError', () => {
     expect(() => parseMcpJsonText('')).toThrow(ConfigError)
-    expect(() => parseMcpJsonText('not json')).toThrow(ConfigError)
     expect(() => parseMcpJsonText('[]')).toThrow(ConfigError)
     expect(() => parseMcpJsonText('{"mcpServers": {}}')).toThrow(ConfigError)
     expect(() => parseMcpJsonText('{}')).toThrow(ConfigError)
+
+    let thrown: unknown
+    try {
+      parseMcpJsonText('not json')
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(ConfigError)
+    const descriptor = (thrown as ConfigError).descriptor
+    expect(descriptor && messageText(descriptor, makeT())).toContain('不是合法的 JSON')
   })
 })
 

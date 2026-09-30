@@ -9,8 +9,9 @@
 - `src/scan.ts`：根扫描与校验（被遮蔽 / 无效条目也产出，供面板展示与修复）。
 - `src/frontmatter.ts`：已知键行级 round-trip（无 YAML 依赖；读取端兼容引号 / 块标量，写入端新值按 YAML 双引号标量序列化）。
 - `src/gitInstall.ts` / `gitUpdate.ts` / `gitMeta.ts`：Git 仓库技能发现与安装、更新检查与应用、安装元数据索引。
-- `src/shared.ts`：双端 wire 类型与常量。
-- `src/client/`：面板；技能为可展开卡片——点击行即可在行内新建 / 编辑 / 查看（SkillForm / SkillView）；Git 安装为弹窗；HTTP 封装自定义头 `x-dsh-skills`。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。
+- `src/shared.ts`：双端 wire 类型与常量（`RootInfo` 只传语义 id / 路径 / present，不下发展示文案）。
+- `src/client/locales.ts`：本插件词典（命名空间 `dsh-skills`，zh 为键集事实源、en 编译期查全）；`sourceLabelT` / `rootOptionLabel` 按来源 / 根 id 在词典侧取词，未知来源回退原文。
+- `src/client/`：面板；技能为可展开卡片——点击行即可在行内新建 / 编辑 / 查看（SkillForm / SkillView）；Git 安装为弹窗；HTTP 封装自定义头 `x-dsh-skills`。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。词典在 `src/client.tsx` 接线（`ctx.locale.register` + `bind`），导航 label 为 thunk，`t` 经 inject 面下传组件；store 的 notice 与组合错误在事件时间用当前语言定格（5 秒 Toast、下次操作即替换，不需跨语言存活）；Host errMsg、扫描 invalid 原因、Git 扫描 notes / problems 是不可翻译的事实，原样展示。
 
 ## 改动约定
 
@@ -27,4 +28,4 @@
 
 ## 测试
 
-`pnpm --filter @weilence/dsh-skills test`：scan / frontmatter / gitInstall / gitUpdate / roots 纯函数与临时目录单测；host.test.ts 做路由的请求-响应集成测试。
+`pnpm --filter @weilence/dsh-skills test`：scan / frontmatter / gitInstall / gitUpdate / roots 纯函数与临时目录单测；host.test.ts 做路由的请求-响应集成测试；涉及文案断言的单测经 `test/i18n.ts` 的 `makeT` 取词（含 common 词条快照）。

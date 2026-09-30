@@ -1,11 +1,13 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { mcpApi } from './api'
+import type { PanelMessage } from './locales'
 import type { DeleteRequest, ListResponse, SaveRequest, SetEnabledRequest } from '../shared'
 
 export interface McpState {
   status: 'idle' | 'loading' | 'ready' | 'error'
-  error: string | null
-  notice: string | null
+  /** 插件文案用词典 key 表达，Host 原因用 text 原样；渲染期随宿主语言翻译。 */
+  error: PanelMessage | null
+  notice: PanelMessage | null
   list: ListResponse | null
   /** 正在写入的行 id（保存 / 启停 / 删除中）。 */
   busy: string | null
@@ -49,10 +51,6 @@ export class McpStore {
     if (this.snapshot.notice !== null) this.set({ notice: null })
   }
 
-  fail(message: string): void {
-    this.set({ error: message, notice: null })
-  }
-
   // 页面打开时多个事件常常接连到来，加载进行中的触发只标记 dirty，完成后
   // 至多补拉一次。
   refresh(): Promise<void> {
@@ -87,12 +85,12 @@ export class McpStore {
       this.set({ status: 'ready', error: null, list: response })
     } catch (error) {
       if (generation !== this.refreshGeneration) return
-      this.set({ status: 'error', error: errMsg(error) })
+      this.set({ status: 'error', error: { text: errMsg(error) } })
     }
   }
 
   /** 写操作成功后的刷新：立即一次，再按延迟补偿 HMR 生效窗口。 */
-  private async refreshAfterMutation(notice: string): Promise<void> {
+  private async refreshAfterMutation(notice: PanelMessage): Promise<void> {
     this.set({ notice })
     await this.refresh()
     for (const delay of SETTLE_DELAYS_MS) {
@@ -111,12 +109,15 @@ export class McpStore {
       const outcome = await mcpApi.save(request)
       await this.refreshAfterMutation(
         request.id === undefined
-          ? `已创建服务器 ${request.config.serverName}（写入 ${outcome.scope} 层，等待 HMR 应用）`
-          : `已保存服务器 ${request.config.serverName}（等待 HMR 应用）`,
+          ? {
+              key: 'notice.created',
+              params: { name: request.config.serverName, scope: outcome.scope },
+            }
+          : { key: 'notice.saved', params: { name: request.config.serverName } },
       )
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busy: null })
@@ -128,10 +129,13 @@ export class McpStore {
     this.set({ busy: request.id, error: null, notice: null })
     try {
       const outcome = await mcpApi.setEnabled(request)
-      await this.refreshAfterMutation(`已${outcome.enabled ? '启用' : '停用'} ${request.id}（等待 HMR 应用）`)
+      await this.refreshAfterMutation({
+        key: outcome.enabled ? 'notice.enabled' : 'notice.disabled',
+        params: { name: request.id },
+      })
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busy: null })
@@ -143,10 +147,10 @@ export class McpStore {
     this.set({ busy: request.id, error: null, notice: null })
     try {
       await mcpApi.delete(request)
-      await this.refreshAfterMutation(`已删除服务器 ${label}（等待 HMR 卸载）`)
+      await this.refreshAfterMutation({ key: 'notice.deleted', params: { name: label } })
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busy: null })

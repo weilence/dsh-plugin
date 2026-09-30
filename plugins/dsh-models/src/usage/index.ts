@@ -2,13 +2,29 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { errMsg } from '@dsh-plugins/shared'
 import { COPILOT_CREDENTIAL_KEY, readCopilotQuota } from './copilot'
-import { CODEX_CREDENTIAL_KEY, readCodexQuota } from './codex'
+import { CODEX_CREDENTIAL_KEY, CodexQuotaError, readCodexQuota } from './codex'
 import { createUsageService as createZhipuUsageService } from './zhipu'
-import { USAGE_PROVIDERS, type ProviderUsage, type UsageProviderId, type UsageWindowLabel } from './types'
+import {
+  USAGE_PROVIDERS,
+  UsageError,
+  type ProviderUsage,
+  type UsageProviderId,
+  type UsageWindowLabel,
+} from './types'
 
 export type { ProviderUsage } from './types'
 
 export type UsageProvider = UsageProviderId
+
+/** 异常 → 稳定原因码 + 安全详情：已知分类由抛出点携带，其余保真归 unknown。 */
+function unavailable(provider: string, error: unknown): ProviderUsage {
+  if (error instanceof UsageError)
+    return { kind: 'unavailable', provider, code: error.code, detail: error.message }
+  if (error instanceof CodexQuotaError && error.code === 'not_signed_in') {
+    return { kind: 'unavailable', provider, code: 'not_signed_in', detail: error.message }
+  }
+  return { kind: 'unavailable', provider, code: 'unknown', detail: errMsg(error) }
+}
 
 export function isUsageProvider(value: string): value is UsageProvider {
   return (USAGE_PROVIDERS as readonly string[]).includes(value)
@@ -52,7 +68,7 @@ export function createProviderUsageService(ctx: Context) {
       zhipuService = createZhipuUsageService(key)
     }
     const value = await zhipuService.fetchUsage(force)
-    if (!value.ok) throw new Error(value.error)
+    if (!value.ok) throw new UsageError(value.code, value.error)
     return {
       kind: 'quota',
       provider: 'zai-coding-cn',
@@ -108,7 +124,7 @@ export function createProviderUsageService(ctx: Context) {
       try {
         return await readZhipu(force)
       } catch (error) {
-        return { kind: 'unavailable', provider, error: errMsg(error) }
+        return unavailable(provider, error)
       }
     }
     const hit = cached.get(provider)
@@ -120,7 +136,7 @@ export function createProviderUsageService(ctx: Context) {
       try {
         return provider === 'openai-codex' ? await readCodex() : await readCopilot()
       } catch (error) {
-        return { kind: 'unavailable', provider, error: errMsg(error) }
+        return unavailable(provider, error)
       }
     })()
     const shared = (async (): Promise<ProviderUsage> => {
@@ -129,8 +145,9 @@ export function createProviderUsageService(ctx: Context) {
         return {
           kind: 'unavailable',
           provider,
-          // host 不知道宿主语言，异常态提示保留中文，展示名用 provider id。
-          error: `${provider} 授权已更新，请重新查询。`,
+          code: 'authorization_changed',
+          // client 按稳定码翻译摘要；detail 记录可追查的事实，不带界面文案。
+          detail: `credentials/record-updated during ${provider} query`,
         }
       }
       cached.set(provider, { value, at: Date.now() })

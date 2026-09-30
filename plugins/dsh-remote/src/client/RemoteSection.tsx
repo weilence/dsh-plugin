@@ -11,8 +11,9 @@ import {
   type PillData,
 } from '@dsh-plugins/client-ui'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { ConnRow } from '../shared'
+import type { ConnOp, ConnRow } from '../shared'
 import { REMOTE_PROFILE } from '../shared'
+import { messageText, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
 import { SyncDialog } from './SyncDialog'
 import type { RemoteStore } from './store'
@@ -23,26 +24,27 @@ const styles = { ...shared, ...local }
 
 export interface RemotePanelEnv {
   store: RemoteStore
+  t: RemoteT
 }
 
-const PHASE_PILLS: Record<ConnRow['state']['phase'], PillData> = {
-  idle: { text: '空闲', tone: 'neutral' },
-  probing: { text: '探测中', tone: 'warn' },
-  deploying: { text: '部署中', tone: 'warn' },
-  starting: { text: '启动中', tone: 'warn' },
-  running: { text: '运行中', tone: 'ok' },
-  stopping: { text: '断开中', tone: 'warn' },
-  error: { text: '错误', tone: 'err' },
+const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone: PillData['tone'] }> = {
+  idle: { key: 'phase.idle', tone: 'neutral' },
+  probing: { key: 'phase.probing', tone: 'warn' },
+  deploying: { key: 'phase.deploying', tone: 'warn' },
+  starting: { key: 'phase.starting', tone: 'warn' },
+  running: { key: 'phase.running', tone: 'ok' },
+  stopping: { key: 'phase.stopping', tone: 'warn' },
+  error: { key: 'phase.error', tone: 'err' },
 }
 
-const OP_LABELS: Record<string, string> = {
-  test: '测试连接',
-  connect: '连接',
-  disconnect: '断开',
-  'sync-skills': '同步 Skills',
-  'sync-mcp': '同步 MCP',
-  'sync-plugins': '同步插件',
-  'sync-prompts': '同步提示词',
+const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
+  test: 'op.test',
+  connect: 'op.connect',
+  disconnect: 'op.disconnect',
+  'sync-skills': 'op.sync-skills',
+  'sync-mcp': 'op.sync-mcp',
+  'sync-plugins': 'op.sync-plugins',
+  'sync-prompts': 'op.sync-prompts',
 }
 
 export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps) {
@@ -51,7 +53,7 @@ export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps)
 }
 
 function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv }) {
-  const { store } = props.env
+  const { store, t } = props.env
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
 
@@ -74,25 +76,27 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
     connectPrompt === null ? undefined : connections.find((row) => row.id === connectPrompt.id)
 
   return (
-    <Panel title="远程开发">
+    <Panel title={t('panel.title')}>
       {env !== undefined && !env.ssh ? (
         <div className={styles.error} role="alert">
-          本机未找到 ssh 可执行文件：请安装 OpenSSH 客户端（Windows 的「可选功能 → OpenSSH
-          客户端」）；在此之前所有远端操作不可用。
+          {t('env.noSsh')}
         </div>
       ) : null}
       {env !== undefined && env.ssh && !env.tar ? (
-        <div className={styles.notice}>
-          本机未找到 tar：Skills 同步不可用（Windows 10+ 自带 bsdtar，请确认其在 PATH 上）。
-        </div>
+        <div className={styles.notice}>{t('env.noTar')}</div>
       ) : null}
       {state.error !== null ? (
         <div className={styles.error} role="alert">
-          {state.error}
+          {messageText(state.error, t)}
         </div>
       ) : null}
       {state.notice !== null ? (
-        <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
+        <Toast
+          key={String('key' in state.notice ? state.notice.key : state.notice.text)}
+          text={messageText(state.notice, t)}
+          holdMs={5000}
+          onDone={() => store.dismissNotice()}
+        />
       ) : null}
 
       <div className={styles.listToolbar}>
@@ -104,24 +108,24 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
             void store.loadLocalRows()
           }}
         >
-          新建连接
+          {t('panel.create')}
         </Button>
         <Button variant="outline" onClick={() => void store.refresh()}>
-          刷新
+          {t('panel.refresh')}
         </Button>
       </div>
 
-      {state.status === 'idle' ? <div className={styles.loading}>正在读取连接库…</div> : null}
+      {state.status === 'idle' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
 
       <div className={styles.rows} ref={rowsRef}>
         <CardList
           items={connections}
           getKey={(row) => row.id}
-          renderCard={(row) => connectionCard(row, store, state)}
+          renderCard={(row) => connectionCard(row, store, state, t)}
           listRef={rowsRef}
           empty={
             connections.length === 0 && !state.creating ? (
-              <div className={styles.empty}>还没有远程开发连接。</div>
+              <div className={styles.empty}>{t('panel.empty')}</div>
             ) : null
           }
           after={
@@ -130,8 +134,9 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
                 <RemoteForm
                   mode="create"
                   store={store}
+                  t={t}
                   busy={state.busyId === 'new'}
-                  error={state.error}
+                  error={state.error === null ? null : messageText(state.error, t)}
                   onDone={() => store.edit(undefined)}
                   onCancel={() => store.edit(undefined)}
                 />
@@ -148,6 +153,7 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
           row={syncTarget}
           kind={syncing.kind}
           store={store}
+          t={t}
           localRows={state.localRows}
           busy={state.busyId === syncTarget.id || syncTarget.state.op !== null}
           onClose={() => store.askSync(null)}
@@ -155,13 +161,17 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
       ) : null}
       {connectTarget !== undefined ? (
         <Dialog
-          title="连接远端"
-          description={`同步插件需要远端已连接。现在连接「${connectTarget.label}」（${connectTarget.sshAlias}）？`}
+          title={t('connect.title')}
+          description={t('connect.description', {
+            label: connectTarget.label,
+            alias: connectTarget.sshAlias,
+          })}
+          closeLabel={t('close')}
           onClose={() => store.askConnect(null)}
           actions={
             <>
               <Button variant="outline" onClick={() => store.askConnect(null)}>
-                取消
+                {t('cancel')}
               </Button>
               <Button
                 variant="primary"
@@ -171,7 +181,7 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
                   void store.connect(connectTarget.id)
                 }}
               >
-                连接
+                {t('op.connect')}
               </Button>
             </>
           }
@@ -180,9 +190,11 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
       ) : null}
       {deleteTarget !== undefined ? (
         <ConfirmDialog
-          title="删除连接"
-          body={`确认删除「${deleteTarget.label}」（${deleteTarget.sshAlias}）？远端产物（~/.dsh/dsh-remote/ 运行目录、已装插件与已下发配置）会保留。`}
-          confirmLabel="删除"
+          title={t('delete.title')}
+          body={t('delete.body', { label: deleteTarget.label, alias: deleteTarget.sshAlias })}
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={state.busyId === deleteTarget.id}
           onCancel={() => store.askDelete(null)}
           onConfirm={() => void store.remove(deleteTarget.id)}
@@ -196,6 +208,7 @@ function connectionCard(
   row: ConnRow,
   store: RemoteStore,
   state: ReturnType<RemoteStore['getSnapshot']>,
+  t: RemoteT,
 ): ExpandableCardProps {
   const open = state.editingId === row.id
   const busy = state.busyId === row.id
@@ -204,10 +217,12 @@ function connectionCard(
   const running = row.state.running
   const testResult = state.testResult?.id === row.id ? state.testResult.result : null
 
-  const pills: PillData[] = [PHASE_PILLS[row.state.phase]]
+  const phase = PHASE_PILL_KEYS[row.state.phase]
+  const pills: PillData[] = [{ text: t(phase.key), tone: phase.tone }]
   if (op !== null) {
     pills.push({
-      text: `${OP_LABELS[op.kind] ?? op.kind}${op.step !== undefined ? ` · ${op.step}` : ''}`,
+      // op.step 是 host 侧事实（如 probe-node），原样拼接不翻译
+      text: `${t(OP_LABEL_KEYS[op.kind])}${op.step !== undefined ? ` · ${op.step}` : ''}`,
       tone: 'warn',
     })
   }
@@ -225,59 +240,61 @@ function connectionCard(
   const actions =
     row.state.phase === 'running' && running !== null
       ? [
-          action('打开', () => window.open(running.url, '_blank'), { variant: 'primary' }),
-          action('断开', () => void store.disconnect(row.id)),
+          action(t('action.open'), () => window.open(running.url, '_blank'), { variant: 'primary' }),
+          action(t('op.disconnect'), () => void store.disconnect(row.id)),
         ]
       : [
-          action('测试', () => void store.test(row.id)),
-          action('连接', () => void store.connect(row.id), { variant: 'primary' }),
+          action(t('action.test'), () => void store.test(row.id)),
+          action(t('op.connect'), () => void store.connect(row.id), { variant: 'primary' }),
         ]
   const children = (
     <div>
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
-          上次 Skills 同步：推送 {row.state.lastSync.skills.pushed}
+          {t('lastSync.skills', { pushed: row.state.lastSync.skills.pushed })}
           {row.state.lastSync.skills.skipped > 0
-            ? ` · 跳过 ${row.state.lastSync.skills.skipped}（已一致）`
+            ? t('lastSync.skipped', { count: row.state.lastSync.skills.skipped })
             : ''}
-          （{new Date(row.state.lastSync.skills.at).toLocaleString()}）
+          {t('lastSync.at', { at: new Date(row.state.lastSync.skills.at).toLocaleString() })}
         </p>
       ) : null}
       {row.state.lastSync.mcp !== null ? (
         <p className={styles.rowWhen}>
-          上次 MCP 同步：{row.state.lastSync.mcp.installed.length} 行
+          {t('lastSync.mcp', { count: row.state.lastSync.mcp.installed.length })}
           {row.state.lastSync.mcp.skipped.length > 0
-            ? ` · 跳过 ${row.state.lastSync.mcp.skipped.length}（已一致）`
+            ? t('lastSync.skipped', { count: row.state.lastSync.mcp.skipped.length })
             : ''}
-          （{new Date(row.state.lastSync.mcp.at).toLocaleString()}）
+          {t('lastSync.at', { at: new Date(row.state.lastSync.mcp.at).toLocaleString() })}
         </p>
       ) : null}
       {row.state.lastSync.plugins !== null ? (
         <p className={styles.rowWhen}>
-          上次插件同步：装 {row.state.lastSync.plugins.installed.length}
+          {t('lastSync.plugins', { count: row.state.lastSync.plugins.installed.length })}
           {row.state.lastSync.plugins.skipped.length > 0
-            ? ` · 跳过 ${row.state.lastSync.plugins.skipped.length}（已一致）`
+            ? t('lastSync.skipped', { count: row.state.lastSync.plugins.skipped.length })
             : ''}
-          （{new Date(row.state.lastSync.plugins.at).toLocaleString()}）
+          {t('lastSync.at', { at: new Date(row.state.lastSync.plugins.at).toLocaleString() })}
         </p>
       ) : null}
       {row.state.lastSync.prompts !== null ? (
         <p className={styles.rowWhen}>
-          上次提示词同步：
-          {row.state.lastSync.prompts.pushed
-            ? '已推送'
-            : row.state.lastSync.prompts.skipped
-              ? '内容一致（跳过）'
-              : '未勾选（未变更）'}
-          （{new Date(row.state.lastSync.prompts.at).toLocaleString()}）
+          {t('lastSync.prompts', {
+            result: row.state.lastSync.prompts.pushed
+              ? t('lastSync.prompts.pushed')
+              : row.state.lastSync.prompts.skipped
+                ? t('lastSync.prompts.skipped')
+                : t('lastSync.prompts.unchanged'),
+          })}
+          {t('lastSync.at', { at: new Date(row.state.lastSync.prompts.at).toLocaleString() })}
         </p>
       ) : null}
       <RemoteForm
         mode="edit"
         row={row}
         store={store}
+        t={t}
         busy={busy}
-        error={state.error}
+        error={state.error === null ? null : messageText(state.error, t)}
         onDone={() => store.edit(undefined)}
         onCancel={() => store.edit(undefined)}
       />
@@ -292,14 +309,20 @@ function connectionCard(
     pills,
     description: running !== null ? running.url : undefined,
     note:
-      `远端 profile ${REMOTE_PROFILE}（固定）` +
-      (running !== null ? ` · 端口 ${running.localPort} → ${running.remotePort}` : '') +
+      t('card.profile', { profile: REMOTE_PROFILE }) +
+      (running !== null
+        ? ` · ${t('card.forward', { local: running.localPort, remote: running.remotePort })}`
+        : '') +
       (testResult !== null
-        ? ` · 探针：${
-            testResult.ok
-              ? `node ${testResult.nodeVersion ?? '?'} / npm ${testResult.npmVersion ?? '?'} / dsh ${testResult.dshVersion ?? '未装'}`
-              : (testResult.error?.message ?? '失败')
-          }`
+        ? ` · ${t('card.probe', {
+            detail: testResult.ok
+              ? t('card.probeDetail', {
+                  node: testResult.nodeVersion ?? '?',
+                  npm: testResult.npmVersion ?? '?',
+                  dsh: testResult.dshVersion ?? t('card.probeNoDsh'),
+                })
+              : (testResult.error?.message ?? t('card.probeFailed')),
+          })}`
         : ''),
     error: row.state.error?.message,
     actions: (
@@ -308,13 +331,13 @@ function connectionCard(
         {/* skills / MCP / 提示词同步仅需 ssh 可达，全阶段常驻；插件安装依赖连接部署出的
             远端 dsh，未连接时引导先连接 */}
         <MenuButton
-          label="同步 ▾"
+          label={t('card.syncMenu')}
           disabled={busy || opBusy}
           items={[
-            { id: 'skills', label: '同步 Skills' },
-            { id: 'mcp', label: '同步 MCP' },
-            { id: 'plugins', label: '同步插件' },
-            { id: 'prompts', label: '同步提示词' },
+            { id: 'skills', label: t('op.sync-skills') },
+            { id: 'mcp', label: t('op.sync-mcp') },
+            { id: 'plugins', label: t('op.sync-plugins') },
+            { id: 'prompts', label: t('op.sync-prompts') },
           ]}
           onSelect={(id) => {
             if (id === 'skills' || id === 'mcp' || id === 'plugins' || id === 'prompts') {
@@ -328,10 +351,10 @@ function connectionCard(
           variant="ghost"
           className={styles.dangerGhost}
           disabled={busy || opBusy || row.state.running !== null}
-          title={row.state.running !== null ? '先断开连接再删除' : undefined}
+          title={row.state.running !== null ? t('card.deleteBlocked') : undefined}
           onClick={() => store.askDelete(row)}
         >
-          删除
+          {t('delete')}
         </Button>
       </div>
     ),

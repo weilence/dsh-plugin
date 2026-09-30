@@ -104,9 +104,12 @@ export function buildRoutes(
 }
 
 /** 草稿/清单条目的推理摘要：false = 无推理，未设置 = 默认（继承）。 */
-export function effortsLabel(entry: PiAiModelEntry): string {
+export function effortsLabel(
+  entry: PiAiModelEntry,
+  t: (key: 'efforts.none' | 'efforts.default') => string,
+): string {
   const efforts = entry.reasoningEfforts
-  if (efforts === false) return '无推理'
-  if (efforts === undefined || Object.keys(efforts).length === 0) return '默认'
+  if (efforts === false) return t('efforts.none')
+  if (efforts === undefined || Object.keys(efforts).length === 0) return t('efforts.default')
   return Object.keys(efforts).join('/')
 }

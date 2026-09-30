@@ -7,6 +7,8 @@ import shared from './shared.module.css'
  *  对齐交给官方 footer 槽位。 */
 export function Dialog(props: {
   title: string
+  /** 关闭的可访问名称由调用方传入（跟随宿主语言），不内嵌固定文案。 */
+  closeLabel: string
   onClose(): void
   size?: 'sm' | 'lg'
   description?: string
@@ -19,7 +21,7 @@ export function Dialog(props: {
       open
       onClose={props.onClose}
       title={props.title}
-      closeLabel="关闭"
+      closeLabel={props.closeLabel}
       description={props.description}
       className={size}
       contentClassName={shared.scrollBody}

@@ -3,6 +3,8 @@ import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { PiAiOperations } from './operations'
+import type { ModelsT } from './locales'
+import { messageText } from './locales'
 import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
 import { CreateProviderForm } from './CreateProviderForm'
@@ -24,19 +26,26 @@ const PROVIDER_ORDER_KEY = 'dsh-models/provider-order'
 export interface ModelCatalogSectionProps extends SettingsSectionOwnerProps {
   store?: PanelStore
   operations?: PiAiOperations
+  t?: ModelsT
 }
 
 export function ModelCatalogSection(props: ModelCatalogSectionProps) {
   useWideSettingsDialog()
   const store = props.store
   const operations = props.operations
-  if (!store || !operations) {
+  if (!store || !operations || !props.t) {
     return <div className={styles.empty}>模型目录面板尚未注入。</div>
   }
-  return <ModelCatalogPanel store={store} operations={operations} close={props.close} />
+  return <ModelCatalogPanel store={store} operations={operations} t={props.t} close={props.close} />
 }
 
-function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperations; close: () => void }) {
+function ModelCatalogPanel(props: {
+  store: PanelStore
+  operations: PiAiOperations
+  t: ModelsT
+  close: () => void
+}) {
+  const { t } = props
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot, props.store.getSnapshot)
   // notice 的唯一清除路径是 Toast 的 onDone，而 Toast 计时只在挂载期间有效：
   // 面板卸载会连 Toast 一起卸载，残留 notice 会在下次打开时重放成「刚保存过」
@@ -88,6 +97,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
             flow={flow}
             auth={state.auth}
             replacesApiKey={!flow.methods.some((method) => method.id === 'api-key')}
+            t={t}
             onBegin={(target) => void props.store.beginSignIn(target)}
             onAnswer={(value) => void props.store.answerSignIn(value)}
             onDecline={() => void props.store.declineSignIn()}
@@ -98,7 +108,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
         replacesApiKey: !flow.methods.some((method) => method.id === 'api-key'),
       }
     },
-    [state.auth, props.store],
+    [state.auth, props.store, t],
   )
 
   const requestEdit = (next?: string) => {
@@ -165,39 +175,31 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
   }
 
   return (
-    <Panel
-      title="模型目录"
-      subtitle={
-        <>
-          浏览 models.dev 并写入 <code className={styles.code}>llm-pi-ai</code>
-          ；展开 Provider 卡片即可编辑连接与模型。
-        </>
-      }
-    >
-      {!writable ? <div className={styles.notice}>当前 Settings Provider 不可写，面板为只读。</div> : null}
-      {state.error ? <div className={styles.error}>{state.error}</div> : null}
+    <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
+      {!writable ? <div className={styles.notice}>{t('panel.readOnly')}</div> : null}
+      {state.error ? <div className={styles.error}>{messageText(state.error, t)}</div> : null}
       {/* 一次性提示走官方 Toast：淡出后由 dismissNotice 清空 store。 */}
       {state.notice !== null ? (
         <Toast
-          key={state.notice}
-          text={state.notice}
+          key={String('key' in state.notice ? state.notice.key : state.notice.text)}
+          text={messageText(state.notice, t)}
           holdMs={5000}
           onDone={() => props.store.dismissNotice()}
         />
       ) : null}
       <div className={styles.listToolbar}>
         <Button variant="primary" disabled={busyProvider !== null} onClick={requestCreate}>
-          新建 Provider
+          {t('panel.createProvider')}
         </Button>
         <Button
           variant="outline"
           disabled={state.status === 'loading' || busyProvider !== null}
           onClick={() => void props.store.refresh()}
         >
-          刷新
+          {t('usage.refresh')}
         </Button>
       </div>
-      {state.status === 'loading' ? <div className={styles.loading}>正在读取 llm-pi-ai 配置…</div> : null}
+      {state.status === 'loading' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
 
       <CardList
         items={orderedRoutes}
@@ -207,7 +209,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
         before={
           creating ? (
             <ExpandableCard
-              title="新建 Provider"
+              title={t('panel.createProvider')}
               open
               onToggle={() => {
                 if (busyProvider === null) setCreating(false)
@@ -215,7 +217,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
             >
               <CreateProviderForm
                 busy={busyProvider !== null}
-                error={state.error}
+                error={state.error === null ? null : messageText(state.error, t)}
                 dormantProviders={dormant.map((route) => route.provider)}
                 catalog={state.modelsDev}
                 modelsDevLoading={state.modelsDevLoading}
@@ -223,6 +225,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                 routes={routes}
                 protocols={state.choices.protocols}
                 signInView={signInView}
+                t={t}
                 onCancel={() => setCreating(false)}
                 onLoadCatalog={() => void props.store.ensureModelsDev()}
                 onCreate={(provider, profile, apiKey) =>
@@ -232,6 +235,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                   props.store.createProvider(provider, profile, { apiKey, notice })
                 }
                 onFetchModels={(request) => props.operations.discoverEndpoint(request)}
+                onError={(message) => props.store.fail({ text: message })}
               />
             </ExpandableCard>
           ) : null
@@ -254,11 +258,11 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                 disabled={busyProvider !== null}
                 onClick={() => setDeleting(route.provider)}
               >
-                删除
+                {t('panel.delete')}
               </Button>
             ),
             notice: route.error !== undefined ? <div className={styles.error}>{route.error}</div> : undefined,
-            ariaLabel: `编辑 ${route.displayName}`,
+            ariaLabel: t('panel.editProvider', { name: route.displayName }),
             children:
               editing === route.provider ? (
                 <RouteEditor
@@ -269,9 +273,10 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                   keyConfigured={keyState[route.provider]}
                   writable={writable}
                   busy={busyProvider === route.provider}
-                  error={state.error}
+                  error={state.error === null ? null : messageText(state.error, t)}
                   modelsDev={state.modelsDev}
                   signInView={signInView}
+                  t={t}
                   onLoadModelsDev={() => props.store.ensureModelsDev()}
                   onDirtyChange={setEditingDirty}
                   onCancel={() => requestEdit(undefined)}
@@ -288,8 +293,8 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
         empty={
           state.status === 'ready' && !creating ? (
             <div className={styles.empty}>
-              还没有配置任何 Provider；点「新建 Provider」开始（使用内置 / 自定义 Provider）。
-              {dormant.length > 0 ? `（pi-ai 内置目录里有 ${dormant.length} 个可选 Provider，尚未配置）` : ''}
+              {t('panel.empty')}
+              {dormant.length > 0 ? t('panel.emptyDormant', { count: dormant.length }) : ''}
             </div>
           ) : null
         }
@@ -297,9 +302,11 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
 
       {pendingExit !== null ? (
         <ConfirmDialog
-          title="放弃未保存的修改？"
-          body="有未保存的修改，离开将丢弃。"
-          confirmLabel="确定"
+          title={t('panel.discardTitle')}
+          body={t('panel.discardBody')}
+          confirmLabel={t('panel.confirm')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={busyProvider !== null}
           onCancel={() => setPendingExit(null)}
           onConfirm={() => {
@@ -315,9 +322,11 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
 
       {deleting !== undefined ? (
         <ConfirmDialog
-          title={`删除 Provider ${deleting}`}
-          body="只删除 llm-pi-ai 用户层里的这条 profile（凭据与组合层配置保留）。未保存的修改将一并丢弃。"
-          confirmLabel="删除"
+          title={t('panel.deleteProviderTitle', { provider: deleting })}
+          body={t('panel.deleteProviderBody')}
+          confirmLabel={t('panel.delete')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={busyProvider !== null}
           onCancel={() => setDeleting(undefined)}
           onConfirm={() => {

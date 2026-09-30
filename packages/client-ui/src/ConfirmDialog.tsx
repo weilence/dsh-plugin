@@ -5,6 +5,9 @@ export interface ConfirmDialogProps {
   title: string
   body: string
   confirmLabel: string
+  /** 取消与关闭的可访问名称由调用方传入（跟随宿主语言），不内嵌固定文案。 */
+  cancelLabel: string
+  closeLabel: string
   busy: boolean
   onCancel(): void
   onConfirm(): void
@@ -20,12 +23,12 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
         if (!props.busy) props.onCancel()
       }}
       title={props.title}
-      closeLabel="关闭"
+      closeLabel={props.closeLabel}
       description={props.body}
       footer={
         <>
           <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-            取消
+            {props.cancelLabel}
           </Button>
           <Button
             variant="primary"

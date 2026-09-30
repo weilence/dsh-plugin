@@ -1,5 +1,6 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { skillsApi } from './api'
+import type { SkillsT } from './locales'
 import type {
   GitCheckResult,
   GitInstallResponse,
@@ -47,6 +48,12 @@ const INITIAL: SkillsState = {
 }
 
 export class SkillsStore {
+  /**
+   * 面板取词函数：notice 与组合错误在事件时间用当前语言定格——5 秒即逝的
+   * Toast 与下次操作即替换的错误横幅不需要跨语言切换存活，不做描述子层。
+   */
+  constructor(private readonly t: SkillsT) {}
+
   private snapshot: SkillsState = INITIAL
   private readonly listeners = new Set<() => void>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */
@@ -75,10 +82,6 @@ export class SkillsStore {
 
   dismissNotice(): void {
     if (this.snapshot.notice !== null) this.set({ notice: null })
-  }
-
-  fail(message: string): void {
-    this.set({ error: message, notice: null })
   }
 
   /** 切换项目作用域并立即刷新。 */
@@ -160,8 +163,8 @@ export class SkillsStore {
       this.set({
         notice:
           request.editPath === undefined
-            ? `已创建技能 ${request.name}（${outcome.path}）`
-            : `已保存技能 ${request.name}`,
+            ? this.t('notice.created', { name: request.name, path: outcome.path })
+            : this.t('notice.saved', { name: request.name }),
       })
       await this.refresh()
       return true
@@ -182,7 +185,7 @@ export class SkillsStore {
         cwd: this.snapshot.scope === '' ? undefined : this.snapshot.scope,
         path: skill.path,
       })
-      this.set({ notice: `已删除技能 ${skill.name}` })
+      this.set({ notice: this.t('notice.deleted', { name: skill.name }) })
       await this.refresh()
       return true
     } catch (error) {
@@ -221,7 +224,10 @@ export class SkillsStore {
       })
       if (outcome.installed.length > 0) {
         this.set({
-          notice: `已从 Git 安装 ${outcome.installed.length} 个技能：${outcome.installed.map((row) => row.name).join('、')}`,
+          notice: this.t('notice.gitInstalled', {
+            count: outcome.installed.length,
+            names: outcome.installed.map((row) => row.name).join(this.t('text.nameSeparator')),
+          }),
         })
         await this.refresh()
       }
@@ -249,11 +255,15 @@ export class SkillsStore {
       }
       this.set({ updates })
       const parts: string[] = []
-      if (updatable > 0) parts.push(`${updatable} 个技能有更新`)
-      if (removed > 0) parts.push(`${removed} 个上游已移除`)
-      if (response.repoErrors.length > 0) parts.push(`${response.repoErrors.length} 个仓库检查失败`)
-      if (parts.length === 0) parts.push('所有 Git 安装技能均为最新')
-      this.set({ notice: `检查完成：${parts.join('，')}` })
+      if (updatable > 0) parts.push(this.t('notice.check.updatable', { count: updatable }))
+      if (removed > 0) parts.push(this.t('notice.check.removed', { count: removed }))
+      if (response.repoErrors.length > 0) {
+        parts.push(this.t('notice.check.repoErrors', { count: response.repoErrors.length }))
+      }
+      if (parts.length === 0) parts.push(this.t('notice.check.allCurrent'))
+      this.set({
+        notice: this.t('notice.check.done', { detail: parts.join(this.t('text.listSeparator')) }),
+      })
     } catch (error) {
       this.set({ error: errMsg(error) })
     } finally {
@@ -275,15 +285,26 @@ export class SkillsStore {
         for (const item of items) delete updates[updateKey(item.rootId, item.name)]
         this.set({
           updates,
-          notice: `已更新 ${response.updated.length} 个技能：${response.updated.map((row) => row.name).join('、')}`,
+          notice: this.t('notice.updated', {
+            count: response.updated.length,
+            names: response.updated.map((row) => row.name).join(this.t('text.nameSeparator')),
+          }),
         })
         await this.refresh()
       }
       const problems = [
-        ...response.failed.map((row) => `${row.name}：${row.error}`),
-        ...response.repoErrors.map((row) => `${row.url}：${row.error}`),
+        ...response.failed.map((row) =>
+          this.t('notice.updateFailedItem', { name: row.name, error: row.error }),
+        ),
+        ...response.repoErrors.map((row) =>
+          this.t('notice.updateFailedRepo', { url: row.url, error: row.error }),
+        ),
       ]
-      if (problems.length > 0) this.set({ error: `部分技能更新失败——${problems.join('；')}` })
+      if (problems.length > 0) {
+        this.set({
+          error: this.t('notice.updateFailed', { detail: problems.join(this.t('text.problemSeparator')) }),
+        })
+      }
       return response.failed.length === 0 && response.repoErrors.length === 0
     } catch (error) {
       this.set({ error: errMsg(error) })

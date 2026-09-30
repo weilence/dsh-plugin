@@ -1,23 +1,26 @@
 import { useEffect, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import { createBridgeClient } from '@dsh-plugins/shared/api'
 import { errMsg } from '@dsh-plugins/shared'
 import { DELETE_PATH, FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
+import { NS, en, zh, type PromptsT } from './client/locales'
 import styles from './client.module.css'
 
-export const inject: string[] = ['slots']
+export const inject: string[] = ['slots', 'locale']
 
 const api = createBridgeClient('x-dsh-prompts')
 
-function PromptSection() {
+function PromptSection({ t }: { t: PromptsT }) {
   useWideSettingsDialog()
   const [file, setFile] = useState<PromptFile | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  // 事件时间取词的即显消息：出现即随当前语言渲染，不跨语言切换存活。
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const dirty = file !== null && draft !== file.content
@@ -31,16 +34,17 @@ function PromptSection() {
         setDraft(result.content)
       },
       (cause: unknown) => {
-        if (active) setError(`读取全局提示词失败：${errMsg(cause)}`)
+        if (active) setError(t('load.failed', { detail: errMsg(cause) }))
       },
     )
     return () => {
       active = false
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const refresh = async () => {
-    if (dirty && !window.confirm('刷新会丢弃尚未保存的修改，确定继续吗？')) return
+    if (dirty && !window.confirm(t('confirm.refresh'))) return
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -50,7 +54,7 @@ function PromptSection() {
       setDraft(result.content)
     } catch (cause) {
       setFile(null)
-      setError(`读取全局提示词失败：${errMsg(cause)}`)
+      setError(t('load.failed', { detail: errMsg(cause) }))
     } finally {
       setBusy(false)
     }
@@ -68,16 +72,16 @@ function PromptSection() {
       })
       setFile(result)
       setDraft(result.content)
-      setNotice('全局提示词已保存')
+      setNotice(t('notice.saved'))
     } catch (cause) {
-      setError(`保存失败：${errMsg(cause)}`)
+      setError(t('save.failed', { detail: errMsg(cause) }))
     } finally {
       setBusy(false)
     }
   }
 
   const remove = async () => {
-    if (file?.exists !== true || !window.confirm(`确定删除 ${file.path} 吗？此操作不可撤销。`)) return
+    if (file?.exists !== true || !window.confirm(t('confirm.delete', { path: file.path }))) return
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -88,16 +92,16 @@ function PromptSection() {
       })
       setFile(result)
       setDraft('')
-      setNotice('全局提示词已删除')
+      setNotice(t('notice.deleted'))
     } catch (cause) {
-      setError(`删除失败：${errMsg(cause)}`)
+      setError(t('delete.failed', { detail: errMsg(cause) }))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <Panel title="全局提示词" subtitle="编辑用户级 AGENTS.md；工作区指令和系统提示词不受影响。">
+    <Panel title={t('title')} subtitle={t('subtitle')}>
       {error !== null ? (
         <p role="alert" className={styles.error}>
           {error}
@@ -109,19 +113,21 @@ function PromptSection() {
         </p>
       ) : null}
       <div className={styles.info}>
-        <span>文件路径</span>
-        <code className={styles.path}>{file?.path ?? (error === null ? '读取中…' : '路径不可用')}</code>
-        {file !== null && !file.exists ? <span>文件尚不存在，保存后将创建。</span> : null}
+        <span>{t('path.label')}</span>
+        <code className={styles.path}>
+          {file?.path ?? (error === null ? t('path.loading') : t('path.unavailable'))}
+        </code>
+        {file !== null && !file.exists ? <span>{t('path.absent')}</span> : null}
       </div>
       <label className={styles.editorLabel} htmlFor="dsh-prompts-editor">
-        提示词正文（Markdown）
+        {t('editor.label')}
       </label>
       <textarea
         id="dsh-prompts-editor"
         className={styles.editor}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        placeholder="在此编写适用于所有工作区的指令…"
+        placeholder={t('editor.placeholder')}
         disabled={file === null || busy}
         spellCheck={false}
       />
@@ -131,35 +137,36 @@ function PromptSection() {
           disabled={file === null || busy || (!dirty && file.exists)}
           onClick={() => void save()}
         >
-          {busy ? '处理中…' : file?.exists ? '保存' : '创建'}
+          {busy ? t('processing') : file?.exists ? t('save') : t('create')}
         </Button>
         <Button variant="outline" disabled={busy} onClick={() => void refresh()}>
-          刷新
+          {t('refresh')}
         </Button>
         <Button
           variant="outline"
           disabled={file?.exists !== true || busy || dirty}
-          title={dirty ? '请先保存或刷新未保存的修改' : undefined}
+          title={dirty ? t('delete.dirtyTitle') : undefined}
           onClick={() => void remove()}
         >
-          删除文件
+          {t('button.deleteFile')}
         </Button>
       </div>
-      <p className={styles.hint}>
-        请确认文件路径与智能体使用的全局目录一致。保存时会检查外部修改；若有冲突，请刷新并自行合并。新内容在下一次尚未开始的模型步骤生效。
-      </p>
+      <p className={styles.hint}>{t('hint')}</p>
     </Panel>
   )
 }
 
 export function apply(ctx: Context): void {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompts: copy dictionaries')
+  const t = ctx.locale.bind(NS)
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
         name: 'settings.section',
         id: 'dsh-prompts',
         order: 45,
-        label: () => '全局提示词',
+        label: () => t('section.label'),
+        inject: (): { t: PromptsT } => ({ t }),
       },
       PromptSection,
     ),

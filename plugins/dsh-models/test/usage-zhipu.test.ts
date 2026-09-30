@@ -74,13 +74,13 @@ describe('parseQuota', () => {
 })
 
 describe('createUsageService', () => {
-  it('未配置凭证：ok:false，不发起请求', async () => {
+  it('未配置凭证：ok:false 携带 not_configured 码，不发起请求', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     const usage = createUsageService(null)
     const res = await usage.fetchUsage(false)
     expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.error).toContain('zai-coding-cn')
+    if (!res.ok) expect(res.code).toBe('not_configured')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -123,7 +123,7 @@ describe('createUsageService', () => {
     expect(second).toBe(first)
   })
 
-  it('HTTP 成功但业务失败（success:false）透传 msg', async () => {
+  it('HTTP 成功但业务失败（success:false）透传 msg 并归 unknown', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => jsonResponse({ success: false, msg: '限流' })),
@@ -131,6 +131,9 @@ describe('createUsageService', () => {
     const usage = createUsageService('test-key')
     const res = await usage.fetchUsage(false)
     expect(res.ok).toBe(false)
-    if (!res.ok) expect(res.error).toBe('限流')
+    if (!res.ok) {
+      expect(res.code).toBe('unknown')
+      expect(res.error).toBe('限流')
+    }
   })
 })

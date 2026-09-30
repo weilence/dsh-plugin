@@ -4,6 +4,7 @@ import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-setti
 import { CardList, ConfirmDialog, ExpandableCard, Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import type { McpRow } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
+import { messageText, type McpT } from './locales'
 import type { McpStore } from './store'
 import { McpServerForm, McpServerView } from './McpServerForm'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -14,11 +15,12 @@ const styles = { ...shared, ...local }
 /** 面板注入面（client.tsx 装配，槽位 inject 回调提供）。 */
 export interface McpPanelEnv {
   store: McpStore
+  t: McpT
 }
 
 export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
   useWideSettingsDialog()
-  const store = props.store
+  const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => {
     if (state.status === 'idle') void store.refresh()
@@ -33,6 +35,8 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
   const servers = state.list?.servers ?? []
   const busy = state.busy !== null
   const editing = editingId !== undefined ? servers.find((row) => row.id === editingId) : undefined
+  const errorText = state.error === null ? null : messageText(state.error, t)
+  const noticeText = state.notice === null ? null : messageText(state.notice, t)
 
   const collapse = (): void => {
     setCreating(false)
@@ -40,14 +44,14 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
   }
 
   return (
-    <Panel title="MCP 管理">
-      {state.error ? (
+    <Panel title={t('section.label')}>
+      {errorText ? (
         <div className={styles.error} role="alert">
-          {state.error}
+          {errorText}
         </div>
       ) : null}
-      {state.notice !== null ? (
-        <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
+      {noticeText !== null ? (
+        <Toast key={noticeText} text={noticeText} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
       <div className={styles.listToolbar}>
         <Button
@@ -58,13 +62,13 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
             setCreating(!creating)
           }}
         >
-          新建服务器
+          {t('action.create')}
         </Button>
         <Button variant="outline" disabled={state.status === 'loading'} onClick={() => void store.refresh()}>
-          刷新
+          {t('action.refresh')}
         </Button>
       </div>
-      {state.status === 'loading' ? <div className={styles.loading}>正在读取 MCP 服务器目录…</div> : null}
+      {state.status === 'loading' ? <div className={styles.loading}>{t('list.loading')}</div> : null}
 
       <CardList
         items={servers}
@@ -73,7 +77,7 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
           // 新建卡片在列表顶部：触发按钮就在上方，长列表也不会把表单推到视口外。
           creating ? (
             <ExpandableCard
-              title="新建服务器"
+              title={t('action.create')}
               open
               onToggle={() => {
                 if (!busy) setCreating(false)
@@ -82,8 +86,9 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
               <McpServerForm
                 mode="create"
                 store={store}
+                t={t}
                 busy={busy}
-                error={state.error}
+                error={errorText}
                 onDone={collapse}
                 onCancel={collapse}
               />
@@ -91,29 +96,25 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
           ) : null
         }
         empty={
-          state.status === 'ready' && !creating ? (
-            <div className={styles.empty}>
-              还没有 MCP 服务器。stdio（本地命令）或 streamable-http（远程端点）都支持，点「新建服务器」开始。
-            </div>
-          ) : null
+          state.status === 'ready' && !creating ? <div className={styles.empty}>{t('list.empty')}</div> : null
         }
         renderCard={(row) => {
           const editable = row.editable && (row.scope === 'profile' || row.scope === 'home')
-          const badge = statusBadge(row)
+          const badge = statusBadge(row, t)
           const expanded = editingId === row.id
           const transport = transportOf(row.config)
           return {
-            title: row.config.serverName ?? '（未命名）',
+            title: row.config.serverName ?? t('row.unnamed'),
             pills: [
               ...(transport !== undefined ? [{ text: transport === 'stdio' ? 'stdio' : 'HTTP' }] : []),
-              { text: editable ? '可编辑' : '只读', tone: editable ? 'ok' : 'warn' },
+              { text: editable ? t('row.editable') : t('row.readOnly'), tone: editable ? 'ok' : 'warn' },
               {
                 text: badge.text,
                 tone: badge.kind === 'on' ? 'ok' : badge.kind === 'err' ? 'err' : 'neutral',
                 title: badge.title,
               },
             ],
-            description: endpointOf(row.config) || '（缺少端点信息）',
+            description: endpointOf(row.config) || t('row.endpointMissing'),
             error: row.live?.error,
             open: expanded,
             onToggle: () => {
@@ -135,7 +136,7 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
                     })
                   }
                 >
-                  {row.disabled ? '启用' : '停用'}
+                  {row.disabled ? t('action.enable') : t('action.disable')}
                 </Button>
                 <Button
                   variant="ghost"
@@ -144,7 +145,7 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
                   disabled={busy}
                   onClick={() => setDeleting(row)}
                 >
-                  删除
+                  {t('delete')}
                 </Button>
               </>
             ) : null,
@@ -154,13 +155,14 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
                   mode="edit"
                   row={editing}
                   store={store}
+                  t={t}
                   busy={busy}
-                  error={state.error}
+                  error={errorText}
                   onDone={collapse}
                   onCancel={collapse}
                 />
               ) : (
-                <McpServerView row={row} />
+                <McpServerView row={row} t={t} />
               )
             ) : null,
           }
@@ -169,9 +171,11 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
 
       {deleting !== undefined ? (
         <ConfirmDialog
-          title={`删除服务器 ${deleting.config.serverName ?? deleting.id}`}
-          body={`将删除这条声明（id ${deleting.id}），HMR 会随即卸载其工具；不影响其他服务器。`}
-          confirmLabel="删除"
+          title={t('delete.title', { name: deleting.config.serverName ?? deleting.id })}
+          body={t('delete.body', { id: deleting.id })}
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={busy}
           onCancel={() => setDeleting(undefined)}
           onConfirm={() => {
@@ -189,21 +193,24 @@ export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
   )
 }
 
-function statusBadge(row: McpRow): { text: string; kind: 'on' | 'off' | 'err' | 'warn'; title?: string } {
-  if (row.disabled) return { text: '已停用', kind: 'off' }
-  if (row.live === null) return { text: '待生效', kind: 'off' }
+function statusBadge(
+  row: McpRow,
+  t: McpT,
+): { text: string; kind: 'on' | 'off' | 'err' | 'warn'; title?: string } {
+  if (row.disabled) return { text: t('row.disabled'), kind: 'off' }
+  if (row.live === null) return { text: t('row.pendingEffect'), kind: 'off' }
   switch (row.live.status) {
     case 'active':
-      return { text: `运行中 · ${row.live.tools.length} 工具`, kind: 'on' }
+      return { text: t('row.activeTools', { count: row.live.tools.length }), kind: 'on' }
     case 'loading':
     case 'pending':
-      return { text: '连接中…', kind: 'warn' }
+      return { text: t('row.connecting'), kind: 'warn' }
     case 'failed':
-      return { text: '连接失败', kind: 'err', title: row.live.error }
+      return { text: t('row.connectFailed'), kind: 'err', title: row.live.error }
     case 'disposed':
     case 'unloading':
-      return { text: '已卸载', kind: 'off' }
+      return { text: t('row.unloaded'), kind: 'off' }
     case 'absent':
-      return { text: '已声明未挂载', kind: 'off' }
+      return { text: t('row.absent'), kind: 'off' }
   }
 }

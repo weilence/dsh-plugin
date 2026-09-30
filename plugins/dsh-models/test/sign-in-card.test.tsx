@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { SignInCard, activePromptOf } from '../src/client/SignInCard'
 import type { AuthState } from '../src/client/store'
 import type { AuthSequencedEvent } from '../src/client/operations'
+import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: React.ReactNode }) => <button>{children}</button>,
@@ -63,6 +64,7 @@ describe('SignInCard', () => {
         flow,
         auth: authOf({ records: { 'openai-codex': { configured: false } } }),
         replacesApiKey: true,
+        t: makeT(),
         onBegin: () => {},
         onAnswer: () => {},
         onDecline: () => {},
@@ -83,6 +85,7 @@ describe('SignInCard', () => {
         flow,
         auth: authOf({ records: { 'openai-codex': { configured: true, kind: 'grant' } } }),
         replacesApiKey: true,
+        t: makeT(),
         onBegin: () => {},
         onAnswer: () => {},
         onDecline: () => {},
@@ -126,6 +129,7 @@ describe('SignInCard', () => {
           },
         }),
         replacesApiKey: true,
+        t: makeT(),
         onBegin: () => {},
         onAnswer: () => {},
         onDecline: () => {},
@@ -156,6 +160,7 @@ describe('SignInCard', () => {
           },
         }),
         replacesApiKey: true,
+        t: makeT(),
         onBegin: () => {},
         onAnswer: () => {},
         onDecline: () => {},
@@ -182,6 +187,7 @@ describe('SignInCard', () => {
           },
         }),
         replacesApiKey: true,
+        t: makeT(),
         onBegin: () => {},
         onAnswer: () => {},
         onDecline: () => {},

@@ -1,4 +1,5 @@
 import { errMsg } from '@dsh-plugins/shared'
+import type { McpKey, PanelMessage } from './client/locales'
 import type { McpConfigDraft, McpEffectiveConfig, McpTransport } from './shared'
 import { SERVER_NAME_PATTERN } from './shared'
 
@@ -18,10 +19,26 @@ const KNOWN_KEYS = new Set([
 const STDIO_ONLY_KEYS = ['command', 'args', 'env', 'cwd'] as const
 const HTTP_ONLY_KEYS = ['url', 'headers'] as const
 
-export class ConfigError extends Error {}
+export class ConfigError extends Error {
+  /**
+   * client 侧解析失败的词典描述子（浏览器渲染期取词）；host 校验路径只有
+   * message——errMsg 过线，浏览器按 {text} 原样展示，不翻译。
+   */
+  readonly descriptor: PanelMessage | undefined
+
+  constructor(message: string, descriptor?: PanelMessage) {
+    super(message)
+    this.descriptor = descriptor
+  }
+}
 
 function fail(message: string): never {
   throw new ConfigError(message)
+}
+
+/** client 侧解析失败：message 用稳定键名（日志可读），展示经描述子取词。 */
+function failKey(key: McpKey, params?: Record<string, unknown>): never {
+  throw new ConfigError(key, { key, params })
 }
 
 function optionalString(source: Record<string, unknown>, key: string, label: string): string | undefined {
@@ -156,7 +173,8 @@ export interface McpJsonEntry {
 
 export interface McpJsonParseResult {
   entries: McpJsonEntry[]
-  problems: { name: string; message: string }[]
+  /** 单台服务器的问题用词典描述子表达，渲染期随宿主语言取词。 */
+  problems: { name: string; message: PanelMessage }[]
 }
 
 /** Agent Plugins 的 ${PLUGIN_ROOT} 类占位符：DSH 无插件根概念，无法解析。 */
@@ -221,46 +239,46 @@ function draftOfEntry(name: string, value: Record<string, unknown>, transport: M
 
 // 解析粘贴的 JSON，名称一律来自 JSON 本身：mcpServers 包装 / 直接映射 /
 // 单个服务器对象（名称从 command 或 URL 推导）三种等价写法（方言细节见
-// mcpImport.test.ts）。顶层结构问题抛 ConfigError；单个服务器的问题进
-// problems 不影响其余。
+// mcpImport.test.ts）。顶层结构问题抛带词典描述子的 ConfigError；单个服务
+// 器的问题进 problems 不影响其余。
 export function parseMcpJsonText(text: string): McpJsonParseResult {
   const trimmed = text.trim()
-  if (trimmed.length === 0) fail('请粘贴 MCP 服务器的 JSON 配置')
+  if (trimmed.length === 0) failKey('import.emptyInput')
   let parsed: unknown
   try {
     parsed = JSON.parse(trimmed)
   } catch (error) {
-    fail(`不是合法的 JSON：${errMsg(error)}`)
+    failKey('import.invalidJson', { detail: errMsg(error) })
   }
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    fail('顶层必须是 JSON 对象')
+    failKey('import.rootNotObject')
   }
   const root = parsed as Record<string, unknown>
   const entries: McpJsonEntry[] = []
-  const problems: { name: string; message: string }[] = []
+  const problems: { name: string; message: PanelMessage }[] = []
 
   const consume = (name: string, value: Record<string, unknown>, prefixNote?: string): void => {
     const notes: string[] = prefixNote === undefined ? [] : [prefixNote]
     if (!SERVER_NAME_PATTERN.test(name)) {
-      problems.push({ name, message: `名称「${name}」需匹配 ^[A-Za-z0-9_-]{1,32}$` })
+      problems.push({ name, message: { key: 'import.namePattern', params: { name } } })
       return
     }
     if (hasPlaceholder(value)) {
-      problems.push({ name, message: '包含 ${PLUGIN_ROOT} 类占位符，DSH 没有插件根目录，无法解析' })
+      problems.push({ name, message: { key: 'import.placeholder' } })
       return
     }
     const transport = transportOfEntry(value, notes)
     if (transport === undefined) {
-      problems.push({ name, message: '无法判定传输形态：type 缺失且没有 command / url' })
+      problems.push({ name, message: { key: 'import.transportUnknown' } })
       return
     }
     const draft = draftOfEntry(name, value, transport)
     if (transport === 'stdio' && draft.command === undefined) {
-      problems.push({ name, message: 'stdio 服务器缺少 command' })
+      problems.push({ name, message: { key: 'import.stdioCommandMissing' } })
       return
     }
     if (transport === 'streamable-http' && draft.url === undefined) {
-      problems.push({ name, message: 'HTTP 服务器缺少 url' })
+      problems.push({ name, message: { key: 'import.httpUrlMissing' } })
       return
     }
     const otherKeys = transport === 'stdio' ? HTTP_ONLY_KEYS : STDIO_ONLY_KEYS
@@ -282,10 +300,10 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
   const wrapped = root.mcpServers
   if (asServerObject(wrapped) !== undefined) {
     const map = wrapped as Record<string, unknown>
-    if (Object.keys(map).length === 0) fail('mcpServers 里没有服务器对象')
+    if (Object.keys(map).length === 0) failKey('import.emptyServers')
     for (const [key, value] of Object.entries(map)) {
       const server = asServerObject(value)
-      if (server === undefined) problems.push({ name: key, message: '不是服务器配置对象' })
+      if (server === undefined) problems.push({ name: key, message: { key: 'import.notServerObject' } })
       else consume(key.trim(), server)
     }
   } else if (
@@ -294,7 +312,7 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
   ) {
     const derived = deriveServerName(root)
     if (derived === undefined) {
-      problems.push({ name: '', message: '无法从配置推导 serverName：请改用 {"服务器名": {...}} 包装' })
+      problems.push({ name: '', message: { key: 'import.deriveFailed' } })
     } else {
       consume(derived, root, `已自动命名 ${derived}（如需自定义名称，请用 {"服务器名": {...}} 包装）`)
     }
@@ -303,14 +321,14 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
     for (const [key, value] of Object.entries(root)) {
       const server = asServerObject(value)
       if (server === undefined) {
-        problems.push({ name: key, message: '不是服务器配置对象（缺 command / url / type）' })
+        problems.push({ name: key, message: { key: 'import.notServerObjectSparse' } })
         continue
       }
       seen = true
       consume(key.trim(), server)
     }
     if (!seen && problems.length === 0) {
-      fail('没有发现服务器配置：需要 mcpServers 包装、{"名称": {...}} 映射或单个服务器对象')
+      failKey('import.noServers')
     }
   }
   return { entries, problems }

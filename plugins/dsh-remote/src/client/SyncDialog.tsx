@@ -14,41 +14,56 @@ import {
   type RemoteInventoryResponse,
   type SyncKind,
 } from '../shared'
+import type { RemoteKey, RemoteT } from './locales'
 import { remoteApi } from './api'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 
-const KIND_TITLES: Record<SyncKind, string> = {
-  skills: 'Skills',
-  mcp: 'MCP',
-  plugins: '插件',
-  prompts: '提示词',
-}
-// 与卡片同步下拉菜单的四个入口同词，与卡片同步下拉菜单的四个入口同词，避免点开后措辞跳变
-const KIND_ACTION_LABELS: Record<SyncKind, string> = {
-  skills: '同步 Skills',
-  mcp: '同步 MCP',
-  plugins: '同步插件',
-  prompts: '同步提示词',
+// 与卡片同步下拉菜单的四个入口同词（op.sync-*），避免点开后措辞跳变
+const KIND_ACTION_KEYS: Record<SyncKind, RemoteKey> = {
+  skills: 'op.sync-skills',
+  mcp: 'op.sync-mcp',
+  plugins: 'op.sync-plugins',
+  prompts: 'op.sync-prompts',
 }
 
-const KIND_DESCRIPTIONS: Record<SyncKind, string> = {
-  skills:
-    '列表为本机两个用户级根的技能：勾选项推送到远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  mcp: '列表为本机两层 patch 的 MCP 声明：勾选项写入远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  plugins:
-    '列表为本机已装插件：勾选项安装 / 升级到远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  prompts:
-    '全局提示词为单文件（用户级 AGENTS.md，与「全局提示词」面板管理同一文件）：勾选即推送到远端（内容一致自动跳过）；未勾选不动，不会删除远端文件。远端实例在下一次尚未开始的模型步骤读取新内容。',
+const KIND_KEYS: Record<SyncKind, RemoteKey> = {
+  skills: 'kind.skills',
+  mcp: 'kind.mcp',
+  plugins: 'kind.plugins',
+  prompts: 'kind.prompts',
+}
+
+const KIND_DESCRIPTION_KEYS: Record<SyncKind, RemoteKey> = {
+  skills: 'sync.desc.skills',
+  mcp: 'sync.desc.mcp',
+  plugins: 'sync.desc.plugins',
+  prompts: 'sync.desc.prompts',
+}
+
+/** 弹窗空态说明按类别取键（无可同步不进引擎）。 */
+const KIND_EMPTY_KEYS: Record<SyncKind, RemoteKey> = {
+  skills: 'sync.empty.skills',
+  mcp: 'sync.empty.mcp',
+  plugins: 'sync.empty.plugins',
+  prompts: 'sync.empty.prompts',
 }
 
 /** same 不占状态标签位（它由锁定勾选 + 汇总行表达），其余三态一类一套措辞。 */
-const STATUS_LABELS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, string>> = {
-  skills: { diff: '内容不同', absent: '远端没有', unknown: '无法比对' },
-  mcp: { diff: '配置不同', absent: '远端没有', unknown: '无法比对' },
+const STATUS_KEYS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, RemoteKey>> = {
+  skills: { diff: 'status.skills.diff', absent: 'status.skills.absent', unknown: 'status.skills.unknown' },
+  mcp: { diff: 'status.mcp.diff', absent: 'status.mcp.absent', unknown: 'status.mcp.unknown' },
   // 插件的 diff 按传输形态比指纹或版本（见 rowsOf），措辞取对两种比对都成立的说法
-  plugins: { diff: '与远端不同', absent: '远端未激活', unknown: '无法比对' },
-  prompts: { diff: '内容不同', absent: '远端没有', unknown: '无法比对' },
+  plugins: {
+    diff: 'status.plugins.diff',
+    absent: 'status.plugins.absent',
+    unknown: 'status.plugins.unknown',
+  },
+  prompts: {
+    diff: 'status.prompts.diff',
+    absent: 'status.prompts.absent',
+    unknown: 'status.prompts.unknown',
+  },
 }
 
 interface DraftState {
@@ -71,21 +86,23 @@ function initialDraft(): DraftState {
   }
 }
 
-/** 一行的判定结论 + 渲染物料（status 与引擎执行时的判定同源同函数）。 */
-interface SyncRow {
+/** 一行的判定结论 + 渲染物料（status 与引擎执行时的判定同源同函数）。文本经
+ *  view 描述子在渲染期取词：判定可 memo，措辞随宿主语言保持新鲜。 */
+export interface SyncRow {
   key: string
   status: ItemStatus
-  item: PickItem
+  view(t: RemoteT): PickItem
 }
 
-function statusLabel(kind: SyncKind, status: ItemStatus): string {
-  return status === 'same' ? '已一致' : STATUS_LABELS[kind][status]
+function statusLabel(kind: SyncKind, status: ItemStatus, t: RemoteT): string {
+  return status === 'same' ? t('status.same') : t(STATUS_KEYS[kind][status])
 }
 
 /** 本机清单 × 远端事实 → 本类全部行的判定（清单不可比对时由调用方拦截）。
  *  registryPluginInstall 只参与插件行：传输什么就比什么——本地打包传输比内容
- *  指纹，远端 npm 下载比版本（与引擎执行时的判定同源同函数）。 */
-function rowsOf(
+ *  指纹，远端 npm 下载比版本（与引擎执行时的判定同源同函数）。名称 / 路径 /
+ *  版本号等是事实原样，只有措辞走词典。 */
+export function rowsOf(
   kind: SyncKind,
   localRows: LocalRowsResponse,
   inventory: RemoteInventoryResponse | null,
@@ -100,12 +117,12 @@ function rowsOf(
       {
         key: 'AGENTS.md',
         status,
-        item: {
+        view: (t) => ({
           key: 'AGENTS.md',
           title: 'AGENTS.md',
-          titleMeta: statusLabel(kind, status),
+          titleMeta: statusLabel(kind, status, t),
           lines: [prompt.path],
-        },
+        }),
       },
     ]
   }
@@ -122,15 +139,15 @@ function rowsOf(
       return {
         key: skill.name,
         status,
-        item: {
+        view: (t) => ({
           key: skill.name,
           title: skill.name,
           titleMeta: [
             skill.root === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills',
-            statusLabel(kind, status),
+            statusLabel(kind, status, t),
           ].join(' · '),
           lines: skill.description === null ? [] : [skill.description],
-        },
+        }),
       }
     })
   }
@@ -144,15 +161,17 @@ function rowsOf(
       return {
         key: entry.serverName ?? entry.id,
         status,
-        item: {
+        view: (t) => ({
           key: entry.serverName ?? entry.id,
           title: entry.serverName ?? entry.id,
           titleMeta: entry.id,
           lines: [
             entry.summary,
-            ...(status === 'diff' && fact !== undefined ? [`远端：${fact.summary}`] : []),
+            ...(status === 'diff' && fact !== undefined
+              ? [t('sync.remoteMcp', { summary: fact.summary })]
+              : []),
           ],
-        },
+        }),
       }
     })
   }
@@ -166,24 +185,26 @@ function rowsOf(
         : viaPush
           ? pluginStatus(plugin.digest, fact?.digest)
           : pluginStatus(plugin.version, fact?.version)
-    const remote =
-      fact === undefined
-        ? statusLabel(kind, status)
-        : fact.version === null
-          ? '远端已激活（版本未知）'
-          : `远端 v${fact.version}`
     return {
       key: plugin.name,
       status,
-      item: {
-        key: plugin.name,
-        title: plugin.name,
-        titleMeta: [
-          `${plugin.source === 'profile' ? 'profile 层' : 'home 层'} · ${
-            plugin.install === 'local' ? '本地' : 'npm'
-          }${plugin.version === null ? '' : ` · v${plugin.version}`}`,
-          status === 'same' ? statusLabel(kind, status) : `${statusLabel(kind, status)} · ${remote}`,
-        ].join(' · '),
+      view: (t) => {
+        const remote =
+          fact === undefined
+            ? statusLabel(kind, status, t)
+            : fact.version === null
+              ? t('plugin.remoteActiveUnknown')
+              : t('plugin.remoteVersion', { version: fact.version })
+        return {
+          key: plugin.name,
+          title: plugin.name,
+          titleMeta: [
+            `${t(plugin.source === 'profile' ? 'plugin.source.profile' : 'plugin.source.home')} · ${t(
+              plugin.install === 'local' ? 'plugin.install.local' : 'plugin.install.registry',
+            )}${plugin.version === null ? '' : ` · v${plugin.version}`}`,
+            status === 'same' ? statusLabel(kind, status, t) : `${statusLabel(kind, status, t)} · ${remote}`,
+          ].join(' · '),
+        }
       },
     }
   })
@@ -193,11 +214,12 @@ export function SyncDialog(props: {
   row: ConnRow
   kind: SyncKind
   store: RemoteStore
+  t: RemoteT
   localRows: LocalRowsResponse | null
   busy: boolean
   onClose(): void
 }) {
-  const { row, kind, localRows } = props
+  const { row, kind, localRows, t } = props
   const [draft, setDraft] = useState<DraftState>(initialDraft)
   // 一致项默认隐藏：弹窗打开只见将发生变化的条目；开关纯视图，不改变提交集
   const [hideSame, setHideSame] = useState(true)
@@ -233,7 +255,8 @@ export function SyncDialog(props: {
   }, [row.id])
 
   const settled = inventoryState === 'ready' || inventoryState === 'error'
-  // same 沉底：变化项在前（错误降级时全 unknown，顺序即本机清单顺序）
+  // same 沉底：变化项在前（错误降级时全 unknown，顺序即本机清单顺序）。
+  // 判定可 memo（同一事实集），措辞在渲染期经 view(t) 现取。
   const rows = useMemo(() => {
     if (unavailable || localRows === null || !settled) return []
     const all = rowsOf(kind, localRows, inventory, draft.registryPluginInstall)
@@ -305,90 +328,90 @@ export function SyncDialog(props: {
   }
 
   const summaryParts = [
-    counts.diff > 0 ? `${counts.diff} 项${STATUS_LABELS[kind].diff}` : null,
-    counts.absent > 0 ? `${counts.absent} 项${STATUS_LABELS[kind].absent}` : null,
-    counts.unknown > 0 ? `${counts.unknown} 项${STATUS_LABELS[kind].unknown}` : null,
-    counts.same > 0 ? `${counts.same} 项已一致（${hideSame ? '已隐藏' : '下方锁定勾选'}）` : null,
+    counts.diff > 0 ? t('sync.summaryCount', { count: counts.diff, label: t(STATUS_KEYS[kind].diff) }) : null,
+    counts.absent > 0
+      ? t('sync.summaryCount', { count: counts.absent, label: t(STATUS_KEYS[kind].absent) })
+      : null,
+    counts.unknown > 0
+      ? t('sync.summaryCount', { count: counts.unknown, label: t(STATUS_KEYS[kind].unknown) })
+      : null,
+    counts.same > 0
+      ? t('sync.summarySame', { count: counts.same, state: t(hideSame ? 'sync.hidden' : 'sync.lockedBelow') })
+      : null,
   ].filter((part): part is string => part !== null)
 
   const visibleRows = hideSame ? rows.filter((entry) => entry.status !== 'same') : rows
 
   return (
     <Dialog
-      title={`同步到「${row.label}」：${KIND_TITLES[kind]}`}
-      description={KIND_DESCRIPTIONS[kind]}
+      title={t('sync.title', { label: row.label, kind: t(KIND_KEYS[kind]) })}
+      description={t(KIND_DESCRIPTION_KEYS[kind])}
+      closeLabel={t('close')}
       onClose={props.onClose}
       size="lg"
       actions={
         <>
           <Button variant="outline" disabled={props.busy} onClick={props.onClose}>
-            取消
+            {t('cancel')}
           </Button>
           <Button
             variant="primary"
             disabled={props.busy || unavailable || inventoryState === 'loading' || !anyActionable}
             onClick={() => void submit()}
           >
-            {props.busy ? '同步中…' : KIND_ACTION_LABELS[kind]}
+            {props.busy ? t('sync.busy') : t(KIND_ACTION_KEYS[kind])}
           </Button>
         </>
       }
     >
       {unavailable ? (
-        <p className={local.hint}>本机清单不可用（当前宿主未提供 profileContext），无法选择同步内容。</p>
+        <p className={local.hint}>{t('sync.unavailable')}</p>
       ) : inventoryState === 'loading' ? (
         /* 远端清单就绪前不渲染列表：避免先短暂渲染无判定状态、就绪后再跳变 */
-        <p className={local.hint}>正在读取远端清单并与本机比对…</p>
+        <p className={local.hint}>{t('sync.loadingInventory')}</p>
       ) : (
         <div className={local.formBody}>
           {inventoryState === 'error' ? (
             <IssueList
               issues={[
                 {
-                  message: `远端清单读取失败（${inventoryError ?? '未知原因'}；宿主为旧版时重启宿主可解）：无法逐条比对，以下按「无法比对」展示；确认后将按勾选推送 / 覆盖（只新增 / 覆盖，不删除远端内容）。`,
+                  message: t('sync.inventoryError', {
+                    reason: inventoryError ?? t('sync.unknownReason'),
+                  }),
                 },
               ]}
             />
           ) : null}
-          {kind === 'plugins' ? (
-            <p className={local.hint}>
-              本地路径安装（link / file）的插件永远本地打包传输；npm 依赖形态按下面的选项。
-            </p>
-          ) : null}
+          {kind === 'plugins' ? <p className={local.hint}>{t('sync.pluginsHint')}</p> : null}
           {kind === 'plugins' ? (
             <SelectField
-              label="非本地插件安装方式"
+              label={t('sync.registryInstallLabel')}
               value={draft.registryPluginInstall}
               options={[
-                { value: 'remote', label: '远端下载（远端 npm 拉取，需已发布）' },
-                { value: 'push', label: '本地传输（打包本机实体推送，无需发布）' },
+                { value: 'remote', label: t('sync.registryInstall.remote') },
+                { value: 'push', label: t('sync.registryInstall.push') },
               ]}
               onChange={(registryPluginInstall) => patch({ registryPluginInstall })}
             />
           ) : null}
           {rows.length === 0 ? (
-            <p className={local.hint}>
-              {kind === 'skills'
-                ? '本机两个用户级根（~/.dsh/skills、~/.agents/skills）没有可发现的技能。'
-                : kind === 'mcp'
-                  ? '本机没有可同步的 MCP 声明。'
-                  : kind === 'plugins'
-                    ? '本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。'
-                    : '本机没有全局提示词文件（AGENTS.md），无可同步——在「全局提示词」面板创建后再来。'}
-            </p>
+            <p className={local.hint}>{t(KIND_EMPTY_KEYS[kind])}</p>
           ) : (
             <>
-              <p className={local.hint}>{summaryParts.join(' · ')}——勾选才会同步，默认全部不勾。</p>
+              <p className={local.hint}>
+                {summaryParts.join(' · ')}
+                {t('sync.summarySuffix')}
+              </p>
               <label className={local.hideToggle}>
                 <input
                   type="checkbox"
                   checked={hideSame}
                   onChange={(event) => setHideSame(event.target.checked)}
                 />
-                隐藏已一致条目（{counts.same}）
+                {t('sync.hideSame', { count: counts.same })}
               </label>
               <PickList
-                items={visibleRows.map((entry) => ({ ...entry.item, locked: entry.status === 'same' }))}
+                items={visibleRows.map((entry) => ({ ...entry.view(t), locked: entry.status === 'same' }))}
                 picked={pickedOfKind}
                 onToggle={toggle}
               />

@@ -21,8 +21,6 @@ export type RootId = 'project-dsh' | 'project-agents' | 'user-dsh' | 'user-agent
 /** 一个可写技能根的描述（host 计算后经 wire 下发）。 */
 export interface RootInfo {
   id: RootId
-  /** 展示标签（中文，含路径语义）。 */
-  label: string
   /** 根的绝对路径（host 本地路径）。 */
   path: string
   /** 根目录当前是否存在（不存在时新建技能会连带创建）。 */
@@ -218,17 +216,6 @@ export interface GitUpdateResponse {
   repoErrors: { url: string; error: string }[]
 }
 
-/** 来源的中文标签；未知来源回退原文。 */
-export const SOURCE_LABELS: Record<string, string> = {
-  'project-dsh': '工作区级 · .dsh/skills',
-  'project-agents': '工作区级 · .agents/skills',
-  custom: '自定义目录',
-  'user-dsh': '全局 · ~/.dsh/skills',
-  'user-agents': '全局 · ~/.agents/skills',
-  bundled: '内置',
-  runtime: '运行时',
-}
-
 /** 来源的稳定排序权重（与官方 rank 对齐，小者靠前）。 */
 export const SOURCE_ORDER: Record<string, number> = {
   'project-dsh': 100,
@@ -238,10 +225,6 @@ export const SOURCE_ORDER: Record<string, number> = {
   'user-agents': 500,
   bundled: 600,
   runtime: 700,
-}
-
-export function sourceLabel(source: string): string {
-  return SOURCE_LABELS[source] ?? source
 }
 
 export function sourceOrder(source: string): number {

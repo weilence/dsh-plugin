@@ -1,5 +1,6 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { remoteApi } from './api'
+import type { PanelMessage, RemoteKey } from './locales'
 import type {
   ConnRow,
   LocalRowsResponse,
@@ -12,8 +13,9 @@ import type {
 
 export interface RemoteState {
   status: 'idle' | 'loading' | 'ready' | 'error'
-  error: string | null
-  notice: string | null
+  /** 插件文案用词典 key 表达，Host errMsg 用 text 原样；渲染期随宿主语言翻译。 */
+  error: PanelMessage | null
+  notice: PanelMessage | null
   list: StateResponse | null
   localRows: LocalRowsResponse | null
   /** 展开中的连接 id（编辑 / 详情）。 */
@@ -55,34 +57,52 @@ function anyBusy(connections: readonly ConnRow[]): boolean {
   return connections.some((row) => row.state.op !== null || TRANSIENT_PHASES.has(row.state.phase))
 }
 
+/** 四个同步类别的完成 / 失败整句键（notice 是跨语言切换存活的 toast，模板
+ *  整句入词典，不把可译片段当参数拼接）。 */
+const SYNC_NOTICE_KEYS: Record<string, { failed: RemoteKey; generic: RemoteKey }> = {
+  'sync-skills': { failed: 'notice.syncFailed.skills', generic: 'notice.syncDoneGeneric.skills' },
+  'sync-mcp': { failed: 'notice.syncFailed.mcp', generic: 'notice.syncDoneGeneric.mcp' },
+  'sync-plugins': { failed: 'notice.syncFailed.plugins', generic: 'notice.syncDoneGeneric.plugins' },
+  'sync-prompts': { failed: 'notice.syncFailed.prompts', generic: 'notice.syncDoneGeneric.prompts' },
+}
+
 /** 同步操作的完成摘要（op 从 sync-* 变为空时发 notice）。 */
-function syncDoneNotice(kind: string, row: ConnRow): string {
-  const label = SYNC_OP_KINDS[kind] ?? kind
-  if (row.state.error !== null) return `同步${label}失败：${row.state.error.message}`
+function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
+  const keys = SYNC_NOTICE_KEYS[kind]
+  if (keys === undefined) return { text: kind }
+  if (row.state.error !== null) {
+    return { key: keys.failed, params: { detail: row.state.error.message } }
+  }
   if (kind === 'sync-skills' && row.state.lastSync.skills !== null) {
     const { pushed, skipped } = row.state.lastSync.skills
-    return `同步 Skills 完成：推送 ${pushed}${skipped > 0 ? ` · 跳过 ${skipped}（已一致）` : ''}`
+    return skipped > 0
+      ? { key: 'notice.syncDone.skillsSkipped', params: { pushed, count: skipped } }
+      : { key: 'notice.syncDone.skills', params: { pushed } }
   }
   if (kind === 'sync-mcp' && row.state.lastSync.mcp !== null) {
     const { installed, skipped } = row.state.lastSync.mcp
-    return `同步 MCP 完成：写入 ${installed.length} 行${skipped.length > 0 ? ` · 跳过 ${skipped.length}（已一致）` : ''}`
+    return skipped.length > 0
+      ? { key: 'notice.syncDone.mcpSkipped', params: { count: installed.length, skipped: skipped.length } }
+      : { key: 'notice.syncDone.mcp', params: { count: installed.length } }
   }
   if (kind === 'sync-plugins' && row.state.lastSync.plugins !== null) {
     const { installed, skipped } = row.state.lastSync.plugins
-    return `同步插件完成：安装 ${installed.length}${skipped.length > 0 ? ` · 跳过 ${skipped.length}（已一致）` : ''}`
+    return skipped.length > 0
+      ? {
+          key: 'notice.syncDone.pluginsSkipped',
+          params: { count: installed.length, skipped: skipped.length },
+        }
+      : { key: 'notice.syncDone.plugins', params: { count: installed.length } }
   }
   if (kind === 'sync-prompts' && row.state.lastSync.prompts !== null) {
     const { pushed, skipped } = row.state.lastSync.prompts
-    return `同步提示词完成：${pushed ? '已推送' : skipped ? '内容一致，未推送' : '未勾选，未变更'}`
+    return pushed
+      ? { key: 'notice.syncDone.promptsPushed' }
+      : skipped
+        ? { key: 'notice.syncDone.promptsSkipped' }
+        : { key: 'notice.syncDone.promptsUnchanged' }
   }
-  return `同步${label}完成`
-}
-
-const SYNC_OP_KINDS: Record<string, string> = {
-  'sync-skills': 'skills',
-  'sync-mcp': 'MCP',
-  'sync-plugins': '插件',
-  'sync-prompts': '提示词',
+  return { key: keys.generic }
 }
 
 export class RemoteStore {
@@ -114,7 +134,7 @@ export class RemoteStore {
    *  不自动开页（入口常驻在卡片「打开」按钮），同步是长操作且弹窗已关，
    *  结果靠 toast 呈现。 */
   private detectTransitions(next: StateResponse): void {
-    let notice: string | null = null
+    let notice: PanelMessage | null = null
     for (const row of next.connections) {
       const before = this.prevPhase.get(row.id)
       this.prevPhase.set(row.id, row.state.phase)
@@ -124,7 +144,7 @@ export class RemoteStore {
         row.state.phase === 'running' &&
         row.state.running !== null
       ) {
-        notice = `已连接「${row.label}」——点卡片上的「打开」进入远端页面`
+        notice = { key: 'notice.connected', params: { label: row.label } }
       }
       const prevOp = this.prevOps.get(row.id) ?? null
       const opKind = row.state.op?.kind ?? null
@@ -150,7 +170,7 @@ export class RemoteStore {
       this.set({ status: 'ready', list, error: null })
     } catch (error) {
       if (generation !== this.refreshGeneration) return
-      this.set({ status: this.snapshot.list === null ? 'error' : 'ready', error: errMsg(error) })
+      this.set({ status: this.snapshot.list === null ? 'error' : 'ready', error: { text: errMsg(error) } })
     } finally {
       this.refreshRunning = false
       if (this.refreshDirty) {
@@ -194,7 +214,7 @@ export class RemoteStore {
     try {
       this.set({ localRows: await remoteApi.localRows() })
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
     }
   }
 
@@ -229,12 +249,12 @@ export class RemoteStore {
       await remoteApi.save(request)
       await this.refresh()
       this.set({
-        notice: request.id === undefined ? '已创建连接' : '已保存连接',
+        notice: request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' },
         editingId: request.id === undefined ? undefined : this.snapshot.editingId,
       })
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busyId: null })
@@ -246,10 +266,10 @@ export class RemoteStore {
     try {
       await remoteApi.remove(id)
       await this.refresh()
-      this.set({ notice: '已删除连接', editingId: undefined })
+      this.set({ notice: { key: 'notice.deleted' }, editingId: undefined })
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busyId: null, deleting: null })
@@ -262,7 +282,7 @@ export class RemoteStore {
       const result = await remoteApi.test(id)
       this.set({ testResult: { id, result } })
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
     } finally {
       this.set({ busyId: null })
     }
@@ -274,7 +294,7 @@ export class RemoteStore {
       await call()
       await this.refresh()
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
     } finally {
       this.set({ busyId: null })
     }

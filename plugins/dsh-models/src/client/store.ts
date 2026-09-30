@@ -17,6 +17,7 @@ import {
   type EffectiveModelFacts,
   type PiAiOperations,
 } from './operations'
+import type { PanelMessage, ModelsKey } from './locales'
 import { errMsg } from '@dsh-plugins/shared'
 
 export interface AuthAttemptState {
@@ -39,8 +40,9 @@ const AUTH_POLL_INTERVAL_MS = 700
 
 export interface PanelState {
   status: 'idle' | 'loading' | 'ready' | 'error'
-  error: string | null
-  notice: string | null
+  /** 插件文案用词典 key 表达，Host 原因用 text 原样；渲染期随宿主语言翻译。 */
+  error: PanelMessage | null
+  notice: PanelMessage | null
   writable: boolean
   /** 当前 namespace revision（写入 fencing）。 */
   revision: number | undefined
@@ -73,8 +75,6 @@ export type ConfigFormLike = Pick<ConfigForm<unknown>, 'getSnapshot' | 'subscrib
 
 /** store 消费的官方服务面：remote 事件与 cordis 生命周期订阅。 */
 export type StoreContext = Pick<ClientContext, 'remote' | 'on'>
-
-const CONFLICT_MESSAGE = '配置已被其他窗口或外部文件修改；请刷新后重试。'
 
 export class PanelStore {
   private readonly ctx: StoreContext
@@ -223,7 +223,7 @@ export class PanelStore {
       // 在 set 之后：循环读的是新快照；本地轮询已在进行或尝试已结束时都不启动。
       if (auth.attempt?.running === true && auth.attempt !== previousAttempt) this.startAuthPoll()
     } catch (error) {
-      this.set({ status: 'error', error: errMsg(error) })
+      this.set({ status: 'error', error: { text: errMsg(error) } })
     }
   }
 
@@ -255,13 +255,13 @@ export class PanelStore {
   /** 发起订阅登录；成功后事件轮询接管面板状态。 */
   async beginSignIn(provider: string): Promise<void> {
     if (this.snapshot.auth.attempt?.running) {
-      this.fail('已有登录进行中；请先完成或取消')
+      this.fail({ key: 'auth.busy' })
       return
     }
     try {
       await this.operations.beginAuth(provider)
     } catch (error) {
-      this.fail(errMsg(error))
+      this.fail({ text: errMsg(error) })
       return
     }
     this.set({ auth: { ...this.snapshot.auth, attempt: { provider, events: [], running: true } } })
@@ -272,7 +272,7 @@ export class PanelStore {
     try {
       await this.operations.answerAuth({ value })
     } catch (error) {
-      this.fail(errMsg(error))
+      this.fail({ text: errMsg(error) })
     }
   }
 
@@ -280,7 +280,7 @@ export class PanelStore {
     try {
       await this.operations.answerAuth({ declined: true })
     } catch (error) {
-      this.fail(errMsg(error))
+      this.fail({ text: errMsg(error) })
     }
   }
 
@@ -288,7 +288,7 @@ export class PanelStore {
     try {
       await this.operations.cancelAuth()
     } catch (error) {
-      this.fail(errMsg(error))
+      this.fail({ text: errMsg(error) })
     }
   }
 
@@ -298,10 +298,10 @@ export class PanelStore {
     try {
       await this.operations.revokeAuth(provider)
     } catch (error) {
-      this.fail(errMsg(error))
+      this.fail({ text: errMsg(error) })
       return
     }
-    this.set({ notice: `已退出 ${provider} 的登录`, error: null })
+    this.set({ notice: { key: 'auth.signedOut', params: { provider } }, error: null })
     await this.refresh()
   }
 
@@ -345,10 +345,10 @@ export class PanelStore {
     const outcome = attempt.events.at(-1)
     if (outcome === undefined || outcome.kind !== 'outcome') return
     if (outcome.status === 'authorized') {
-      this.set({ notice: '账号登录成功', error: null })
+      this.set({ notice: { key: 'auth.success' }, error: null })
       void this.refreshAuth()
     } else if (outcome.status === 'failed') {
-      this.set({ error: outcome.error ?? '登录失败' })
+      this.set({ error: outcome.error === undefined ? { key: 'auth.failed' } : { text: outcome.error } })
     }
   }
 
@@ -381,19 +381,26 @@ export class PanelStore {
       outcome = await op(revision)
     }
     if (outcome.kind === 'written') return true
-    this.set({ error: outcome.kind === 'conflict' ? CONFLICT_MESSAGE : outcome.message })
+    this.set({
+      error:
+        outcome.kind === 'conflict'
+          ? ({ key: 'notice.conflict' } as PanelMessage)
+          : { text: outcome.message },
+    })
     return false
   }
 
-  // 只写存储一个凭据并更新本地缓存（UI 小圆点立即可见）；failurePrefix 用于
-  // 「主体已保存，但密钥失败」类提示。
-  private async storeKey(ref: string, value: string, failurePrefix?: string): Promise<boolean> {
+  // 只写存储一个凭据并更新本地缓存（UI 小圆点立即可见）；failureKey 用于
+  // 「主体已保存，但密钥失败」类提示，Host 失败原文作为 detail 并入。
+  private async storeKey(ref: string, value: string, failureKey?: ModelsKey): Promise<boolean> {
     const failure = await this.operations.storeCredential(ref, value)
     if (failure === undefined) {
       this.credentialCache.set(ref, true)
       return true
     }
-    this.set({ error: failurePrefix === undefined ? failure : `${failurePrefix}${failure}` })
+    this.set({
+      error: { key: failureKey ?? 'notice.keyFailed', params: { detail: failure } },
+    })
     return false
   }
 
@@ -416,7 +423,7 @@ export class PanelStore {
     }
     const profileChanged = !jsonEqual(keys, current ?? {})
     if (!profileChanged && (apiKey === undefined || apiKey.length === 0)) {
-      this.set({ notice: '没有需要保存的修改', error: null })
+      this.set({ notice: { key: 'notice.noChanges' }, error: null })
       return true
     }
     this.set({ busy: provider, error: null, notice: null })
@@ -432,15 +439,15 @@ export class PanelStore {
         const stored = await this.storeKey(
           ref,
           apiKey,
-          profileChanged ? '配置已保存，但 API Key 保存失败：' : 'API Key 保存失败：',
+          profileChanged ? 'notice.savedButKeyFailed' : 'notice.keyFailed',
         )
         if (!stored) return false
       }
-      this.set({ notice: `已保存 ${provider} 的配置` })
+      this.set({ notice: { key: 'notice.saved', params: { provider } } })
       await this.refresh()
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busy: null })
@@ -450,7 +457,7 @@ export class PanelStore {
   async createProvider(
     provider: string,
     profile: PiAiProviderEntry,
-    options: { apiKey?: string; notice?: string } = {},
+    options: { apiKey?: string; notice?: PanelMessage } = {},
   ): Promise<boolean> {
     this.set({ busy: provider, error: null, notice: null })
     try {
@@ -466,7 +473,7 @@ export class PanelStore {
         const stored = await this.storeKey(
           String(keys.apiKeyEnv),
           options.apiKey.trim(),
-          'Provider 已创建，但 API Key 保存失败：',
+          'notice.createdButKeyFailed',
         )
         if (!stored) {
           // Provider 本体已写入：刷新让列表立即反映新 route。
@@ -474,11 +481,13 @@ export class PanelStore {
           return false
         }
       }
-      this.set({ notice: options.notice ?? `已保存 Provider ${provider}` })
+      this.set({
+        notice: options.notice ?? { key: 'notice.providerSaved', params: { provider } },
+      })
       await this.refresh()
       return true
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
       return false
     } finally {
       this.set({ busy: null })
@@ -493,11 +502,11 @@ export class PanelStore {
         this.operations.deleteProfile(provider, revision),
       )
       if (written) {
-        this.set({ notice: `已删除 ${provider} 的用户层配置` })
+        this.set({ notice: { key: 'notice.deleted', params: { provider } } })
         await this.refresh()
       }
     } catch (error) {
-      this.set({ error: errMsg(error) })
+      this.set({ error: { text: errMsg(error) } })
     } finally {
       this.set({ busy: null })
     }
@@ -529,7 +538,7 @@ export class PanelStore {
     if (this.snapshot.notice !== null) this.set({ notice: null })
   }
 
-  fail(message: string) {
+  fail(message: PanelMessage) {
     this.set({ error: message, notice: null })
   }
 }

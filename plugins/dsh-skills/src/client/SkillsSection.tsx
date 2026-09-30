@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
@@ -11,9 +11,11 @@ import {
   fieldInputCls,
 } from '@dsh-plugins/client-ui'
 import type { SkillRow } from '../shared'
-import { sourceLabel, sourceOrder } from '../shared'
+import { sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
 import { updateKey } from './store'
+import type { SkillsT } from './locales'
+import { sourceLabelT } from './locales'
 import { SkillForm, SkillView } from './SkillForm'
 import { GitInstallDialog } from './GitInstallDialog'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -48,7 +50,7 @@ function dateLabelOf(iso: string): string {
 
 /** 行上的来源 chip 只保留只读来源（内置 / 自定义目录 / 运行时）；四个可写
  *  根的作用域（工作区级 / 全局）由顶部下拉表达，不在行内重复。 */
-function readonlyLabelOf(source: string): string | null {
+function readonlyLabelOf(source: string, t: SkillsT): string | null {
   if (
     source === 'project-dsh' ||
     source === 'project-agents' ||
@@ -57,7 +59,24 @@ function readonlyLabelOf(source: string): string | null {
   ) {
     return null
   }
-  return sourceLabel(source)
+  return sourceLabelT(source, t)
+}
+
+/**
+ * 词典插值只出字符串；空态文案里的目录路径要保留 <code> 样式与可复制性，
+ * 这里按 `{name}` 占位符把模板切成片段后拼 ReactNode。
+ */
+function interpolateNodes(template: string, params: Record<string, ReactNode>): ReactNode[] {
+  const nodes: ReactNode[] = []
+  let cursor = 0
+  for (const match of template.matchAll(/\{(\w+)\}/g)) {
+    const index = match.index ?? 0
+    if (index > cursor) nodes.push(template.slice(cursor, index))
+    nodes.push(params[match[1]] ?? match[0])
+    cursor = index + match[0].length
+  }
+  if (cursor < template.length) nodes.push(template.slice(cursor))
+  return nodes
 }
 
 /** 管理范围档位：工作区级 / 全局，不提供任意目录选择。 */
@@ -73,6 +92,7 @@ export interface WorkspaceScopeSource {
 export interface SkillsPanelEnv {
   store: SkillsStore
   workspace: WorkspaceScopeSource
+  t: SkillsT
 }
 
 export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps) {
@@ -81,7 +101,7 @@ export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps)
 }
 
 function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv }) {
-  const store = props.env.store
+  const { store, t } = props.env
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => () => store.dismissNotice(), [store])
 
@@ -171,21 +191,21 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
   const busy = state.busy !== null || state.loadingFile !== null
 
   return (
-    <Panel title="Skills 管理">
+    <Panel title={t('panel.title')}>
       <div className={styles.scopeBar}>
         <div className={styles.scopeField}>
           <SelectField
-            label="管理范围"
+            label={t('scope.label')}
             value={mode}
             options={[
-              { value: 'user', label: '全局' },
-              { value: 'workspace', label: '工作区级', disabled: workspaceCwd === undefined },
+              { value: 'user', label: t('scope.user') },
+              { value: 'workspace', label: t('scope.workspace'), disabled: workspaceCwd === undefined },
             ]}
             onChange={(value) => changeMode(value as ScopeMode)}
           />
         </div>
         {mode === 'workspace' && workspaceCwd === undefined ? (
-          <span className={styles.scopeHint}>当前没有打开的工作区会话，先显示全局技能</span>
+          <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
         ) : null}
       </div>
 
@@ -206,28 +226,28 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             setCreating(!creating)
           }}
         >
-          新建技能
+          {t('action.create')}
         </Button>
         <Button variant="outline" disabled={state.status !== 'ready'} onClick={() => setInstalling(true)}>
-          从 Git 安装
+          {t('action.installGit')}
         </Button>
         <Button
           variant="outline"
           disabled={!hasGitSkills || gitWorking}
-          title={hasGitSkills ? undefined : '当前作用域没有从 Git 安装的技能'}
+          title={hasGitSkills ? undefined : t('action.checkUpdatesDisabled')}
           onClick={() => void store.checkUpdates()}
         >
-          {state.gitBusy === 'check' ? '检查中…' : '检查更新'}
+          {state.gitBusy === 'check' ? t('action.checking') : t('action.checkUpdates')}
         </Button>
         <Button
           variant="outline"
           disabled={state.status === 'loading' || gitWorking}
           onClick={() => void store.refresh()}
         >
-          刷新
+          {t('action.refresh')}
         </Button>
       </div>
-      {state.status === 'loading' ? <div className={styles.loading}>正在读取技能目录…</div> : null}
+      {state.status === 'loading' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
 
       {state.status === 'ready' ? (
         <div className={styles.searchRow}>
@@ -235,7 +255,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
             className={fieldInputCls(false)}
             type="text"
             value={filter}
-            placeholder="搜索过滤：名称 / 描述 / 适用场景"
+            placeholder={t('search.placeholder')}
             autoComplete="off"
             onChange={(event) => setFilter(event.target.value)}
           />
@@ -249,7 +269,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
         before={
           creating ? (
             <ExpandableCard
-              title="新建技能"
+              title={t('action.create')}
               open
               onToggle={() => {
                 if (!busy) setCreating(false)
@@ -262,6 +282,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
                 busy={busy}
                 error={state.error}
                 store={store}
+                t={t}
                 onDone={collapse}
                 onCancel={collapse}
               />
@@ -273,51 +294,62 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           const open = openKey === key
           const update =
             skill.rootId !== undefined ? state.updates[updateKey(skill.rootId, skill.name)] : undefined
+          const sourceChip = readonlyLabelOf(skill.source, t)
           return {
             title: skill.name,
             pills: [
-              ...(readonlyLabelOf(skill.source) !== null
-                ? [{ text: readonlyLabelOf(skill.source), title: skill.path }]
-                : []),
+              ...(sourceChip !== null ? [{ text: sourceChip, title: skill.path }] : []),
               ...(skill.git !== undefined
                 ? [
                     {
                       text: <>Git · {repoLabelOf(skill.git.url)}</>,
                       tone: 'brand' as const,
-                      title: `Git 安装：${skill.git.url}（${skill.git.dir}，安装于 ${dateLabelOf(skill.git.installedAt)}）`,
+                      title: t('git.pillTitle', {
+                        url: skill.git.url,
+                        dir: skill.git.dir,
+                        date: dateLabelOf(skill.git.installedAt),
+                      }),
                     },
                   ]
                 : []),
               ...(update?.status === 'update'
                 ? [
                     {
-                      text: '有更新' as const,
+                      text: t('update.available'),
                       tone: 'warn' as const,
                       title:
-                        update.description !== undefined ? `上游描述：${update.description}` : '上游有新版本',
+                        update.description !== undefined
+                          ? t('update.upstreamDescription', { description: update.description })
+                          : t('update.upstreamNew'),
                     },
                   ]
                 : []),
               ...(update?.status === 'local'
                 ? [
                     {
-                      text: '有更新 · 本地已修改' as const,
+                      text: t('update.availableLocal'),
                       tone: 'warn' as const,
-                      title: '上游有新版本；本地内容也被修改过，更新将覆盖本地改动',
+                      title: t('update.availableLocalTitle'),
                     },
                   ]
                 : []),
               ...(update?.status === 'removed'
-                ? [{ text: '上游已移除' as const, title: '上游仓库里已发现不到该技能目录' }]
+                ? [{ text: t('update.removed'), title: t('update.removedTitle') }]
                 : []),
               ...(skill.invalid !== undefined
-                ? [{ text: <>无效：{skill.invalid}</>, tone: 'err' as const, title: skill.invalid }]
+                ? [
+                    {
+                      text: t('pill.invalid', { reason: skill.invalid }),
+                      tone: 'err' as const,
+                      title: skill.invalid,
+                    },
+                  ]
                 : []),
-              ...(skill.effective ? [] : [{ text: '被同名来源遮蔽' as const }]),
-              ...(skill.userInvocable ? [] : [{ text: '用户不可调用' as const }]),
+              ...(skill.effective ? [] : [{ text: t('pill.shadowed') }]),
+              ...(skill.userInvocable ? [] : [{ text: t('pill.userInvocableFalse') }]),
             ],
-            description: skill.description.length > 0 ? skill.description : '（无描述）',
-            note: skill.whenToUse !== undefined ? <>适用：{skill.whenToUse}</> : undefined,
+            description: skill.description.length > 0 ? skill.description : t('pill.noDescription'),
+            note: skill.whenToUse !== undefined ? t('pill.whenToUse', { text: skill.whenToUse }) : undefined,
             path: skill.path,
             open,
             onToggle: () => {
@@ -334,7 +366,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
                     disabled={busy || state.gitBusy === 'update'}
                     onClick={() => requestUpdate(skill)}
                   >
-                    更新
+                    {t('action.update')}
                   </Button>
                 ) : null}
                 {skill.editable ? (
@@ -345,7 +377,7 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
                     disabled={busy}
                     onClick={() => setDeleting(skill)}
                   >
-                    删除
+                    {t('delete')}
                   </Button>
                 ) : null}
               </>
@@ -360,11 +392,12 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
                   busy={busy || state.busy === skill.name}
                   error={state.error}
                   store={store}
+                  t={t}
                   onDone={collapse}
                   onCancel={collapse}
                 />
               ) : (
-                <SkillView skill={skill} busy={busy} error={state.error} store={store} />
+                <SkillView skill={skill} busy={busy} error={state.error} store={store} t={t} />
               )
             ) : null,
           }
@@ -373,13 +406,15 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           state.status === 'ready' && !creating ? (
             <div className={styles.empty}>
               {keyword.length > 0 ? (
-                <>没有匹配「{filter.trim()}」的技能</>
+                t('empty.filtered', { keyword: filter.trim() })
               ) : (
                 <>
-                  当前作用域下没有发现技能。工作区级技能放在 <code className={styles.code}>.dsh/skills/</code>{' '}
-                  或 <code className={styles.code}>.agents/skills/</code>，全局技能放在{' '}
-                  <code className={styles.code}>~/.dsh/skills/</code> 或{' '}
-                  <code className={styles.code}>~/.agents/skills/</code>；点「新建技能」开始。
+                  {interpolateNodes(t('empty.none'), {
+                    dsh: <code className={styles.code}>.dsh/skills/</code>,
+                    agents: <code className={styles.code}>.agents/skills/</code>,
+                    userDsh: <code className={styles.code}>~/.dsh/skills/</code>,
+                    userAgents: <code className={styles.code}>~/.agents/skills/</code>,
+                  })}
                 </>
               )}
             </div>
@@ -395,19 +430,22 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
           scanning={state.gitBusy === 'scan'}
           installing={state.gitBusy === 'install'}
           error={state.error}
+          t={t}
           onClose={() => setInstalling(false)}
         />
       ) : null}
 
       {deleting !== undefined ? (
         <ConfirmDialog
-          title={`删除技能 ${deleting.name}`}
+          title={t('confirm.deleteTitle', { name: deleting.name })}
           body={
             deleting.path !== undefined && deleting.path.replaceAll('\\', '/').endsWith('/SKILL.md')
-              ? `将删除整个技能目录（含其中的资源文件）：${deleting.path}`
-              : `将删除技能文件：${deleting.path ?? ''}`
+              ? t('confirm.deleteDirBody', { path: deleting.path })
+              : t('confirm.deleteFileBody', { path: deleting.path ?? '' })
           }
-          confirmLabel="删除"
+          confirmLabel={t('delete')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={busy}
           onCancel={() => setDeleting(undefined)}
           onConfirm={() => {
@@ -421,9 +459,11 @@ function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv })
 
       {confirmUpdate !== undefined ? (
         <ConfirmDialog
-          title={`更新技能 ${confirmUpdate.name}`}
-          body={`本地内容在安装后被修改过，更新将用上游版本覆盖本地改动（来源：${confirmUpdate.git?.url ?? ''}）。是否继续？`}
-          confirmLabel="覆盖更新"
+          title={t('confirm.updateTitle', { name: confirmUpdate.name })}
+          body={t('confirm.updateBody', { url: confirmUpdate.git?.url ?? '' })}
+          confirmLabel={t('confirm.updateConfirm')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
           busy={gitWorking}
           onCancel={() => setConfirmUpdate(undefined)}
           onConfirm={() => {

@@ -12,7 +12,8 @@
 - `src/localenv.ts`：本机清单只读扫描（skills 两根扫描（含 `foldSkillDigest` 内容指纹折叠——远端 find|sha256 输出共用同一折叠）、两层 patch 的 MCP 行 fold（含配置签名）与插件行——插件行 = patch insert 行 ∪ 层 package.json `dsh.profile.bundles` 激活清单（link 安装的主要登记处，`@deepseek-ai/*` 平台包过滤）；行含安装形态与包定位：dependencies 的 link:/file: spec 为本地、spec 目标即包根；registry 行定位到层内 node_modules 实体；行还带包树内容指纹 `packageTreeDigest`（排除段 `PACKAGE_PACK_EXCLUDED` 与打包单一来源）与 `payloadFileName` 内容寻址命名；全局提示词行 `scanGlobalPrompt`（profileContext.home 下的 AGENTS.md，与 dsh-prompts 同一文件））——全部只读。
 - `src/connections.ts`：`$DSH_HOME/dsh-remote.json` 持久化（连接库 + 同步 manifest）与保存请求校验。
 - `src/forwards.ts`：本地转发租约（`$DSH_HOME/dsh-remote/forwards.json`）——连接成功落盘 `{pid, localPort, remotePort, at}`，断开 / 转发死亡清除，引擎 load 时清扫上个宿主生命周期遗留（`ssh.ts` 的 `killOrphanForward` 核验命令行后才杀）；短命记录、损坏即弃，不参与任何连接判定。
-- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按阶段渲染，运行中「打开」按钮常驻——**连接成功不自动开页**，store 的阶段迁移检测发 toast），行上带同步下拉（hover 展开四项菜单）与「删除」），行内编辑表单只管基本信息；菜单选类别后 SyncDialog 打开该类清单（远端事实逐条判定出徽标，非 same 默认不勾选，「隐藏已一致」开关只影响显示，same 项锁定勾选），确认即随 POST /sync 直接提交勾选项（无中间保存；同步完成 / 失败由 store 的 op 迁移检测发 toast 摘要）；HTTP 封装自定义头 `x-dsh-remote`。
+- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按阶段渲染，运行中「打开」按钮常驻——**连接成功不自动开页**，store 的阶段迁移检测发 toast），行上带同步下拉（hover 展开四项菜单）与「删除」），行内编辑表单只管基本信息；菜单选类别后 SyncDialog 打开该类清单（远端事实逐条判定出徽标，非 same 默认不勾选，「隐藏已一致」开关只影响显示，same 项锁定勾选），确认即随 POST /sync 直接提交勾选项（无中间保存；同步完成 / 失败由 store 的 op 迁移检测发 toast 摘要）；HTTP 封装自定义头 `x-dsh-remote`。全部展示文案跟随宿主语言：面板组件经注入面收窄类型 `t`（`RemoteT`），取消 / 关闭 / 删除 / 保存用 common 词条；`ConfirmDialog` / `Dialog` 的 `cancelLabel` / `closeLabel` 由调用方传入，不内嵌文案。
+- `src/client/locales.ts`：本插件词典（命名空间 `dsh-remote`，zh 为键集事实源、en 编译期查全），client `apply` 经 `ctx.effect(() => ctx.locale.register(...))` 注册、`ctx.locale.bind` 绑定后随 settings.section 注入面与导航 label thunk 下发（label 必须 thunk——注册时取词会定格）；`PanelMessage`（`{key, params}` 或 `{text}`）是 store / 弹窗投影的消息描述子（连接成功与同步摘要等跨语言切换存活的 toast 整句入词典，不把可译片段当参数拼接），渲染期经 `messageText` 取词——Host errMsg / ssh 输出 / 条目名等外部事实用 text 原样展示，不翻译不吞。单测取词用 `test/i18n.ts` 的 `makeT`（含 common 词条快照）。
 
 ## 改动约定
 
@@ -47,4 +48,4 @@
 
 ## 测试
 
-`pnpm --filter @weilence/dsh-remote test`：launch / patchDoc / connections / shared（一致性谓词与 canonicalJson）/ localenv（技能摘要折叠 + 插件包树指纹与内容寻址命名）纯函数单测；forwards.test.ts 覆盖租约读写与 sweep 三态、遗留核验真跑子进程（假 ssh 可执行文件：本插件形态杀、端口不符与无关进程不误杀，Windows 跳过）；engine.test.ts 用 fake ssh / 转发 / 扫描依赖做全链集成（连接含部署段：tgz 推送与版本对比、token 解析、四类同步——一致跳过 / 覆盖 / 未勾选不动 / 手写行替换 / push 比指纹与 remote 比版本的分流 / 提示词单文件推送、互斥、运行中同步失败不丢连接、转发租约落盘与 load 清扫）；host.test.ts 假 ctx + 临时目录两层 patch 做路由的请求-响应集成测试。
+`pnpm --filter @weilence/dsh-remote test`：launch / patchDoc / connections / shared（一致性谓词与 canonicalJson）/ localenv（技能摘要折叠 + 插件包树指纹与内容寻址命名）纯函数单测；client 侧三件——client-store.test.ts（阶段 / op 迁移检测的 notice 与写操作提示，断言对 messageText 后的文本）、sync-view.test.ts（SyncDialog 的 rowsOf 投影：判定为事实、文案经 view 描述子渲染期取词）、panel.test.tsx（面板渲染文本与宿主语言切换，取词注入 makeT）；forwards.test.ts 覆盖租约读写与 sweep 三态、遗留核验真跑子进程（假 ssh 可执行文件：本插件形态杀、端口不符与无关进程不误杀，Windows 跳过）；engine.test.ts 用 fake ssh / 转发 / 扫描依赖做全链集成（连接含部署段：tgz 推送与版本对比、token 解析、四类同步——一致跳过 / 覆盖 / 未勾选不动 / 手写行替换 / push 比指纹与 remote 比版本的分流 / 提示词单文件推送、互斥、运行中同步失败不丢连接、转发租约落盘与 load 清扫）；host.test.ts 假 ctx + 临时目录两层 patch 做路由的请求-响应集成测试。

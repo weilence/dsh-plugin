@@ -12,6 +12,9 @@ vi.mock('../src/client/api', () => ({
 
 import { SearchSwitchStore } from '../src/client/store'
 import { projectSwitch } from '../src/client/view'
+import { makeT } from './i18n'
+
+const t = makeT()
 
 const view = (overrides: Partial<SearchSwitchView> = {}): SearchSwitchView => ({
   effectiveProvider: 'deepseek-official',
@@ -33,7 +36,7 @@ beforeEach(() => {
 
 describe('SearchSwitchStore', () => {
   it('刷新写入视图，错误进入 error 态', async () => {
-    const store = new SearchSwitchStore()
+    const store = new SearchSwitchStore(t)
     await store.refresh()
     expect(store.getSnapshot()).toMatchObject({ status: 'ready', view: view() })
     mocks.state.mockRejectedValue(new Error('宿主离线'))
@@ -42,7 +45,7 @@ describe('SearchSwitchStore', () => {
   })
 
   it('写入成功后立即显示目标值，宿主追上时结算等待态', async () => {
-    const store = new SearchSwitchStore()
+    const store = new SearchSwitchStore(t)
     await store.refresh()
     mocks.state.mockResolvedValue(view({ fileProvider: 'zhipu' }))
     await store.setEnabled(true)
@@ -56,7 +59,7 @@ describe('SearchSwitchStore', () => {
   })
 
   it('写入失败显示错误且不进入等待态', async () => {
-    const store = new SearchSwitchStore()
+    const store = new SearchSwitchStore(t)
     await store.refresh()
     mocks.set.mockRejectedValue(new Error('web 配置由启动参数 --patch 指定'))
     await expect(store.setEnabled(true)).resolves.toBe(false)
@@ -64,7 +67,7 @@ describe('SearchSwitchStore', () => {
   })
 
   it('未写入（幂等）时提示已处于目标态', async () => {
-    const store = new SearchSwitchStore()
+    const store = new SearchSwitchStore(t)
     await store.refresh()
     mocks.set.mockResolvedValue({ enabled: true, scope: 'home', written: false })
     await store.setEnabled(true)
@@ -74,7 +77,7 @@ describe('SearchSwitchStore', () => {
 
 describe('projectSwitch', () => {
   it('默认关闭态：显示生效提供者与在线生效方式', () => {
-    const display = projectSwitch(view(), null, false)
+    const display = projectSwitch(t, view(), null, false)
     expect(display).toMatchObject({
       checked: false,
       disabled: false,
@@ -87,6 +90,7 @@ describe('projectSwitch', () => {
 
   it('启动参数来源：开关禁用并给原因', () => {
     const display = projectSwitch(
+      t,
       view({ editable: false, reason: 'web 配置由启动参数 --patch 指定' }),
       null,
       false,
@@ -97,22 +101,23 @@ describe('projectSwitch', () => {
   })
 
   it('等待生效：显示等待并按宿主能力给出恢复预期', () => {
-    const online = projectSwitch(view({ hotApply: true }), true, false)
+    const online = projectSwitch(t, view({ hotApply: true }), true, false)
     expect(online).toMatchObject({ checked: true, waiting: true })
     expect(online.hint).toContain('重新组装')
-    const offline = projectSwitch(view({ hotApply: false }), true, false)
+    const offline = projectSwitch(t, view({ hotApply: false }), true, false)
     expect(offline.hint).toContain('重启')
     expect(offline.effectText).toBe('等待宿主应用…')
   })
 
   it('已替换且可编辑：提示卸载前先关闭', () => {
-    const display = projectSwitch(view({ active: true, effectiveProvider: 'zhipu' }), null, false)
+    const display = projectSwitch(t, view({ active: true, effectiveProvider: 'zhipu' }), null, false)
     expect(display.checked).toBe(true)
     expect(display.hint).toContain('卸载')
   })
 
   it('内省不可用：来源标注为文件推算', () => {
     const display = projectSwitch(
+      t,
       view({ effectiveProvider: undefined, fileProvider: 'zhipu', active: true }),
       null,
       false,
@@ -122,6 +127,6 @@ describe('projectSwitch', () => {
   })
 
   it('写入中禁用开关', () => {
-    expect(projectSwitch(view(), null, true).disabled).toBe(true)
+    expect(projectSwitch(t, view(), null, true).disabled).toBe(true)
   })
 })

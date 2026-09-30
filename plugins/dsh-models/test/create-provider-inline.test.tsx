@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { CreateProviderForm } from '../src/client/CreateProviderForm'
 import type { SignInView } from '../src/client/SignInCard'
+import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
@@ -34,8 +35,10 @@ function renderForm(
       routes: [],
       protocols: ['openai-completions'],
       signInView,
+      t: makeT(),
       onCancel: () => {},
       onLoadCatalog: () => {},
+      onError: () => {},
       onCreate: async () => true,
       onSaveProfile: async () => true,
       onFetchModels: async () => [],

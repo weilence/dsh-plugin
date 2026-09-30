@@ -16,6 +16,8 @@ import {
   validateProviderReasoning,
 } from '../src/pi-ai/validate'
 import { jsonEqual, classifyWrite } from '../src/pi-ai/ops'
+import { messageText } from '../src/client/locales'
+import { makeT } from './i18n'
 
 const catalog = new Map([
   ['alpha', { name: 'Alpha', contextWindow: 1000, maxTokens: 100 }],
@@ -277,11 +279,17 @@ describe('Provider 默认推理等级', () => {
     expect(patchUserProfile({ reasoning: 'high' }, { reasoning: undefined })).toEqual({})
   })
 
-  it('拒绝不在官方 schema 内的等级', () => {
+  it('拒绝不在官方 schema 内的等级（消息为词典描述子，渲染期取词）', () => {
     expect(validateProviderReasoning('extreme', ['off', 'low', 'high'])).toEqual({
       path: 'reasoning',
-      message: '未知默认推理等级「extreme」；可用等级为 off, low, high',
+      message: {
+        key: 'validate.unknownDefaultReasoning',
+        params: { effort: 'extreme', levels: 'off, low, high' },
+      },
     })
+    expect(messageText(validateProviderReasoning('extreme', ['off', 'low', 'high'])!.message, makeT())).toBe(
+      '未知默认推理等级「extreme」；可用等级为 off, low, high',
+    )
   })
 })
 

@@ -1,5 +1,5 @@
 import { errMsg } from '@dsh-plugins/shared'
-import type { UsageWindowLabel } from './types'
+import type { UsageFailureCode, UsageWindowLabel } from './types'
 
 export interface QuotaWindow {
   id: string
@@ -10,7 +10,8 @@ export interface QuotaWindow {
 }
 
 export type UsageResult =
-  { ok: true; windows: QuotaWindow[]; queriedAt: number } | { ok: false; error: string }
+  | { ok: true; windows: QuotaWindow[]; queriedAt: number }
+  | { ok: false; code: UsageFailureCode; error: string }
 
 const QUOTA_URL = 'https://open.bigmodel.cn/api/monitor/usage/quota/limit'
 const OK_TTL_MS = 4 * 60 * 1000
@@ -91,8 +92,7 @@ export function parseQuota(body: QuotaWireBody): QuotaWindow[] {
 }
 
 // Authorization 头直接携带原始 key；key 只留在 host half，绝不下发给 client。
-// unavailableReason 是 key 缺失的原因（默认未配置；凭证解析失败时由调用方传入真实原因）。
-export function createUsageService(apiKey: string | null, unavailableReason = '未配置 zai-coding-cn 供应商') {
+export function createUsageService(apiKey: string | null) {
   let at = 0
   let status: UsageResult | null = null
   let inflight: Promise<UsageResult> | null = null
@@ -108,7 +108,8 @@ export function createUsageService(apiKey: string | null, unavailableReason = '�
     inflight = (async () => {
       let next: UsageResult
       if (!apiKey) {
-        next = { ok: false, error: unavailableReason }
+        // 未配置是稳定语义（client 翻译摘要），没有更多技术详情。
+        next = { ok: false, code: 'not_configured', error: '' }
       } else {
         try {
           const res = await fetch(QUOTA_URL, {
@@ -122,7 +123,7 @@ export function createUsageService(apiKey: string | null, unavailableReason = '�
           })
           next = { ok: true, windows: parseQuota(JSON.parse(await readBody(res))), queriedAt: now }
         } catch (error) {
-          next = { ok: false, error: errMsg(error) }
+          next = { ok: false, code: 'unknown', error: errMsg(error) }
         }
       }
       at = Date.now()

@@ -1,5 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
+import { UsageError } from './types'
 
 export const COPILOT_CREDENTIAL_KEY = credentialKey('llm-pi-ai', 'github-copilot')
 const USAGE_URL = 'https://api.github.com/copilot_internal/user'
@@ -97,11 +98,12 @@ export async function readCopilotQuota(
   const credentials = ctx.get('credentials')
   if (!credentials) throw new Error('未挂载 credentials 服务')
   const grant = await credentials.modifyRecord(COPILOT_CREDENTIAL_KEY, async () => undefined)
-  if (!grant) throw new Error('Copilot 尚未通过 llm-pi-ai 登录 GitHub')
+  if (!grant) throw new UsageError('not_signed_in', 'Copilot 尚未通过 llm-pi-ai 登录 GitHub')
   if (grant.kind !== 'grant' || !object(grant.payload) || grant.payload.type !== 'oauth') {
     throw new Error('Copilot 凭据不是 OAuth grant')
   }
-  if (grant.payload.enterpriseUrl) throw new Error('Copilot Enterprise 账号暂不支持此 GitHub.com 额度接口')
+  if (grant.payload.enterpriseUrl)
+    throw new UsageError('unsupported_account', 'Copilot Enterprise 账号暂不支持此 GitHub.com 额度接口')
   const token = grant.payload.refresh
   if (typeof token !== 'string' || !token || /[\r\n]/.test(token)) {
     throw new Error('Copilot GitHub OAuth 令牌无效')

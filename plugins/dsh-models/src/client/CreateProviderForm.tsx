@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from 'react'
 import { Button, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelsDevCatalog } from '../catalog/types'
 import type { PanelRoute } from '../pi-ai/view'
+import type { ModelsT } from './locales'
 import { validateApiKey } from './operations'
 import { ModelsDevImport, type ModelsDevImportHandle, type ModelsDevImportProps } from './ModelsDevImport'
 import type { SignInView } from './SignInCard'
@@ -27,12 +28,16 @@ export function CreateProviderForm(props: {
    * replacesApiKey 时隐藏 API Key 字段（oauth-only），双形态则并排。
    */
   signInView?: (provider: string) => SignInView | null
+  t: ModelsT
   onCancel(): void
   onLoadCatalog(): void
+  /** 校验 / 获取失败进入面板错误区。 */
+  onError(message: string): void
   onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): Promise<boolean>
   onSaveProfile: ModelsDevImportProps['onSaveProfile']
   onFetchModels: ModelsDevImportProps['onFetchModels']
 }) {
+  const { t } = props
   const [mode, setMode] = useState<'builtin' | 'modelsdev'>(
     props.dormantProviders.length > 0 ? 'builtin' : 'modelsdev',
   )
@@ -47,12 +52,13 @@ export function CreateProviderForm(props: {
 
   const issues: string[] = []
   if (mode === 'builtin') {
-    if (builtinId.length === 0) issues.push('请选择一个内置 Provider')
+    if (builtinId.length === 0) issues.push(t('create.pickBuiltin'))
     if (props.routes.some((route) => route.provider === builtinId)) {
-      issues.push(`Provider ID「${builtinId}」已存在`)
+      issues.push(t('create.duplicate', { id: builtinId }))
     }
   }
-  const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
+  const keyErrorKey = key.trim().length > 0 ? validateApiKey(key) : undefined
+  const keyError = keyErrorKey === undefined ? undefined : t(keyErrorKey)
   if (keyError) issues.push(keyError)
 
   const submit = async () => {
@@ -83,7 +89,7 @@ export function CreateProviderForm(props: {
             disabled={props.dormantProviders.length === 0}
             onClick={() => setMode('builtin')}
           >
-            使用内置 Provider
+            {t('create.builtin')}
           </Pill>
           <Pill
             active={mode === 'modelsdev'}
@@ -92,7 +98,7 @@ export function CreateProviderForm(props: {
               props.onLoadCatalog()
             }}
           >
-            自定义 Provider
+            {t('create.custom')}
           </Pill>
         </div>
       </div>
@@ -105,6 +111,7 @@ export function CreateProviderForm(props: {
           routes={props.routes}
           protocols={props.protocols}
           busy={props.busy}
+          t={t}
           onCancel={props.onCancel}
           onSaveProfile={props.onSaveProfile}
           onFetchModels={props.onFetchModels}
@@ -113,12 +120,12 @@ export function CreateProviderForm(props: {
         <>
           <div className={styles.grid}>
             <SelectField
-              label="内置 Provider"
+              label={t('create.builtinLabel')}
               value={builtinId}
               options={props.dormantProviders.map((id) => ({ value: id, label: id }))}
               onChange={setBuiltinId}
             />
-            <TextField label="显示名（可选）" value={displayName} onChange={setDisplayName} />
+            <TextField label={t('create.displayName')} value={displayName} onChange={setDisplayName} />
             {signIn?.replacesApiKey !== true ? (
               <TextField label="API Key" type="password" autoComplete="off" value={key} onChange={setKey} />
             ) : null}
@@ -135,14 +142,14 @@ export function CreateProviderForm(props: {
       {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
       <div className={styles.formActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
-          取消
+          {t('cancel')}
         </Button>
         <Button
           variant="primary"
           disabled={props.busy}
           onClick={mode === 'modelsdev' ? () => importRef.current?.apply() : () => void submit()}
         >
-          {props.busy ? '创建中…' : '创建'}
+          {props.busy ? t('create.creating') : t('create.submit')}
         </Button>
       </div>
     </div>

@@ -85,11 +85,11 @@ describe('Provider 用量 Host 路由', () => {
     })
   })
 
-  it('智谱无凭据时仅返回展示错误且没有密钥', async () => {
+  it('智谱无凭据时返回稳定原因码，且没有密钥', async () => {
     const { request } = setup()
     expect(await request(`${USAGE_PATH}?provider=zai-coding-cn`)).toMatchObject({
       status: 200,
-      body: { kind: 'unavailable', error: expect.stringContaining('未配置') },
+      body: { kind: 'unavailable', code: 'not_configured', detail: '' },
     })
   })
 
@@ -126,7 +126,7 @@ describe('Provider 用量 Host 路由', () => {
     finishOld(quota(12))
     expect((await old).body).toMatchObject({
       kind: 'unavailable',
-      error: expect.stringContaining('授权已更新'),
+      code: 'authorization_changed',
     })
     expect((await concurrent).body).toMatchObject({ kind: 'unavailable' })
     expect((await request(path)).body).toMatchObject({ kind: 'quota', windows: [{ usedPct: 60 }] })
@@ -205,7 +205,7 @@ describe('Provider 用量 Host 路由', () => {
     finishOld({ remainingPct: 90, remaining: 90, entitlement: 100, unlimited: false, resetMs: null })
     expect((await old).body).toMatchObject({
       kind: 'unavailable',
-      error: expect.stringContaining('授权已更新'),
+      code: 'authorization_changed',
     })
     expect((await request(path)).body).toMatchObject({ kind: 'quota', windows: [{ usedPct: 75 }] })
   })

@@ -1,6 +1,7 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { switchApi } from './api'
 import type { SearchSwitchView } from '../shared'
+import type { ZhipuT } from './locales'
 
 export interface SearchSwitchState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -28,6 +29,9 @@ export class SearchSwitchStore {
   private snapshot: SearchSwitchState = INITIAL
   private readonly listeners = new Set<() => void>()
   private refreshGeneration = 0
+
+  // notice 是写入瞬间的即显 Toast：事件时间取词，不跨语言切换存活。
+  constructor(private readonly t: ZhipuT) {}
 
   getSnapshot = (): SearchSwitchState => this.snapshot
 
@@ -73,9 +77,10 @@ export class SearchSwitchStore {
     this.set({ busy: true, error: null, notice: null })
     try {
       const outcome = await switchApi.set({ enabled })
+      const action = enabled ? this.t('action.enabled') : this.t('action.disabled')
       const hint = outcome.written
-        ? `已写入 ${outcome.scope} 层 patch，${enabled ? '开启' : '关闭'}替换`
-        : `已处于${enabled ? '开启' : '关闭'}状态，未改动文件`
+        ? this.t('notice.written', { scope: outcome.scope, action })
+        : this.t('notice.idle', { action })
       this.set({ pending: enabled, notice: hint })
       await this.refresh()
       SETTLE_DELAYS_MS.forEach((delay, index) => {

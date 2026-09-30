@@ -56,14 +56,14 @@ describe('写入规划路径', () => {
     expect(plan.profile.modelOverrides).toBeUndefined()
   })
 
-  it('目录读不到时 blocked，与写入路径一致', () => {
+  it('目录读不到时 blocked，与写入路径一致（原因为词典描述子）', () => {
     const plan = planAddModel({
       source: 'inherited',
       userProfile: undefined,
       catalog: new Map(),
       entry: { id: 'x' },
     })
-    expect(plan).toEqual({ kind: 'blocked', reason: expect.stringContaining('无法读取') })
+    expect(plan).toEqual({ kind: 'blocked', reason: { key: 'plan.catalogUnreadable' } })
   })
 
   it('materializeWithNewModel 与 planAddModel 输出一致', () => {

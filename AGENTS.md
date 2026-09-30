@@ -23,6 +23,17 @@
 - host half 是宿主侧受信代码：用户从设置页发起的文件与子进程操作直接用 node 能力（`node:fs` / `node:child_process`），不受模型沙箱策略约束。
 - 构建只声明差异点：`tsdown.config.ts` 走 `@dsh-plugins/tsdown-config` 的 `defineDshPluginConfig`。产物 `lib/index.js`（node，ESM）+ `lib/client.js`（浏览器 ModuleLoader factory），`lib/` 不入库。
 
+## 多语言约定
+
+全部用户可见文案跟随宿主语言，语言选择与回退只有宿主 locale 服务一个事实源，插件不自建语言状态：
+
+- 每个插件在自己的 `src/client/locales.ts` 持有词典：命名空间为插件 id（如 `dsh-models`），zh 是键集事实源（扁平点分键、`{param}` 插值、`as const`），`en` 逐键补全（编译期查全），`declare module '@deepseek-ai/dsh-client-ui-slots'` 合并进 `LocaleNamespaceMap`。
+- client `apply` 里 `ctx.effect(() => ctx.locale.register(NS, { zh, en }), …)` 注册，`const t = ctx.locale.bind(NS)` 绑定；`settings.section` 导航 label 必须是 **thunk**（`label: () => t('section.label')`，写 `label: t('…')` 会在注册时定格）；面板经 inject 面接收 `t`。取消 / 关闭等公共词直接用 common 词条（`t('cancel')`、`t('close')`），不自造重复键。
+- 组件 props 的 `t` 用本插件窄类型（`TranslateNS<typeof NS>`），不要用宽域 `Translate`——函数参数逆变，窄域不可赋给宽域；单测取词用各包 `test/i18n.ts` 的 `makeT`（与宿主同一种插值语义，common 词条按需快照）。
+- 跨语言切换须存活的提示 / 错误（store 状态）用消息描述子 `{key, params} | {text}`，渲染期取词；Host errMsg 等外部事实一律 `{text}` 原样展示，不翻译不吞。即显一次性反馈（Toast、fetchStatus）允许事件时间取词。
+- Host↔client 传**语义不传文案**：可识别失败用稳定原因码（如 dsh-models 用量的 `UsageFailureCode`），client 按码翻译摘要并保留安全的原始详情；请求与语言解耦，切换语言不重新发请求。
+- 共享 `Dialog` / `ConfirmDialog` 不内嵌文案：`closeLabel`（与 `cancelLabel`）是必填 props，由调用方传 `t('close')` / `t('cancel')`。
+
 ## 两层用户 patch 约定
 
 写用户层配置的插件（dsh-mcp / dsh-zhipu-tools；dsh-remote 在远端做同类合并）共用这一机制：

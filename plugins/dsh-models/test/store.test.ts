@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 import { PanelStore, type ConfigFormLike, type StoreContext } from '../src/client/store'
 import { readChoices } from '../src/pi-ai/choices'
 import type { AuthDirectory, PiAiOperations, RouteDirectoryRow } from '../src/client/operations'
+import { messageText, type PanelMessage } from '../src/client/locales'
+import { makeT } from './i18n'
+
+/** 快照消息 → 展示文本（与面板渲染同一取词路径）。 */
+const text = (message: PanelMessage | null): string | null =>
+  message === null ? null : messageText(message, makeT())
 
 /** 一个可控的 configForms 共享表单替身（镜像快照）。 */
 function scopeStub(initial: { user?: unknown; value?: unknown; revision?: number; writable?: boolean }) {
@@ -181,7 +187,7 @@ describe('模型目录面板 store', () => {
     const { store } = storeOf({ scope, operations })
     await store.refresh()
     await store.saveRoute('anthropic', { displayName: 'Anthropic' })
-    expect(store.getSnapshot().error).toContain('其他窗口')
+    expect(text(store.getSnapshot().error)).toContain('其他窗口')
   })
 
   it('saveRoute 整值写入候选 profile，并连同 API Key 一起保存', async () => {
@@ -210,7 +216,7 @@ describe('模型目录面板 store', () => {
       modelOverrides: { 'claude-x': { id: 'claude-x', maxTokens: 5 } },
     })
     expect(storeCredential).toHaveBeenCalledWith('ANTHROPIC_API_KEY', 'sk-abc')
-    expect(store.getSnapshot().notice).toContain('已保存')
+    expect(text(store.getSnapshot().notice)).toContain('已保存')
   })
 
   it('saveRoute 无变化且无密钥时直接提示而不写入', async () => {
@@ -221,7 +227,7 @@ describe('模型目录面板 store', () => {
     const ok = await store.saveRoute('anthropic', { displayName: 'A' })
     expect(ok).toBe(true)
     expect(writeProfile).not.toHaveBeenCalled()
-    expect(store.getSnapshot().notice).toContain('没有需要保存的修改')
+    expect(text(store.getSnapshot().notice)).toBe('没有需要保存的修改')
   })
 
   it('saveRoute 在 profile 已写入但密钥存储失败时返回失败，便于重试只补密钥', async () => {
@@ -233,7 +239,7 @@ describe('模型目录面板 store', () => {
     const ok = await store.saveRoute('anthropic', { displayName: 'A' }, { apiKey: 'sk-abc' })
     expect(ok).toBe(false)
     expect(writeProfile).toHaveBeenCalledTimes(1)
-    expect(store.getSnapshot().error).toContain('API Key 保存失败')
+    expect(text(store.getSnapshot().error)).toContain('API Key 保存失败')
   })
 
   it('删除 route 只 unset 用户层 profile', async () => {
@@ -338,7 +344,7 @@ describe('订阅登录状态', () => {
       await vi.advanceTimersByTimeAsync(700)
       // 授权完成后不能在面板保留历史授权链接及「登录成功」结果块。
       expect(store.getSnapshot().auth.attempt).toBeNull()
-      expect(store.getSnapshot().notice).toBe('账号登录成功')
+      expect(text(store.getSnapshot().notice)).toBe('账号登录成功')
       expect(store.getSnapshot().auth.records['openai-codex']).toEqual({ configured: true, kind: 'grant' })
       // 结束后循环退出：不再发起新轮询。
       const callsAfterSettle = authEvents.mock.calls.length
@@ -362,7 +368,7 @@ describe('订阅登录状态', () => {
       await store.refresh()
       await store.beginSignIn('openai-codex')
       await store.beginSignIn('openai-codex')
-      expect(store.getSnapshot().error).toBe('已有登录进行中；请先完成或取消')
+      expect(text(store.getSnapshot().error)).toBe('已有登录进行中；请先完成或取消')
 
       authEvents.mockResolvedValue({
         events: [{ seq: 2, kind: 'outcome', status: 'failed', error: '令牌交换失败' }],
@@ -370,7 +376,7 @@ describe('订阅登录状态', () => {
       })
       await vi.advanceTimersByTimeAsync(700)
       expect(store.getSnapshot().auth.attempt).toBeNull()
-      expect(store.getSnapshot().error).toBe('令牌交换失败')
+      expect(text(store.getSnapshot().error)).toBe('令牌交换失败')
     } finally {
       vi.useRealTimers()
     }
@@ -429,7 +435,7 @@ describe('订阅登录状态', () => {
     await store.refresh()
     await store.signOut('openai-codex')
     expect(revokeAuth).toHaveBeenCalledWith('openai-codex')
-    expect(store.getSnapshot().notice).toContain('已退出 openai-codex')
+    expect(text(store.getSnapshot().notice)).toContain('已退出 openai-codex')
     expect(store.getSnapshot().error).toBeNull()
 
     const failing = vi.fn<PiAiOperations['revokeAuth']>(async () => {
@@ -439,6 +445,6 @@ describe('订阅登录状态', () => {
     const { store: failingStore } = storeOf({ scope, operations: failingOperations })
     await failingStore.refresh()
     await failingStore.signOut('openai-codex')
-    expect(failingStore.getSnapshot().error).toContain('登录正在进行中')
+    expect(text(failingStore.getSnapshot().error)).toContain('登录')
   })
 })

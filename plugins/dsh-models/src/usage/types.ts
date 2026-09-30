@@ -38,4 +38,29 @@ export type ProviderUsage =
       windows: UsageWindow[]
       queriedAt: number
     }
-  | { kind: 'unavailable'; provider: string; error: string }
+  | {
+      kind: 'unavailable'
+      provider: string
+      /**
+       * 稳定失败原因码：client 按宿主语言翻译摘要；host 不预写界面文案。
+       * unknown 表示无法分类，此时 detail 就是主文案，原样展示。
+       */
+      code: UsageFailureCode
+      /** 安全的原始技术详情（已脱敏）；与摘要并存，可选中复制。 */
+      detail: string
+    }
+
+/** 用量查询的可识别失败：跨 Host↔Client 传输的语义事实，文案由 client 翻译。 */
+export type UsageFailureCode =
+  'not_configured' | 'not_signed_in' | 'unsupported_account' | 'authorization_changed' | 'unknown'
+
+/** Host 侧已分类的用量失败：抛出点携带稳定 code，message 是安全详情。 */
+export class UsageError extends Error {
+  constructor(
+    readonly code: UsageFailureCode,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'UsageError'
+  }
+}

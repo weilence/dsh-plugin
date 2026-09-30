@@ -1,5 +1,6 @@
 import type { ModelsDevModel, ModelsDevProvider } from './types'
 import type { PiAiModelEntry, PiAiModality } from '../pi-ai/types'
+import type { PanelMessage } from '../client/locales'
 
 const EFFORT_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
 
@@ -54,7 +55,7 @@ export function discoveredToEntry(model: {
 }
 
 export type ProviderCreation =
-  { kind: 'custom'; profile: Record<string, unknown> } | { kind: 'unsupported'; reason: string }
+  { kind: 'custom'; profile: Record<string, unknown> } | { kind: 'unsupported'; reason: PanelMessage }
 
 // 只有 openai-compatible / anthropic SDK 能按元数据安全映射 api + baseURL，
 // 其余交回用户。
@@ -62,7 +63,7 @@ export function planProviderCreation(provider: ModelsDevProvider): ProviderCreat
   if (!provider.api) {
     return {
       kind: 'unsupported',
-      reason: 'models.dev 未提供 API Endpoint，且 pi-ai 没有该 Provider 的内置目录',
+      reason: { key: 'map.noEndpoint' },
     }
   }
   if (provider.npm === '@ai-sdk/openai-compatible') {
@@ -79,6 +80,6 @@ export function planProviderCreation(provider: ModelsDevProvider): ProviderCreat
   }
   return {
     kind: 'unsupported',
-    reason: `无法把 ${provider.npm ?? '未知 SDK'} 安全映射为 pi-ai 协议`,
+    reason: { key: 'map.unmappableSdk', params: { sdk: provider.npm ?? 'unknown SDK' } },
   }
 }

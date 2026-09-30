@@ -12,7 +12,8 @@ import type {
 } from '../shared'
 import { errMsg } from '@dsh-plugins/shared'
 import { SERVER_NAME_PATTERN } from '../shared'
-import { endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
+import { ConfigError, endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
+import { messageText, type McpT } from './locales'
 import type { McpStore } from './store'
 import { mcpApi } from './api'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -24,6 +25,7 @@ export interface McpServerFormProps {
   mode: 'create' | 'edit'
   row?: McpRow
   store: McpStore
+  t: McpT
   busy: boolean
   error: string | null
   /** 保存成功后回调（父级收起卡片）。 */
@@ -46,13 +48,8 @@ interface DraftState {
   failOnStartupError: boolean
 }
 
-const TRANSPORT_LABELS: Record<McpTransport, string> = {
-  stdio: 'stdio（本地命令子进程）',
-  'streamable-http': 'streamable-http（HTTP 端点）',
-}
-
 export function McpServerForm(props: McpServerFormProps) {
-  const { mode, row, store } = props
+  const { mode, row, store, t } = props
   const [draft, setDraft] = useState<DraftState>(() => initialDraft(props))
   const [touched, setTouched] = useState(false)
 
@@ -78,7 +75,7 @@ export function McpServerForm(props: McpServerFormProps) {
     [store, row],
   )
 
-  const issues = validateDraft(draft, mode, knownServerNames)
+  const issues = validateDraft(draft, mode, knownServerNames, t)
   const busy = props.busy
 
   const switchInputMode = (next: 'form' | 'json'): void => {
@@ -101,6 +98,13 @@ export function McpServerForm(props: McpServerFormProps) {
     setDraft(action)
   }
 
+  /** JSON 解析错误 → 展示文本：client 侧 ConfigError 带词典描述子，其余按
+   *  errMsg 原样展示。 */
+  const parseErrorText = (error: unknown): string =>
+    error instanceof ConfigError && error.descriptor !== undefined
+      ? messageText(error.descriptor, t)
+      : errMsg(error)
+
   /** 编辑的 JSON 文本回填：解析成功即应用到草稿；serverName 由外层键给出，
    *  回填时以当前行为准（名称改动 = 删除后新建，不走编辑）。 */
   const applyJsonEdit = (text: string): void => {
@@ -111,7 +115,7 @@ export function McpServerForm(props: McpServerFormProps) {
     try {
       const result = parseMcpJsonText(text)
       if (result.entries.length !== 1) {
-        setJsonEditError('需要恰好一个服务器对象；多台批量导入请用「新建服务器」的 JSON 粘贴')
+        setJsonEditError(t('input.needSingleEntry'))
         return
       }
       setDraft((previous) => ({
@@ -119,7 +123,7 @@ export function McpServerForm(props: McpServerFormProps) {
         serverName: previous.serverName,
       }))
     } catch (error) {
-      setJsonEditError(errMsg(error))
+      setJsonEditError(parseErrorText(error))
     }
   }
 
@@ -132,7 +136,7 @@ export function McpServerForm(props: McpServerFormProps) {
         const outcome = await mcpApi.check({ config: target.config })
         if (!outcome.ok) {
           setActionError(
-            `服务器「${target.name}」连接检查未通过：${outcome.error ?? '未知原因'}。修正后重试，或再点一次「保存」跳过检查直接写入。`,
+            t('check.failed', { name: target.name, reason: outcome.error ?? t('check.unknownReason') }),
           )
           setCheckBypassed(true)
           return false
@@ -140,7 +144,7 @@ export function McpServerForm(props: McpServerFormProps) {
       }
       return true
     } catch (error) {
-      setActionError(`连接检查请求失败：${errMsg(error)}`)
+      setActionError(t('check.requestFailed', { detail: errMsg(error) }))
       return false
     } finally {
       setChecking(false)
@@ -166,21 +170,26 @@ export function McpServerForm(props: McpServerFormProps) {
     try {
       result = parseMcpJsonText(jsonText)
     } catch (error) {
-      setActionError(errMsg(error))
+      setActionError(parseErrorText(error))
       return
     }
     if (result.problems.length > 0) {
       setActionError(
         result.problems
-          .map((problem) => `${problem.name.length > 0 ? problem.name : '（未命名）'}：${problem.message}`)
-          .join('；'),
+          .map((problem) =>
+            t('import.problemLine', {
+              name: problem.name.length > 0 ? problem.name : t('row.unnamed'),
+              message: messageText(problem.message, t),
+            }),
+          )
+          .join(t('import.problemJoin')),
       )
       return
     }
     const seen = new Set(knownServerNames)
     for (const entry of result.entries) {
       if (seen.has(entry.serverName)) {
-        setActionError(`serverName「${entry.serverName}」已存在（或与本批重名）`)
+        setActionError(t('input.duplicateInBatch', { name: entry.serverName }))
         return
       }
       seen.add(entry.serverName)
@@ -206,18 +215,19 @@ export function McpServerForm(props: McpServerFormProps) {
           variant={inputMode === 'form' ? 'primary' : 'outline'}
           onClick={() => switchInputMode('form')}
         >
-          表单输入
+          {t('input.formTab')}
         </Button>
         <Button
           size="sm"
           variant={inputMode === 'json' ? 'primary' : 'outline'}
           onClick={() => switchInputMode('json')}
         >
-          {mode === 'create' ? 'JSON 粘贴' : 'JSON 编辑'}
+          {mode === 'create' ? t('input.jsonPasteTab') : t('input.jsonEditTab')}
         </Button>
       </div>
       {mode === 'create' && inputMode === 'json' ? (
         <JsonBody
+          t={t}
           jsonText={jsonText}
           onText={(text) => {
             clearOutcome()
@@ -232,7 +242,7 @@ export function McpServerForm(props: McpServerFormProps) {
       ) : inputMode === 'json' ? (
         <div className={styles.section}>
           <TextAreaField
-            label="配置（外层键即 serverName，名称以当前行为准）"
+            label={t('input.jsonEditLabel')}
             value={jsonEdited ?? jsonTextOf(draft)}
             spellCheck={false}
             minHeight={280}
@@ -246,6 +256,7 @@ export function McpServerForm(props: McpServerFormProps) {
         </div>
       ) : (
         <EditBody
+          t={t}
           draft={draft}
           setDraft={updateDraft}
           mode={mode}
@@ -261,14 +272,14 @@ export function McpServerForm(props: McpServerFormProps) {
       ) : null}
       <div className={styles.formActions}>
         <Button variant="outline" disabled={busy || checking} onClick={props.onCancel}>
-          取消
+          {t('cancel')}
         </Button>
         <Button
           variant="primary"
           disabled={busy || checking}
           onClick={() => void (mode === 'create' && inputMode === 'json' ? submitJson() : submit())}
         >
-          {checking ? '检查中…' : busy ? '保存中…' : '保存'}
+          {checking ? t('action.checking') : busy ? t('action.saving') : t('save')}
         </Button>
       </div>
     </div>
@@ -276,15 +287,15 @@ export function McpServerForm(props: McpServerFormProps) {
 }
 
 /** 只读详情（bundle / overlay 等不可编辑来源的展开体）。 */
-export function McpServerView(props: { row: McpRow }) {
-  const { row } = props
+export function McpServerView(props: { row: McpRow; t: McpT }) {
+  const { row, t } = props
   const configText = useMemo(() => JSON.stringify(row.config ?? {}, null, 2), [row])
   return (
     <div className={styles.section}>
       <div className={styles.metaGrid}>
         <MetaItem label="serverName" value={row.config.serverName} />
         <MetaItem
-          label="传输"
+          label={t('view.transport')}
           value={
             row.config.transport === 'stdio'
               ? 'stdio'
@@ -293,9 +304,9 @@ export function McpServerView(props: { row: McpRow }) {
                 : '—'
           }
         />
-        <MetaItem label="端点" value={endpointText(row)} wide />
-        <MetaItem label="运行态" value={row.live ? liveText(row) : '待生效（尚未挂载）'} />
-        <MetaItem label="工具数" value={row.live ? String(row.live.tools.length) : '—'} />
+        <MetaItem label={t('view.endpoint')} value={endpointText(row)} wide />
+        <MetaItem label={t('view.live')} value={row.live ? liveText(row, t) : t('view.livePending')} />
+        <MetaItem label={t('view.toolCount')} value={row.live ? String(row.live.tools.length) : '—'} />
       </div>
       {row.live?.error !== undefined ? (
         <div className={styles.error} role="alert">
@@ -304,7 +315,7 @@ export function McpServerView(props: { row: McpRow }) {
       ) : null}
       {row.live && row.live.tools.length > 0 ? (
         <div className={styles.bodyField}>
-          <span className={styles.label}>已注册工具</span>
+          <span className={styles.label}>{t('view.tools')}</span>
           <ul className={styles.toolList}>
             {row.live.tools.map((name) => (
               <li key={name}>{name}</li>
@@ -313,7 +324,7 @@ export function McpServerView(props: { row: McpRow }) {
         </div>
       ) : null}
       <TextAreaField
-        label="生效配置（JSON）"
+        label={t('view.effectiveConfig')}
         value={configText}
         readOnly
         minHeight={200}
@@ -325,26 +336,28 @@ export function McpServerView(props: { row: McpRow }) {
 
 /** 新建模式的 JSON 粘贴页：方言解析与写入都在「保存」时一次完成。 */
 function JsonBody(props: {
+  t: McpT
   jsonText: string
   onText(text: string): void
   scope: McpScope
   onScope(scope: McpScope): void
 }) {
+  const { t } = props
   return (
     <div className={styles.section}>
       <div className={styles.grid}>
         <SelectField
-          label="目标层"
+          label={t('input.scope')}
           value={props.scope}
           options={[
-            { value: 'profile', label: 'Profile 层（仅当前 profile）' },
-            { value: 'home', label: '全局层（~/.dsh，所有 profile）' },
+            { value: 'profile', label: t('input.scopeProfile') },
+            { value: 'home', label: t('input.scopeHome') },
           ]}
           onChange={(scope) => props.onScope(scope as McpScope)}
         />
       </div>
       <TextAreaField
-        label={'粘贴 JSON（支持 {"mcpServers": {...}} 包装、{"名称": {...}} 直接映射与单个服务器对象）'}
+        label={t('input.jsonPasteLabel')}
         value={props.jsonText}
         placeholder={
           '{\n  "mcpServers": {\n    "context7": {\n      "type": "stdio",\n      "command": "npx",\n      "args": ["-y", "@upstash/context7-mcp"]\n    }\n  }\n}'
@@ -356,6 +369,7 @@ function JsonBody(props: {
 }
 
 function EditBody(props: {
+  t: McpT
   draft: DraftState
   setDraft: Dispatch<SetStateAction<DraftState>>
   mode: 'create' | 'edit'
@@ -363,35 +377,35 @@ function EditBody(props: {
   touched: boolean
   error: string | null
 }) {
-  const { draft, setDraft } = props
+  const { t, draft, setDraft } = props
   const patch = (partial: Partial<DraftState>): void => setDraft((previous) => ({ ...previous, ...partial }))
   return (
     <div className={styles.section}>
       <div className={styles.grid}>
         {props.mode === 'create' ? (
           <SelectField
-            label="目标层"
+            label={t('input.scope')}
             value={draft.scope}
             options={[
-              { value: 'profile', label: 'Profile 层（仅当前 profile）' },
-              { value: 'home', label: '全局层（~/.dsh，所有 profile）' },
+              { value: 'profile', label: t('input.scopeProfile') },
+              { value: 'home', label: t('input.scopeHome') },
             ]}
             onChange={(scope) => patch({ scope: scope as McpScope })}
           />
         ) : null}
         <SelectField
-          label="传输形态"
+          label={t('input.transport')}
           value={draft.transport}
           options={[
-            { value: 'stdio', label: TRANSPORT_LABELS.stdio },
-            { value: 'streamable-http', label: TRANSPORT_LABELS['streamable-http'] },
+            { value: 'stdio', label: t('input.transportStdio') },
+            { value: 'streamable-http', label: t('input.transportHttp') },
           ]}
           onChange={(transport) => patch({ transport: transport as McpTransport })}
         />
       </div>
       <div className={styles.grid}>
         <TextField
-          label="serverName（工具名前缀）"
+          label={t('input.serverName')}
           value={draft.serverName}
           placeholder="context7"
           autoFocus={props.mode === 'create'}
@@ -399,7 +413,7 @@ function EditBody(props: {
         />
         {draft.transport === 'stdio' ? (
           <TextField
-            label="command（可执行文件）"
+            label={t('input.command')}
             value={draft.command}
             placeholder="npx"
             onChange={(command) => patch({ command })}
@@ -407,7 +421,7 @@ function EditBody(props: {
         ) : (
           <div className={styles.fieldWide}>
             <TextField
-              label="url（MCP 端点）"
+              label={t('input.url')}
               wide
               value={draft.url}
               placeholder="https://mcp.example.com/mcp"
@@ -419,26 +433,22 @@ function EditBody(props: {
       {draft.transport === 'stdio' ? (
         <>
           <TextAreaField
-            label="args（每行一个，不经 shell 插值）"
+            label={t('input.args')}
             value={draft.args}
             placeholder={'-y\n@upstash/context7-mcp'}
             onChange={(args) => patch({ args })}
           />
           <TextAreaField
-            label="env（每行 KEY=VALUE）"
+            label={t('input.env')}
             value={draft.env}
             placeholder={'API_KEY=...'}
             onChange={(env) => patch({ env })}
           />
-          <TextField
-            label="cwd（可选，子进程工作目录）"
-            value={draft.cwd}
-            onChange={(cwd) => patch({ cwd })}
-          />
+          <TextField label={t('input.cwd')} value={draft.cwd} onChange={(cwd) => patch({ cwd })} />
         </>
       ) : (
         <TextAreaField
-          label="headers（每行 KEY=VALUE，如 Authorization=Bearer …）"
+          label={t('input.headers')}
           value={draft.headers}
           placeholder={'Authorization=Bearer ...'}
           onChange={(headers) => patch({ headers })}
@@ -446,7 +456,7 @@ function EditBody(props: {
       )}
       <div className={styles.grid}>
         <TextField
-          label="调用超时 ms（可选，缺省 60000）"
+          label={t('input.timeout')}
           value={draft.toolCallTimeoutMs}
           inputMode="numeric"
           placeholder="60000"
@@ -457,9 +467,9 @@ function EditBody(props: {
             <Switch
               checked={draft.failOnStartupError}
               onChange={(checked) => patch({ failOnStartupError: checked })}
-              label="启动失败即报错"
+              label={t('input.failOnStartup')}
             />
-            初始连接失败时让插件行失败（阻止激活；缺省关闭并进入自动重连）
+            {t('input.failOnStartupHint')}
           </label>
         </div>
       </div>
@@ -479,16 +489,16 @@ function endpointText(row: McpRow): string {
   return endpointOf(row.config) || '—'
 }
 
-function liveText(row: McpRow): string {
-  if (row.live === null) return '待生效'
-  if (row.live.status === 'absent') return '已声明未挂载'
+function liveText(row: McpRow, t: McpT): string {
+  if (row.live === null) return t('row.pendingEffect')
+  if (row.live.status === 'absent') return t('row.absent')
   const labels: Record<Exclude<McpLiveState['status'], 'absent'>, string> = {
-    pending: '等待依赖',
-    loading: '连接中',
-    active: '运行中',
-    failed: '失败',
-    disposed: '已卸载',
-    unloading: '卸载中',
+    pending: t('view.livePendingDeps'),
+    loading: t('view.liveConnecting'),
+    active: t('view.liveActive'),
+    failed: t('view.liveFailed'),
+    disposed: t('row.unloaded'),
+    unloading: t('view.liveUnloading'),
   }
   return labels[row.live.status]
 }
@@ -570,29 +580,33 @@ function jsonTextOf(draft: DraftState): string {
   return JSON.stringify({ [serverName]: rest }, null, 2)
 }
 
-function validateDraft(draft: DraftState, mode: 'create' | 'edit', knownServerNames: Set<string>): string[] {
+function validateDraft(
+  draft: DraftState,
+  mode: 'create' | 'edit',
+  knownServerNames: Set<string>,
+  t: McpT,
+): string[] {
   const issues: string[] = []
   if (!SERVER_NAME_PATTERN.test(draft.serverName.trim())) {
-    issues.push('serverName 需匹配 ^[A-Za-z0-9_-]{1,32}$，如 context7')
+    issues.push(t('validate.serverName'))
   } else if (mode === 'create' && knownServerNames.has(draft.serverName.trim())) {
-    issues.push(`serverName「${draft.serverName.trim()}」已存在`)
+    issues.push(t('validate.duplicate', { name: draft.serverName.trim() }))
   }
   if (draft.transport === 'stdio') {
-    if (draft.command.trim().length === 0) issues.push('stdio 传输需要 command')
+    if (draft.command.trim().length === 0) issues.push(t('validate.commandRequired'))
   } else if (draft.url.trim().length === 0) {
-    issues.push('streamable-http 传输需要 url')
+    issues.push(t('validate.urlRequired'))
   } else {
     try {
       const parsed = new URL(draft.url.trim())
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
-        issues.push('url 协议必须是 http 或 https')
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') issues.push(t('validate.urlProtocol'))
     } catch {
-      issues.push('url 不是合法的 URL')
+      issues.push(t('validate.urlInvalid'))
     }
   }
   if (draft.toolCallTimeoutMs.trim().length > 0) {
     const value = Number(draft.toolCallTimeoutMs)
-    if (!Number.isFinite(value) || value <= 0) issues.push('调用超时必须是正数（毫秒）')
+    if (!Number.isFinite(value) || value <= 0) issues.push(t('validate.timeoutPositive'))
   }
   return issues
 }

@@ -12,6 +12,7 @@ import type {
   AuthSequencedEvent,
 } from '../auth'
 import type { EffectiveModelFacts as EffectiveModelFactsWire } from '../effective'
+import type { ModelsKey } from './locales'
 import { errMsg } from '@dsh-plugins/shared'
 
 export const PI_AI_NS = 'llm-pi-ai'
@@ -304,10 +305,11 @@ export function deriveKeyRef(provider: string) {
 }
 
 // HTTP header 可携带的可打印 ASCII；同时拦截环境变量赋值式的粘贴。
-export function validateApiKey(raw: string): string | undefined {
+// 返回词典 key，渲染期取词。
+export function validateApiKey(raw: string): ModelsKey | undefined {
   const value = raw.trim()
-  if (value.length === 0) return 'API Key 不能为空'
-  if (!/^[\x21-\x7E]+$/.test(value)) return 'API Key 只能包含可打印 ASCII 字符；请粘贴原始密钥'
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(value)) return '这看起来是环境变量赋值；请只粘贴密钥本身'
+  if (value.length === 0) return 'validate.keyEmpty'
+  if (!/^[\x21-\x7E]+$/.test(value)) return 'validate.keyAscii'
+  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(value)) return 'validate.keyEnvAssignment'
   return undefined
 }

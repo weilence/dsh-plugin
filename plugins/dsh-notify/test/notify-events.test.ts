@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionStatus } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { apply } from '../src/client'
+import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Button: () => null }))
 vi.mock('@dsh-plugins/client-ui/tone', () => ({ ToneChip: () => null }))
@@ -56,6 +57,8 @@ function setup() {
     effect: (callback: () => unknown) => {
       callback()
     },
+    // locale 服务替身：register 丢弃、bind 返回真实的 zh 取词（通知正文断言用）。
+    locale: { register: () => () => {}, bind: () => makeT() },
     slots: { inject: vi.fn() },
   } as unknown as Context
   apply(ctx)

@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RootMatcher, agentsSkillsDir, findProjectRoot, isUnder, managedRoots } from '../src/roots'
-import { sourceLabel } from '../src/shared'
+import { sourceLabelT } from '../src/client/locales'
+import { makeT } from './i18n'
 
 const tempDirs: string[] = []
 
@@ -79,9 +80,9 @@ describe('环境变量解析', () => {
     )
   })
 
-  it('四个根都有展示标签', () => {
-    expect(sourceLabel('user-dsh')).toContain('.dsh/skills')
-    expect(sourceLabel('project-agents')).toContain('.agents/skills')
+  it('四个根都有展示标签（词典侧，Host 不再下发中文 label）', () => {
+    expect(sourceLabelT('user-dsh', makeT())).toContain('.dsh/skills')
+    expect(sourceLabelT('project-agents', makeT())).toContain('.agents/skills')
   })
 })
 

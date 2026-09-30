@@ -3,15 +3,17 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ToneChip } from '@dsh-plugins/client-ui/tone'
 // Type-only：ctx.remote / ctx.uiSession / ctx.sessions / ctx.uiWorkspace /
-// ctx.slots 与 settings.section 槽位的 Context 声明合并。
+// ctx.slots / ctx.locale 与 settings.section 槽位的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { interactionDetail } from './detail'
+import { NS, en, zh, type NotifyT } from './client/locales'
 import styles from './client.module.css'
 
 type PermissionState = 'unsupported' | 'default' | 'granted' | 'denied'
@@ -61,18 +63,18 @@ function showNotification(title: string, body: string, onClick?: () => void): vo
 }
 
 // 会话标题：sessions.list 快照的 displayTitle；防御式读取，容忍版本偏差。
-function titleOf(ctx: ClientContext, sessionId: string): string {
+function titleOf(ctx: ClientContext, sessionId: string, t: NotifyT): string {
   try {
     const title = ctx.sessions.list.getSnapshot().byId[sessionId as SessionId]?.displayTitle
     if (typeof title === 'string' && title.length > 0) return title
   } catch {}
-  return '会话 ' + String(sessionId).slice(0, 8)
+  return t('session.fallback', { id: String(sessionId).slice(0, 8) })
 }
 
 // 事件路径的完整决策：总开关 + 前台静默；「测试」按钮绕过本函数直达原语。
 // 完成瞬间可能恰逢用户正在离开：静默命中时 3 秒后复查一次，届时已离开则
 // 补弹，仍在浏览则放弃。
-function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?: string): void {
+function notify(ctx: ClientContext, t: NotifyT, sessionId: string, kind: NotifyKind, detail?: string): void {
   if (!notifyEnabled) return
   const id = sessionId as SessionId
   const session = ctx.sessions.list.getSnapshot().byId[id]
@@ -80,15 +82,16 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
   if (!session || session.origin === 'subagent' || ctx.sessions.subagentAddress(id)) return
   const viewing = isPageViewing()
   const fire = (): void => {
+    // 通知在投递瞬间取词：桌面通知是一次性载体，不随语言切换重渲染。
     const body =
       kind === 'question'
-        ? detail || '等待您的回答'
+        ? detail || t('notify.question')
         : kind === 'approval'
-          ? detail || '等待您的批准'
-          : '模型处理已完成'
+          ? detail || t('notify.approval')
+          : t('notify.turn')
     // 点击通知聚焦页面并切换到对应会话（desktop 上 renderer 无法恢复最小化
     // 窗口，由宿主侧代为恢复）。
-    showNotification('DSH · ' + titleOf(ctx, sessionId), body, () => {
+    showNotification('DSH · ' + titleOf(ctx, sessionId, t), body, () => {
       try {
         ctx.uiWorkspace.openSession(sessionId as SessionId)
       } catch (error) {
@@ -106,19 +109,17 @@ function notify(ctx: ClientContext, sessionId: string, kind: NotifyKind, detail?
   fire()
 }
 
-const CHIP: Record<PermissionState, { text: string; tone: 'ok' | 'warn' | 'err' }> = {
-  unsupported: { text: '浏览器不支持', tone: 'err' },
-  default: { text: '未授权', tone: 'warn' },
-  granted: { text: '已授权', tone: 'ok' },
-  denied: { text: '已被拒绝', tone: 'err' },
-}
-
-function NotifyPanel() {
+function NotifyPanel({ t }: { t: NotifyT }) {
   const [permission, setPermission] = useState<PermissionState>(readPermission)
   const [busy, setBusy] = useState(false)
   const [enabled, setEnabled] = useState(() => notifyEnabled)
 
-  const chip = CHIP[permission]
+  const chip = {
+    unsupported: { text: t('permission.unsupported'), tone: 'err' as const },
+    default: { text: t('permission.default'), tone: 'warn' as const },
+    granted: { text: t('permission.granted'), tone: 'ok' as const },
+    denied: { text: t('permission.denied'), tone: 'err' as const },
+  }[permission]
 
   const onToggle = (): void => {
     notifyEnabled = !notifyEnabled
@@ -136,17 +137,9 @@ function NotifyPanel() {
 
   return (
     <div className={styles.panel}>
-      <p className={styles.desc}>
-        当主代理会话的模型回合处理完成、模型发起提问（含计划审批）
-        等待您回答、或工具操作等待您批准时，通过浏览器 Notification API 发送
-        系统级桌面通知，点击通知可聚焦回本页面。事件经宿主 Remote 通道实时
-        转发，无轮询；需要本页面保持打开（关闭期间的事件无接收方、不会补发，
-        仍在等待的提问/审批会在页面重开后补通知）。首次使用请先授予通知
-        权限。您正在浏览本页（标签页可见且窗口聚焦）时不弹通知；这类事件约 3 秒
-        后复查一次——届时已切走则补弹，仍在浏览则静默。
-      </p>
+      <p className={styles.desc}>{t('panel.desc')}</p>
       <div className={styles.row}>
-        <span className={styles.title}>完成通知</span>
+        <span className={styles.title}>{t('panel.switchTitle')}</span>
         <ToneChip tone={chip.tone}>{chip.text}</ToneChip>
       </div>
       <div className={styles.row}>
@@ -159,29 +152,32 @@ function NotifyPanel() {
               void onRequest()
             }}
           >
-            {busy ? '请求中…' : '请求通知权限'}
+            {busy ? t('panel.requesting') : t('panel.requestPermission')}
           </Button>
         )}
         <Button variant="outline" size="sm" onClick={onToggle}>
-          {enabled ? '通知：开' : '通知：关'}
+          {enabled ? t('panel.enabled') : t('panel.disabled')}
         </Button>
         <Button
           variant="outline"
           size="sm"
           onClick={() => {
-            showNotification('DSH · 测试通知', '模型处理已完成')
+            showNotification(t('panel.testTitle'), t('notify.turn'))
           }}
         >
-          测试
+          {t('panel.test')}
         </Button>
       </div>
     </div>
   )
 }
 
-export const inject: string[] = ['remote', 'sessions', 'uiSession', 'uiWorkspace', 'slots']
+export const inject: string[] = ['remote', 'sessions', 'uiSession', 'uiWorkspace', 'slots', 'locale']
 
 export function apply(ctx: ClientContext) {
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-notify: copy dictionaries')
+  const t = ctx.locale.bind(NS)
+
   // 首次激活主动请求一次权限（best effort；仅 default 状态），结果无需回写。
   if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
     void requestPermission()
@@ -192,7 +188,7 @@ export function apply(ctx: ClientContext) {
     // 回合完成走转发的 api-session/status：emit 语义订阅即收，不像 waterfall 监听器会阻塞到用户作答。
     const disposeStatus = ctx.remote.$on('api-session/status', (sessionId, running) => {
       if (running !== false) return
-      notify(ctx, sessionId, 'turn')
+      notify(ctx, t, sessionId, 'turn')
     })
 
     // 提问/审批不直接 $on waterfall 事件：官方 UI 的监听器阻塞到用户作答才返回、第三方排在链尾收不到，sessionStatus 才是公开汇聚点；基线取订阅时刻快照（已存在的等待不回放），此后新增 key 即通知。
@@ -205,9 +201,10 @@ export function apply(ctx: ClientContext) {
         if (baseline.get(sessionId)?.pendingInteraction?.key === pending.key) continue
         notify(
           ctx,
+          t,
           sessionId,
           pending.kind === 'approval' ? 'approval' : 'question',
-          interactionDetail(pending),
+          interactionDetail(t, pending),
         )
       }
       baseline = next
@@ -221,7 +218,13 @@ export function apply(ctx: ClientContext) {
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
-      { name: 'settings.section', id: 'dsh-notify', order: 50, label: '完成通知' },
+      {
+        name: 'settings.section',
+        id: 'dsh-notify',
+        order: 50,
+        label: () => t('section.label'),
+        inject: (): { t: NotifyT } => ({ t }),
+      },
       NotifyPanel,
     )
   })

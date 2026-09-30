@@ -5,6 +5,8 @@ import type { ModelsDevLookup } from '../catalog/matching'
 import { jsonEqual } from '../pi-ai/ops'
 import { validateModelEntry, type FieldIssue } from '../pi-ai/validate'
 import type { ModelRow } from '../pi-ai/profile'
+import type { ModelsT } from './locales'
+import { messageText } from './locales'
 import type { EffectiveModelFacts } from './operations'
 import { IssueList, TextAreaField, TextField } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -27,6 +29,7 @@ export interface ModelFormProps {
    */
   catalogIds?: ReadonlySet<string>
   busy: boolean
+  t: ModelsT
   /** 实时应用：任一有效修改立即折叠进所在页面的草稿（不写文件）。 */
   onChange(entry: PiAiModelEntry): void
   /**
@@ -132,22 +135,27 @@ function draftToEntry(id: string, draft: Draft, defaultInput?: readonly string[]
   return entry
 }
 
-function compatIssue(text: string): FieldIssue[] {
+function compatIssue(text: string, t: ModelsT): FieldIssue[] {
   if (text.trim().length === 0) return []
   try {
     const parsed: unknown = JSON.parse(text)
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return [{ path: 'compat', message: 'compat 必须是 JSON 对象' }]
+      return [{ path: 'compat', message: { key: 'form.compatNotObject' } }]
     }
   } catch (error) {
-    return [{ path: 'compat', message: `compat 不是合法 JSON：${(error as Error).message}` }]
+    return [
+      {
+        path: 'compat',
+        message: { key: 'form.compatInvalidJson', params: { detail: (error as Error).message } },
+      },
+    ]
   }
   return []
 }
 
-function issuesFor(entry: PiAiModelEntry, draft: Draft): FieldIssue[] {
+function issuesFor(entry: PiAiModelEntry, draft: Draft, t: ModelsT): FieldIssue[] {
   const issues = validateModelEntry(entry)
-  issues.push(...compatIssue(draft.compatText))
+  issues.push(...compatIssue(draft.compatText, t))
   return issues
 }
 
@@ -215,6 +223,7 @@ const AUTOFILL_DEBOUNCE_MS = 500
 type AutofillStatus = { state: 'loading' | 'matched' | 'none'; source?: string } | undefined
 
 export function ModelForm(props: ModelFormProps) {
+  const { t } = props
   const [id, setId] = useState(props.row.id)
   const [draft, setDraft] = useState<Draft>(() => initialDraft(props.row, props.facts))
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -263,11 +272,12 @@ export function ModelForm(props: ModelFormProps) {
     return draftToEntry(id.trim(), draft, defaultInput)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, draft, props.facts, props.row.catalogEntry])
-  const issues = useMemo(() => issuesFor(entry, draft), [entry, draft])
+  const issues = useMemo(() => issuesFor(entry, draft, t), [entry, draft, t])
   const duplicate = props.creating && props.existingRows.some((row) => row.id === id.trim())
   const allIssues = duplicate
-    ? [...issues, { path: 'id', message: `模型 id「${id.trim()}」已存在于本 Provider` }]
+    ? [...issues, { path: 'id', message: { key: 'form.duplicateId', params: { id: id.trim() } } as const }]
     : issues
+  const issueTexts = allIssues.map((issue) => ({ message: messageText(issue.message, t) }))
 
   /** 打开表单时的初始条目：用于判定用户是否修改过（修改过即持续推送）。 */
   const initialEntryRef = useRef<PiAiModelEntry | undefined>(undefined)
@@ -291,40 +301,35 @@ export function ModelForm(props: ModelFormProps) {
   return (
     <div className={styles.modelFormBox}>
       {/* 编辑态卡片行头已标识模型，不再重复标题；新增态保留，标示这是新条目表单。 */}
-      {props.creating ? <h3 className={styles.sectionTitle}>新增模型</h3> : null}
+      {props.creating ? <h3 className={styles.sectionTitle}>{t('form.newModel')}</h3> : null}
 
-      {mutated && allIssues.length > 0 ? <IssueList issues={allIssues} /> : null}
+      {mutated && allIssues.length > 0 ? <IssueList issues={issueTexts} /> : null}
 
       {props.creating &&
       props.catalogIds !== undefined &&
       id.trim().length > 0 &&
       !props.catalogIds.has(id.trim()) ? (
-        <div className={styles.notice}>
-          模型 <code className={styles.code}>{id.trim()}</code> 不在 pi-ai 安装目录里。官方{' '}
-          <code className={styles.code}>modelOverrides</code> 不能指定目录未描述的模型，因此保存会把该 route
-          固定为一份显式 <code className={styles.code}>models</code> 清单：以后 pi-ai
-          升级新增的目录模型不会自动出现。
-        </div>
+        <div className={styles.notice}>{t('form.foreignNotice', { id: id.trim() })}</div>
       ) : null}
 
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>基础</h3>
+        <h3 className={styles.sectionTitle}>{t('form.basic')}</h3>
         <div className={styles.grid}>
           <TextField
-            label="模型 ID（请求时发送给 Provider）"
+            label={t('form.modelId')}
             value={id}
             disabled={!props.creating || props.busy}
             onChange={setId}
           />
           <TextField
-            label="显示名（留空显示 ID）"
+            label={t('form.displayName')}
             value={draft.name}
             disabled={props.busy}
             placeholder={props.row.id}
             onChange={(value) => setDraft({ ...draft, name: value })}
           />
           <TextField
-            label="上下文窗口（token 总数）"
+            label={t('form.contextWindow')}
             inputMode="numeric"
             value={draft.contextWindow}
             disabled={props.busy}
@@ -332,11 +337,12 @@ export function ModelForm(props: ModelFormProps) {
               props.facts?.contextWindow ??
                 props.row.catalogEntry?.contextWindow ??
                 props.routeDefaults?.contextWindow,
+              t,
             )}
             onChange={(value) => setDraft({ ...draft, contextWindow: value })}
           />
           <TextField
-            label="最大输出 token"
+            label={t('form.maxTokens')}
             inputMode="numeric"
             value={draft.maxTokens}
             disabled={props.busy}
@@ -344,6 +350,7 @@ export function ModelForm(props: ModelFormProps) {
               props.facts?.defaultMaxTokens ??
                 props.row.catalogEntry?.maxTokens ??
                 props.routeDefaults?.maxTokens,
+              t,
             )}
             onChange={(value) => setDraft({ ...draft, maxTokens: value })}
           />
@@ -351,24 +358,23 @@ export function ModelForm(props: ModelFormProps) {
         {props.creating && autofillStatus !== undefined ? (
           <div className={autofillStatus.state === 'matched' ? styles.notice : styles.hint}>
             {autofillStatus.state === 'loading'
-              ? '正在按 models.dev 查询模型元数据…'
+              ? t('form.autofillLoading')
               : autofillStatus.state === 'matched'
-                ? `已按 models.dev${autofillStatus.source === undefined ? '' : `（${autofillStatus.source}）`}填充空白字段，可手动修改`
-                : 'models.dev 未收录该模型（或目录暂不可用），可手动填写能力字段'}
+                ? t('form.autofillMatched', {
+                    source: autofillStatus.source === undefined ? '' : `（${autofillStatus.source}）`,
+                  })
+                : t('form.autofillNone')}
           </div>
         ) : null}
-        <p className={styles.hint}>
-          显式配置 <code className={styles.code}>maxTokens</code>{' '}
-          后，它不仅描述模型能力，还会成为该模型每次请求的默认输出上限。
-        </p>
+        <p className={styles.hint}>{t('form.maxTokensHint')}</p>
       </section>
 
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>输入模态</h3>
+        <h3 className={styles.sectionTitle}>{t('form.modalities')}</h3>
         <div className={styles.checkRow}>
           <label className={styles.check}>
             <Switch checked disabled onChange={() => {}} label="text" />
-            text（Agent 必需）
+            {t('form.textRequired')}
           </label>
           <label className={styles.check}>
             <Switch
@@ -377,25 +383,22 @@ export function ModelForm(props: ModelFormProps) {
               onChange={(next) => setDraft({ ...draft, input: { ...draft.input, image: next } })}
               label="image"
             />
-            image（图像输入）
+            {t('form.imageInput')}
           </label>
         </div>
-        <p className={styles.hint}>
-          text 恒选且不可取消；勾选结果与继承默认一致时不写 <code className={styles.code}>input</code>
-          （保持继承），不同才显式写入。
-        </p>
+        <p className={styles.hint}>{t('form.modalitiesHint')}</p>
       </section>
 
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>推理强度</h3>
+        <h3 className={styles.sectionTitle}>{t('form.reasoning')}</h3>
         <label className={styles.check}>
           <Switch
             checked={draft.disableEfforts}
             disabled={props.busy}
             onChange={(next) => setDraft({ ...draft, disableEfforts: next })}
-            label="不支持推理"
+            label={t('form.noReasoning')}
           />
-          不支持推理（<code className={styles.code}>reasoningEfforts: false</code>）
+          reasoningEfforts: false
         </label>
         <div
           className={
@@ -425,7 +428,7 @@ export function ModelForm(props: ModelFormProps) {
                   className={styles.input}
                   value={value ?? ''}
                   disabled={!checked || props.busy || draft.disableEfforts}
-                  placeholder={level === 'off' ? '留空 = 不发送参数' : level}
+                  placeholder={level === 'off' ? t('form.offPlaceholder') : level}
                   onChange={(event) =>
                     setDraft({ ...draft, efforts: { ...draft.efforts, [level]: event.target.value } })
                   }
@@ -433,44 +436,32 @@ export function ModelForm(props: ModelFormProps) {
               </div>
             )
           })}
-          <p className={styles.hint}>
-            勾选等级会自动预填同名 wire 值，可手动修改。<code className={styles.code}>off</code> 留空 =
-            不发送参数；其余等级必须给出非空值，且至少要有一个非 <code className={styles.code}>off</code>{' '}
-            等级。全不勾选 = 不写 <code className={styles.code}>reasoningEfforts</code>
-            （档位继承目录），与上方「不支持推理」（显式写 <code className={styles.code}>false</code>
-            ）是两种不同的状态。
-          </p>
+          <p className={styles.hint}>{t('form.effortsHint')}</p>
         </div>
       </section>
 
       <section className={styles.section}>
         <DisclosureRow
           icon={<IconSettingsOutlineRegular />}
-          title="高级（compat，含推理参数格式 thinkingFormat）"
+          title={t('form.advanced')}
           open={showAdvanced}
           expandable
           expandOnRowClick
           onToggle={() => setShowAdvanced(!showAdvanced)}
         >
           <TextAreaField
-            label="compat（JSON 对象，选填）"
+            label={t('form.compatLabel')}
             value={draft.compatText}
             placeholder={'{\n  "thinkingFormat": "openai"\n}'}
             onChange={(value) => setDraft({ ...draft, compatText: value })}
           />
-          <p className={styles.hint}>
-            模型级 compat 只在其协议（由 route 的 <code className={styles.code}>api</code>{' '}
-            决定）支持该字段时才被 Host 接受。要让推理强度真正过线，在这里设置{' '}
-            <code className={styles.code}>thinkingFormat</code>
-            （openai-compatible 网关多为 <code className={styles.code}>openai</code>，DeepSeek 用{' '}
-            <code className={styles.code}>deepseek</code>，vLLM/OpenRouter 等各有自己的值）。
-          </p>
+          <p className={styles.hint}>{t('form.compatHint')}</p>
         </DisclosureRow>
       </section>
     </div>
   )
 }
 
-function placeholderNumber(value: number | undefined) {
-  return value === undefined ? '默认' : String(value)
+function placeholderNumber(value: number | undefined, t: ModelsT) {
+  return value === undefined ? t('form.defaultPlaceholder') : String(value)
 }

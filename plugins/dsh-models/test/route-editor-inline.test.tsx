@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { FALLBACK_CHOICES } from '../src/pi-ai/choices'
 import { buildRoutes } from '../src/pi-ai/view'
 import { RouteEditor } from '../src/client/RouteEditor'
+import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
@@ -68,6 +69,7 @@ function renderEditor(declared: boolean) {
       busy: false,
       error: null,
       modelsDev: null,
+      t: makeT(),
       onLoadModelsDev: async () => null,
       onDirtyChange: () => {},
       onCancel: () => {},

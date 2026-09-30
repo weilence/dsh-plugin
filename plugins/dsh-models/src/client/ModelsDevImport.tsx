@@ -6,6 +6,8 @@ import { planProviderCreation } from '../catalog/map'
 import type { ModelsDevCatalog, ModelsDevProvider } from '../catalog/types'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { effortsLabel, type PanelRoute } from '../pi-ai/view'
+import type { ModelsT, PanelMessage } from './locales'
+import { messageText } from './locales'
 import { ModelTable, TextField } from '@dsh-plugins/client-ui'
 import { errMsg } from '@dsh-plugins/shared'
 import styles from '@dsh-plugins/client-ui/styles'
@@ -19,6 +21,7 @@ export interface ModelsDevImportProps {
   /** 协议下拉建议（外层 choices 内省所得）。 */
   protocols: readonly string[]
   busy: boolean
+  t: ModelsT
   onCancel(): void
   /** 获取模型：按 Endpoint + 协议 + 一次性 API Key 询问 Host 的模型清单。 */
   onFetchModels(request: {
@@ -29,7 +32,7 @@ export interface ModelsDevImportProps {
   onSaveProfile(
     provider: string,
     profile: PiAiProviderEntry,
-    notice: string,
+    notice: PanelMessage,
     apiKey?: string,
   ): Promise<boolean>
 }
@@ -57,6 +60,7 @@ const FALLBACK_MAX_TOKENS = 32_768
 
 export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImportProps>(
   function ModelsDevImport(props, ref) {
+    const { t } = props
     const [providerId, setProviderId] = useState('')
     const [displayName, setDisplayName] = useState('')
     const [apiKey, setApiKey] = useState('')
@@ -111,15 +115,15 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
     const apply = async () => {
       setApplyError(null)
       if (target.length === 0) {
-        setApplyError('新 Provider ID 不能为空')
+        setApplyError(t('import.idRequired'))
         return
       }
       if (existing) {
-        setApplyError(`Provider ID「${target}」已存在；只能新建 Provider`)
+        setApplyError(t('import.duplicate', { id: target }))
         return
       }
       if (plan?.kind === 'unsupported' && apiValue.length === 0) {
-        setApplyError(plan.reason)
+        setApplyError(messageText(plan.reason, t))
         return
       }
       const displayNameValue = displayName.trim()
@@ -136,8 +140,8 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
         target,
         profile,
         models === null || models.length === 0
-          ? `已创建 Provider ${target}（模型清单为空，可展开卡片继续添加）`
-          : `已创建 Provider ${target}（${models.length} 个模型）`,
+          ? { key: 'notice.createdEmpty', params: { provider: target } }
+          : { key: 'notice.created', params: { provider: target, count: models.length } },
         apiKey.trim().length > 0 ? apiKey.trim() : undefined,
       )
       if (ok) props.onCancel()
@@ -156,9 +160,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
 
     return (
       <>
-        {props.loading && !props.catalog ? (
-          <div className={styles.loading}>正在读取 Host 的 models.dev 目录…</div>
-        ) : null}
+        {props.loading && !props.catalog ? <div className={styles.loading}>{t('import.loading')}</div> : null}
         {props.error ? (
           <div className={styles.error} role="alert">
             {props.error}
@@ -192,25 +194,21 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                 }}
               />
               <TextField
-                label="API Key（可选）"
+                label={t('import.apiKeyOptional')}
                 type="password"
                 autoComplete="off"
                 value={apiKey}
                 onChange={setApiKey}
               />
               <TextField
-                label="Provider ID"
+                label={t('import.providerId')}
                 value={providerId}
                 placeholder={source?.id ?? ''}
                 onChange={setProviderId}
               />
+              <TextField label={t('import.displayName')} value={displayName} onChange={setDisplayName} />
               <TextField
-                label="显示名（可选；留空不写入配置）"
-                value={displayName}
-                onChange={setDisplayName}
-              />
-              <TextField
-                label="API 协议（api；可留空，创建后展开卡片补全）"
+                label={t('import.apiProtocol')}
                 value={api}
                 placeholder={protocolLabel || 'openai-completions'}
                 datalist={props.protocols.map((protocol) => ({ value: protocol }))}
@@ -219,11 +217,11 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
             </div>
             {existing ? (
               <div className={styles.error} role="alert">
-                Provider ID「{target}」已存在；只能新建 Provider。
+                {t('import.duplicate', { id: target })}
               </div>
             ) : plan?.kind === 'unsupported' && apiValue.length === 0 ? (
               <div className={styles.error} role="alert">
-                {plan.reason}；也可在「API 协议」框手动填写后创建。
+                {t('import.unsupportedHint', { reason: messageText(plan.reason, t) })}
               </div>
             ) : null}
             <div className={styles.toolbar}>
@@ -234,9 +232,11 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                   void fetchModels()
                 }}
               >
-                {fetching ? '获取中…' : '获取模型'}
+                {fetching ? t('import.fetching') : t('import.fetch')}
               </Button>
-              <span className={styles.footerMeta}>{models !== null ? `共 ${models.length} 个模型` : ''}</span>
+              <span className={styles.footerMeta}>
+                {models !== null ? t('import.modelCount', { count: models.length }) : ''}
+              </span>
             </div>
             {fetchError ? (
               <div className={styles.error} role="alert">
@@ -245,9 +245,9 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
             ) : null}
             <div className={styles.list}>
               {models === null ? (
-                <div className={styles.empty}>模型清单为空；点「获取模型」拉取，或创建后展开卡片添加。</div>
+                <div className={styles.empty}>{t('import.emptyHint')}</div>
               ) : models.length === 0 ? (
-                <div className={styles.empty}>Endpoint 没有返回任何模型。</div>
+                <div className={styles.empty}>{t('import.noModels')}</div>
               ) : (
                 <ModelTable
                   rows={models.map((model) => ({
@@ -257,7 +257,7 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
                     ctx: model.contextWindow ?? FALLBACK_CONTEXT_WINDOW,
                     out: model.maxTokens ?? FALLBACK_MAX_TOKENS,
                     input: model.input ?? ['text'],
-                    reasoning: effortsLabel(model),
+                    reasoning: effortsLabel(model, t),
                   }))}
                 />
               )}
