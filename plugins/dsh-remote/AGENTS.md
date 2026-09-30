@@ -4,7 +4,7 @@
 
 ## 结构
 
-- `src/index.ts`：host half，九个 HTTP 路由（state / local-rows / remote-inventory / save / delete / test / connect / disconnect / sync）；请求校验与 JSON 读写来自 `@dsh-plugins/shared/http`；`applyWithEngine` 是测试注入口；部署在本机侧的准备动作也在此接线（`localDshVersion` / `localPluginVersion` / `packPlugin` / `packPackage` 在 staging 目录组装 npm tarball 布局 + 系统 tar，文件名内容寻址（name-version-指纹8，`payloadFileName` 派生）/ `pushFile` 把 tgz 二进制经 ssh stdin 落盘）。
+- `src/index.ts`：host half，九个 HTTP 路由（state / local-rows / remote-inventory / save / delete / test / connect / disconnect / sync）；`applyWithEngine` 是测试注入口；部署在本机侧的准备动作也在此接线（`localDshVersion` / `localPluginVersion` / `packPlugin` / `packPackage` 在 staging 目录组装 npm tarball 布局 + 系统 tar，文件名内容寻址（name-version-指纹8，`payloadFileName` 派生）/ `pushFile` 把 tgz 二进制经 ssh stdin 落盘）。
 - `src/engine.ts`：连接状态机（阶段 + 进行中操作 + running 事实）与全部操作流程（连接 = 部署段各步骤 + 实例启动轮询；三类同步 = 远端事实读取 + 逐条一致性判定 + 只对差异项新增/覆盖）；`beginOp` 同步抢占互斥锁，长操作 fire-and-forget，面板轮询 GET /state 跟踪。
 - `src/ssh.ts`：ssh 执行器（node:child_process 直接 spawn + 错误分类）、`bash -lc` 登录 shell 包装（npm 全局 bin 进 PATH）、tar-over-ssh 单通道、`ssh -N -L` 转发句柄。
 - `src/launch.ts`：远端启动行 `dsh web: <url>` 的宽松解析（端口 + token；格式无版本契约）。
@@ -12,7 +12,7 @@
 - `src/localenv.ts`：本机清单只读扫描（skills 两根扫描（含 `foldSkillDigest` 内容指纹折叠——远端 find|sha256 输出共用同一折叠）、两层 patch 的 MCP 行 fold（含配置签名）与插件行——插件行 = patch insert 行 ∪ 层 package.json `dsh.profile.bundles` 激活清单（link 安装的主要登记处，`@deepseek-ai/*` 平台包过滤）；行含安装形态与包定位：dependencies 的 link:/file: spec 为本地、spec 目标即包根；registry 行定位到层内 node_modules 实体；行还带包树内容指纹 `packageTreeDigest`（排除段 `PACKAGE_PACK_EXCLUDED` 与打包单一来源）与 `payloadFileName` 内容寻址命名；全局提示词行 `scanGlobalPrompt`（profileContext.home 下的 AGENTS.md，与 dsh-prompts 同一文件））——全部只读。
 - `src/connections.ts`：`$DSH_HOME/dsh-remote.json` 持久化（连接库 + 同步 manifest）与保存请求校验。
 - `src/forwards.ts`：本地转发租约（`$DSH_HOME/dsh-remote/forwards.json`）——连接成功落盘 `{pid, localPort, remotePort, at}`，断开 / 转发死亡清除，引擎 load 时清扫上个宿主生命周期遗留（`ssh.ts` 的 `killOrphanForward` 核验命令行后才杀）；短命记录、损坏即弃，不参与任何连接判定。
-- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按阶段渲染，运行中「打开」按钮常驻——**连接成功不自动开页**，store 的阶段迁移检测发 toast），行上带同步下拉（hover 展开四项菜单）与「删除」），行内编辑表单只管基本信息；菜单选类别后 SyncDialog 打开该类清单（远端事实逐条判定出徽标，非 same 默认不勾选，「隐藏已一致」开关只影响显示，same 项锁定勾选），确认即随 POST /sync 直接提交勾选项（无中间保存；同步完成 / 失败由 store 的 op 迁移检测发 toast 摘要）；HTTP 封装用 `@dsh-plugins/shared/api`（自定义头 `x-dsh-remote`）。
+- `src/client/`：面板；连接为可展开卡片（状态 pill + 动作按钮按阶段渲染，运行中「打开」按钮常驻——**连接成功不自动开页**，store 的阶段迁移检测发 toast），行上带同步下拉（hover 展开四项菜单）与「删除」），行内编辑表单只管基本信息；菜单选类别后 SyncDialog 打开该类清单（远端事实逐条判定出徽标，非 same 默认不勾选，「隐藏已一致」开关只影响显示，same 项锁定勾选），确认即随 POST /sync 直接提交勾选项（无中间保存；同步完成 / 失败由 store 的 op 迁移检测发 toast 摘要）；HTTP 封装自定义头 `x-dsh-remote`。
 
 ## 改动约定
 
@@ -21,7 +21,7 @@
 - 远端装本插件不走 registry（无 scope 包名被第三方占用）：连接的部署段对比远端 `node_modules/@weilence/dsh-remote` 的 version 与 profile 登记及本机版本，全部一致则跳过；否则 `packPlugin` 本地组装 tgz（npm tarball 布局，依赖构建产物 lib/ 已存在）→ `pushFile` 落盘 `~/.dsh/dsh-remote/payload/` → `dsh plugin add "$HOME/....tgz"`；安装完成后读回远端 package.json 的 version 防假阳性（add 退出码 0 不代表安装成功——旧实现只查 `dsh -V`，实测掩盖过未安装的情况）。
 - 插件激活写远端 profile package.json 的 `dsh.profile.bundles`（不是 patch 行）；同步 MCP 写远端 `<profile>/cordis.patch.yml`，远端行按 serverName 对齐（手写行 id 不必遵循 `mcp-<serverName>` 命名约定），远端 dsh-mcp 面板可无缝接手。
 - 本插件不做第二套远端状态存储：连接库持久化在 `$DSH_HOME/dsh-remote.json`；运行态（阶段 / 转发子进程 / pid）只驻内存，宿主重启即回到 idle——唯一例外是本地转发租约（`src/forwards.ts`，`$DSH_HOME/dsh-remote/forwards.json`）：它不驱动任何判定，只让引擎 load 时能杀掉上个宿主生命周期遗留的 `ssh -N -L` 进程（宿主被 SIGKILL / 崩溃不走 dispose 兜底），使「重启即 idle」不带幽灵隧道。
-- ssh / tar 经 node:child_process 直接 spawn：宿主侧受信代码、用户从设置页发起，不经模型沙箱；认证完全复用用户 OpenSSH 配置。
+- ssh / tar 经 node:child_process 直接 spawn；认证完全复用用户 OpenSSH 配置。
 - 远端写操作三处固定：`~/.dsh/dsh-remote/`、`~/.dsh/profiles/<name>/`、两个 skills 根；一律 tmp+mv 原子落盘或幂等命令。
 - `dsh web:` 启动行解析保持宽松（前缀 + 首个 URL + token query），不假设路径形态。
 - 远端清单读取（remoteInventory：skills 两根 `find . -type f ! -path '*/.*' | xargs -0 sha256sum`（sha256sum / shasum 择一，hasher 缺失时打 `__DSH_NO_HASHER__` 哨兵）、MCP patch 行按 serverName 取签名、插件取 bundles + `node -e` 批量读版本与包树指纹、提示词单文件 sha256（缺失打 `__ABSENT__`））解析失败按该类 null 降级——弹窗按「无法比对」徽标渲染但**不阻断同步**（只新增/覆盖无删除风险，最坏是无对比的全量覆盖勾选项）；ssh 连接级失败原样抛。
@@ -44,8 +44,6 @@
 - 健康检查只验证「隧道上取到任何 HTTP 响应」：远端对无凭据 `GET /` 应答 401（index 由 browser-auth 保护），按状态码判定存活会把正常的隧道误判为失败（实际发生过）；pid 存活时 start 复用旧实例，重试连接不会累积 nohup 孤儿进程。
 - 同步 MCP / 插件安装写入后依赖远端实例的 HMR 在线应用；实例未运行时，写入的内容在下次启动时生效；宿主未启用 HMR 时需断开重连（重启实例会换 token，不做自动重启）——面板与弹窗不显示关于生效时机的提示。
 - 本地转发（`ssh -N -L` 子进程）不随宿主进程退出而亡，泄漏防线三层：runConnect 开头杀旧句柄（重连覆盖句柄前必须 kill）；`fail()` 分流——同步操作失败且连接仍在（running 非空）时保留转发、阶段回 running（操作失败 ≠ 连接中断；旧行为清 running 不杀进程，正是「隧道在而面板未连接」的一个根因），其余失败杀转发清 running；`ctx.effect` 挂 `engine.dispose()` 兜底正常退出。宿主被 SIGKILL / 崩溃仍会漏——转发租约 + load 清扫兜住（`src/forwards.ts`）：杀前经 `killOrphanForward` 核验命令行仍属本插件形态（防 pid 复用误杀，核验工具缺失则留待下次）。注意同一 `$DSH_HOME` 起两个宿主实例会互相清掉对方的转发。排查：`lsof -nP -iTCP -sTCP:LISTEN | grep ssh` 对照 GET /dsh-remote/state 的 `running.localPort`，活跃转发以外的都是泄漏。
-- `yaml` 是 host half 唯一内联的 node_modules 依赖（`host.bundle: ['yaml']`）；新增运行时依赖须显式进 bundle。
-- host half 变更需重启宿主；client half 刷新页面即生效。
 
 ## 测试
 
