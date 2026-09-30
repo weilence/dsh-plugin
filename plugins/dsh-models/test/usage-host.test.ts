@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../src/usage/copilot', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/usage/copilot')>()),
-  getCopilotBilledUsage: vi.fn(),
+  readCopilotQuota: vi.fn(),
 }))
 
 vi.mock('../src/usage/codex', async (importOriginal) => ({
@@ -26,7 +26,7 @@ vi.mock('../src/mirror', () => ({
 
 import { apply, USAGE_PATH } from '../src/index'
 import { CODEX_CREDENTIAL_KEY, readCodexQuota, type CodexQuota } from '../src/usage/codex'
-import { getCopilotBilledUsage } from '../src/usage/copilot'
+import { COPILOT_CREDENTIAL_KEY, readCopilotQuota } from '../src/usage/copilot'
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
 
@@ -153,40 +153,56 @@ describe('Provider 用量 Host 路由', () => {
     })
   })
 
-  it('Copilot 无计费令牌时明确报错，不要求额外填写个人用户名', async () => {
-    const { request } = setup()
+  it('Copilot 使用模型登录态的套餐额度，不读取 Billing token', async () => {
+    const read = vi.mocked(readCopilotQuota)
+    read.mockReset()
+    read.mockResolvedValueOnce({
+      remainingPct: 70,
+      remaining: 210,
+      entitlement: 300,
+      unlimited: false,
+      resetMs: null,
+    })
+    const resolve = vi.fn(async () => undefined)
+    const { request } = setup(resolve)
     expect(await request(`${USAGE_PATH}?provider=github-copilot`)).toMatchObject({
       status: 200,
-      body: { kind: 'unavailable', error: expect.stringContaining('COPILOT_BILLING_TOKEN') },
+      body: {
+        kind: 'quota',
+        windows: [{ label: '高级请求', usedPct: 30, remaining: 210, entitlement: 300 }],
+      },
     })
-    expect(getCopilotBilledUsage).not.toHaveBeenCalled()
+    expect(read).toHaveBeenCalledOnce()
+    expect(resolve).not.toHaveBeenCalled()
   })
 
-  it('Copilot 未指定付款组织或用户名时，交由计费适配器验证令牌身份', async () => {
-    const oldName = process.env['DSH_COPILOT_BILLING_USERNAME']
-    const oldOrg = process.env['DSH_COPILOT_BILLING_ORG']
-    delete process.env['DSH_COPILOT_BILLING_USERNAME']
-    delete process.env['DSH_COPILOT_BILLING_ORG']
-    const read = vi.mocked(getCopilotBilledUsage)
-    read.mockResolvedValueOnce({
-      payer: { kind: 'user', name: 'monalisa' },
-      timePeriod: { year: 2026, month: 9 },
-      usageItems: [],
+  it('Copilot 授权变化失效缓存，旧账号请求不得覆盖新额度', async () => {
+    const read = vi.mocked(readCopilotQuota)
+    read.mockReset()
+    let finishOld!: (value: Awaited<ReturnType<typeof readCopilotQuota>>) => void
+    read.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishOld = resolve
+        }),
+    )
+    read.mockResolvedValue({
+      remainingPct: 25,
+      remaining: 25,
+      entitlement: 100,
+      unlimited: false,
+      resetMs: null,
     })
-    try {
-      const { request } = setup(async (name) =>
-        name === 'COPILOT_BILLING_TOKEN' ? { value: 'billing-token' } : undefined,
-      )
-      expect(await request(`${USAGE_PATH}?provider=github-copilot`)).toMatchObject({
-        status: 200,
-        body: { kind: 'billing', payer: '个人 monalisa' },
-      })
-      expect(read).toHaveBeenCalledWith({ token: 'billing-token' })
-    } finally {
-      if (oldName === undefined) delete process.env['DSH_COPILOT_BILLING_USERNAME']
-      else process.env['DSH_COPILOT_BILLING_USERNAME'] = oldName
-      if (oldOrg === undefined) delete process.env['DSH_COPILOT_BILLING_ORG']
-      else process.env['DSH_COPILOT_BILLING_ORG'] = oldOrg
-    }
+    const { request, recordUpdated } = setup()
+    const path = `${USAGE_PATH}?provider=github-copilot`
+    const old = request(path)
+    recordUpdated(COPILOT_CREDENTIAL_KEY)
+    expect((await request(path)).body).toMatchObject({ kind: 'quota', windows: [{ usedPct: 75 }] })
+    finishOld({ remainingPct: 90, remaining: 90, entitlement: 100, unlimited: false, resetMs: null })
+    expect((await old).body).toMatchObject({
+      kind: 'unavailable',
+      error: expect.stringContaining('授权已更新'),
+    })
+    expect((await request(path)).body).toMatchObject({ kind: 'quota', windows: [{ usedPct: 75 }] })
   })
 })

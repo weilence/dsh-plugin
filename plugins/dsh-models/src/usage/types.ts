@@ -9,24 +9,17 @@ export interface UsageWindow {
   label: string
   usedPct: number | null
   resetMs: number | null
+  remaining?: number | null
+  entitlement?: number | null
+  unlimited?: boolean
 }
 
 export type ProviderUsage =
   | {
       kind: 'quota'
-      provider: 'zai-coding-cn' | 'openai-codex'
+      provider: 'zai-coding-cn' | 'openai-codex' | 'github-copilot'
       label: string
       windows: UsageWindow[]
-      queriedAt: number
-    }
-  | {
-      kind: 'billing'
-      provider: 'github-copilot'
-      label: string
-      payer: string
-      payerKind: 'user' | 'organization'
-      period: string
-      items: { label: string; requests: number }[]
       queriedAt: number
     }
   | { kind: 'unavailable'; provider: string; label: string; error: string }

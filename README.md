@@ -9,7 +9,7 @@
 | 插件                                       | 包名                        | 功能                                                                                                                                                                                |
 | ------------------------------------------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [dsh-mcp](plugins/dsh-mcp)                 | `@weilence/dsh-mcp`         | 设置页「MCP 管理」：浏览 profile / 全局两层 patch 声明的 MCP 服务器与运行态（工具清单、连接失败摘要），新建、编辑、启停、删除（YAML round-trip 保留注释，HMR 在线生效）             |
-| [dsh-models](plugins/dsh-models)           | `@weilence/dsh-models`      | 设置页「模型」菜单（面板「模型目录」）：导入、编辑 `llm-pi-ai` Provider 与模型，支持订阅账号登录；会话输入框按当前 Provider 展示智谱剩余额度、Codex 限额窗口或 Copilot 历史计费用量 |
+| [dsh-models](plugins/dsh-models)           | `@weilence/dsh-models`      | 设置页「模型」菜单（面板「模型目录」）：导入、编辑 `llm-pi-ai` Provider 与模型，支持订阅账号登录；会话输入框按当前 Provider 展示智谱剩余额度、Codex 限额窗口或 Copilot 套餐剩余额度 |
 | [dsh-notify](plugins/dsh-notify)           | `@weilence/dsh-notify`      | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览时静默；desktop 窗口恢复接口                                                                                                    |
 | [dsh-prompts](plugins/dsh-prompts)         | `@weilence/dsh-prompts`     | 设置页「全局提示词」：查看、创建、编辑和删除用户级 `AGENTS.md`，通过文件版本检查避免覆盖外部修改                                                                                    |
 | [dsh-remote](plugins/dsh-remote)           | `@weilence/dsh-remote`      | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容             |

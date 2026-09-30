@@ -1,122 +1,72 @@
-const GITHUB_API_ORIGIN = 'https://api.github.com'
-const REQUEST_TIMEOUT_MS = 10_000
+import type { Context } from '@deepseek-ai/cordis'
+import { credentialKey } from '@deepseek-ai/dsh-credentials'
+
+export const COPILOT_CREDENTIAL_KEY = credentialKey('llm-pi-ai', 'github-copilot')
+const USAGE_URL = 'https://api.github.com/copilot_internal/user'
 const MAX_RESPONSE_BYTES = 1024 * 1024
 
-export interface CopilotBillingPeriod {
-  year: number
-  month?: number
-  day?: number
+export interface CopilotQuota {
+  remainingPct: number | null
+  remaining: number | null
+  entitlement: number | null
+  unlimited: boolean
+  resetMs: number | null
 }
 
-export interface CopilotBilledUsageItem {
-  product: string
-  sku: string
-  model?: string
-  unitType: string
-  pricePerUnit: number
-  grossQuantity: number
-  grossAmount: number
-  discountQuantity: number
-  discountAmount: number
-  netQuantity: number
-  netAmount: number
+function object(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export interface CopilotBilledUsage {
-  payer: { kind: 'user' | 'organization'; name: string }
-  timePeriod: CopilotBillingPeriod
-  usageItems: CopilotBilledUsageItem[]
+function invalid(reason: string): never {
+  throw new Error(`Copilot 套餐额度响应无效：${reason}`)
 }
 
-export interface CopilotBillingOptions {
-  token: string
-  /** 个人计费账户可显式指定；未指定时通过当前令牌查询登录名。 */
-  username?: string
-  /** 只有明确知道付款组织时才使用组织计费接口。 */
-  org?: string
-  /** 默认只返回 Copilot；设为 false 时保留高级请求接口返回的全部产品。 */
-  copilotOnly?: boolean
-  fetch?: typeof globalThis.fetch
+function count(value: unknown, field: string): number {
+  const parsed = typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : value
+  if (typeof parsed !== 'number' || !Number.isSafeInteger(parsed) || parsed < 0) invalid(`${field} 无效`)
+  return parsed
 }
 
-function record(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('GitHub billing response contains an invalid object')
+function parseQuota(value: unknown): CopilotQuota {
+  if (!object(value) || !object(value.quota_snapshots)) invalid('缺少 quota_snapshots')
+  const snapshot = value.quota_snapshots.premium_interactions
+  if (!object(snapshot)) invalid('缺少 premium_interactions')
+  if (snapshot.is_placeholder === true) invalid('premium_interactions 是占位数据')
+  if (snapshot.is_placeholder !== undefined && typeof snapshot.is_placeholder !== 'boolean') {
+    invalid('premium_interactions.is_placeholder 无效')
   }
-  return value as Record<string, unknown>
-}
-
-function stringField(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.trim())
-    throw new Error(`GitHub billing response has invalid ${field}`)
-  return value
-}
-
-function numberField(value: unknown, field: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`GitHub billing response has invalid ${field}`)
+  if (typeof snapshot.unlimited !== 'boolean') invalid('premium_interactions.unlimited 无效')
+  const unlimited = snapshot.unlimited
+  const remaining = unlimited ? null : count(snapshot.remaining, 'premium_interactions.remaining')
+  const entitlement = unlimited ? null : count(snapshot.entitlement, 'premium_interactions.entitlement')
+  const percent = snapshot.percent_remaining
+  if (
+    !unlimited &&
+    (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100)
+  ) {
+    invalid('premium_interactions.percent_remaining 无效')
   }
-  return value
-}
-
-function integerField(value: unknown, field: string, min: number, max: number): number {
-  const number = numberField(value, field)
-  if (!Number.isInteger(number) || number < min || number > max) {
-    throw new Error(`GitHub billing response has invalid ${field}`)
-  }
-  return number
-}
-
-function parseUsage(
-  body: unknown,
-  payer: CopilotBilledUsage['payer'],
-  copilotOnly: boolean,
-): CopilotBilledUsage {
-  const data = record(body)
-  const period = record(data.timePeriod)
-  const timePeriod: CopilotBillingPeriod = { year: integerField(period.year, 'timePeriod.year', 1, 9999) }
-  if (period.month !== undefined) timePeriod.month = integerField(period.month, 'timePeriod.month', 1, 12)
-  if (period.day !== undefined) timePeriod.day = integerField(period.day, 'timePeriod.day', 1, 31)
-  if (!Array.isArray(data.usageItems)) throw new Error('GitHub billing response has invalid usageItems')
-
-  const usageItems = data.usageItems.map((value, index): CopilotBilledUsageItem => {
-    const item = record(value)
-    const field = (name: string) => `usageItems[${index}].${name}`
-    const parsed: CopilotBilledUsageItem = {
-      product: stringField(item.product, field('product')),
-      sku: stringField(item.sku, field('sku')),
-      unitType: stringField(item.unitType, field('unitType')),
-      pricePerUnit: numberField(item.pricePerUnit, field('pricePerUnit')),
-      grossQuantity: numberField(item.grossQuantity, field('grossQuantity')),
-      grossAmount: numberField(item.grossAmount, field('grossAmount')),
-      discountQuantity: numberField(item.discountQuantity, field('discountQuantity')),
-      discountAmount: numberField(item.discountAmount, field('discountAmount')),
-      netQuantity: numberField(item.netQuantity, field('netQuantity')),
-      netAmount: numberField(item.netAmount, field('netAmount')),
+  const date = value.quota_reset_date
+  let resetMs: number | null = null
+  if (date != null) {
+    if (typeof date !== 'string' || !date || !Number.isFinite(Date.parse(date))) {
+      invalid('quota_reset_date 无效')
     }
-    if (item.model !== undefined && item.model !== null)
-      parsed.model = stringField(item.model, field('model'))
-    return parsed
-  })
-
+    resetMs = Date.parse(date)
+  }
   return {
-    payer,
-    timePeriod,
-    usageItems: copilotOnly
-      ? usageItems.filter(
-          (item) =>
-            item.product.toLowerCase() === 'copilot' || item.sku.toLowerCase() === 'copilot premium request',
-        )
-      : usageItems,
+    remainingPct: unlimited ? null : (percent as number),
+    remaining,
+    entitlement,
+    unlimited,
+    resetMs,
   }
 }
 
-async function readBounded(response: Response): Promise<string> {
+async function readBounded(response: Response): Promise<unknown> {
   const length = response.headers.get('content-length')
-  if (length !== null && Number(length) > MAX_RESPONSE_BYTES) {
-    throw new Error(`GitHub billing response exceeds ${MAX_RESPONSE_BYTES} bytes`)
-  }
-  if (!response.body) return ''
+  if (length !== null && Number(length) > MAX_RESPONSE_BYTES) invalid('响应超过 1 MiB')
+  if (!response.body) invalid('缺少响应正文')
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
   let size = 0
@@ -125,142 +75,65 @@ async function readBounded(response: Response): Promise<string> {
       const { done, value } = await reader.read()
       if (done) break
       size += value.byteLength
-      if (size > MAX_RESPONSE_BYTES)
-        throw new Error(`GitHub billing response exceeds ${MAX_RESPONSE_BYTES} bytes`)
+      if (size > MAX_RESPONSE_BYTES) invalid('响应超过 1 MiB')
       chunks.push(value)
     }
   } finally {
     void reader.cancel().catch(() => {})
     reader.releaseLock()
   }
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.byteLength
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString('utf8')) as unknown
+  } catch {
+    invalid('正文不是有效 JSON')
   }
-  return new TextDecoder().decode(bytes)
 }
 
-function account(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(value)) {
-    throw new Error(`Invalid GitHub ${field}`)
+/** 使用 llm-pi-ai 的 GitHub OAuth token；Copilot 模型请求使用的 access token 不适用于此接口。 */
+export async function readCopilotQuota(
+  ctx: Context,
+  options: { fetch?: typeof fetch } = {},
+): Promise<CopilotQuota> {
+  const credentials = ctx.get('credentials')
+  if (!credentials) throw new Error('未挂载 credentials 服务')
+  const grant = await credentials.modifyRecord(COPILOT_CREDENTIAL_KEY, async () => undefined)
+  if (!grant) throw new Error('Copilot 尚未通过 llm-pi-ai 登录 GitHub')
+  if (grant.kind !== 'grant' || !object(grant.payload) || grant.payload.type !== 'oauth') {
+    throw new Error('Copilot 凭据不是 OAuth grant')
   }
-  return value
-}
-
-async function requestGitHub(
-  path: string,
-  options: CopilotBillingOptions,
-  purpose: 'billing' | 'identity',
-): Promise<{ response: Response; body: string }> {
-  // 请求地址只由固定 GitHub 域名及已验证的账户名构成，禁止令牌跟随重定向。
-  const url = new URL(path, GITHUB_API_ORIGIN)
-  if (url.origin !== GITHUB_API_ORIGIN) throw new Error('GitHub API URL is not allowed')
+  if (grant.payload.enterpriseUrl) throw new Error('Copilot Enterprise 账号暂不支持此 GitHub.com 额度接口')
+  const token = grant.payload.refresh
+  if (typeof token !== 'string' || !token || /[\r\n]/.test(token)) {
+    throw new Error('Copilot GitHub OAuth 令牌无效')
+  }
   let response: Response
   try {
-    response = await (options.fetch ?? globalThis.fetch)(url.toString(), {
+    response = await (options.fetch ?? fetch)(USAGE_URL, {
       method: 'GET',
       headers: {
-        Accept: 'application/vnd.github+json',
-        Authorization: `Bearer ${options.token}`,
+        Accept: 'application/json',
+        Authorization: `token ${token}`,
+        'Editor-Version': 'vscode/1.107.0',
+        'Editor-Plugin-Version': 'copilot-chat/0.35.0',
+        'User-Agent': 'GitHubCopilotChat/0.35.0',
+        'X-GitHub-Api-Version': '2025-04-01',
       },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(10_000),
       redirect: 'error',
     })
   } catch (cause) {
-    throw new Error(`GitHub ${purpose} request failed or timed out`, { cause })
+    const detail = (cause instanceof Error ? cause.message : String(cause)).replaceAll(token, '[redacted]')
+    throw new Error(`请求 GitHub Copilot 套餐额度失败：${detail}`)
   }
-  try {
-    return { response, body: await readBounded(response) }
-  } catch (cause) {
-    throw new Error(`GitHub ${purpose} HTTP ${response.status}: failed to read response`, { cause })
-  }
-}
-
-function errorReason(response: Response, body: string): string {
-  let reason = response.statusText
-  try {
-    const message = record(JSON.parse(body)).message
-    if (typeof message === 'string' && message.trim()) reason = message
-  } catch {
-    // 非 JSON 错误页面仍可由 HTTP 状态码定位。
-  }
-  return reason
-}
-
-function assertJson(response: Response, purpose: 'billing' | 'identity'): void {
-  if (!/^application\/(?:[\w.+-]+\+)?json(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '')) {
-    throw new Error(
-      `GitHub ${purpose} returned non-JSON Content-Type: ${response.headers.get('content-type')}`,
-    )
-  }
-}
-
-async function authenticatedLogin(options: CopilotBillingOptions): Promise<string> {
-  try {
-    const { response, body } = await requestGitHub('/user', options, 'identity')
-    if (!response.ok) {
-      const reason = errorReason(response, body)
-      throw new Error(`GitHub identity HTTP ${response.status}${reason ? `: ${reason}` : ''}`)
-    }
-    assertJson(response, 'identity')
-    let identity: unknown
-    try {
-      identity = JSON.parse(body) as unknown
-    } catch {
-      throw new Error('GitHub identity response has invalid JSON')
-    }
-    const login =
-      identity && typeof identity === 'object' && !Array.isArray(identity)
-        ? (identity as Record<string, unknown>).login
-        : undefined
-    return account(login, 'authenticated login')
-  } catch (cause) {
-    // 身份查询失败时不能推测付款组织，也不能把响应中的令牌原样带到错误文本。
-    const reason =
-      cause instanceof Error
-        ? `${cause.message}${cause.cause instanceof Error ? `: ${cause.cause.message}` : ''}`
-        : String(cause)
-    const safeReason = reason.replaceAll(options.token, '[redacted]')
-    throw new Error(
-      `GitHub identity lookup failed: ${safeReason}. Configure DSH_COPILOT_BILLING_USERNAME explicitly to use personal billing.`,
-      { cause: new Error(safeReason) },
-    )
-  }
-}
-
-/** 个人计费不含组织付费的 Copilot 请求；组织付款方必须显式指定。 */
-export async function getCopilotBilledUsage(options: CopilotBillingOptions): Promise<CopilotBilledUsage> {
-  if (typeof options.token !== 'string' || !options.token.trim() || /[\r\n]/.test(options.token)) {
-    throw new Error('A valid GitHub billing token is required')
-  }
-  const org = options.org === undefined ? undefined : account(options.org, 'payer organization')
-  const payer: CopilotBilledUsage['payer'] = org
-    ? { kind: 'organization', name: org }
-    : {
-        kind: 'user',
-        name:
-          options.username === undefined
-            ? await authenticatedLogin(options)
-            : account(options.username, 'username'),
-      }
-  const path =
-    payer.kind === 'organization'
-      ? `/organizations/${encodeURIComponent(payer.name)}/settings/billing/premium_request/usage`
-      : `/users/${encodeURIComponent(payer.name)}/settings/billing/premium_request/usage`
-  const { response, body } = await requestGitHub(path, options, 'billing')
   if (!response.ok) {
-    const reason = errorReason(response, body)
+    void response.body?.cancel().catch(() => {})
     throw new Error(
-      `GitHub billing HTTP ${response.status}${reason ? `: ${reason}` : ''}. Personal billing excludes organization-billed Copilot seats; org billing needs an explicit payer org and appropriate permissions.`,
-      { cause: { status: response.status, body } },
+      `GitHub Copilot 套餐额度请求返回 HTTP ${response.status}（OAuth 授权或私有接口可能已变化）`,
     )
   }
-  assertJson(response, 'billing')
-  try {
-    return parseUsage(JSON.parse(body) as unknown, payer, options.copilotOnly !== false)
-  } catch (cause) {
-    throw new Error('GitHub billing response is invalid', { cause })
+  if (!/^application\/(?:[\w.+-]+\+)?json(?:\s*;|\s*$)/i.test(response.headers.get('content-type') ?? '')) {
+    void response.body?.cancel().catch(() => {})
+    throw new Error('GitHub Copilot 套餐额度响应不是 JSON')
   }
+  return parseQuota(await readBounded(response))
 }

@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { errMsg } from '@dsh-plugins/shared'
-import { getCopilotBilledUsage } from './copilot'
+import { COPILOT_CREDENTIAL_KEY, readCopilotQuota } from './copilot'
 import { CODEX_CREDENTIAL_KEY, readCodexQuota } from './codex'
 import { createUsageService as createZhipuUsageService } from './zhipu'
 import { USAGE_PROVIDERS, type ProviderUsage } from './types'
@@ -19,12 +19,14 @@ export function createProviderUsageService(ctx: Context) {
   let zhipuService: ReturnType<typeof createZhipuUsageService> | undefined
   const cached = new Map<string, { value: ProviderUsage; at: number }>()
   const running = new Map<string, Promise<ProviderUsage>>()
-  let codexGeneration = 0
+  const generations = { 'openai-codex': 0, 'github-copilot': 0 }
   ctx.on('credentials/record-updated', (key) => {
-    if (key !== CODEX_CREDENTIAL_KEY) return
-    codexGeneration += 1
-    cached.delete('openai-codex')
-    running.delete('openai-codex')
+    const provider =
+      key === CODEX_CREDENTIAL_KEY ? 'openai-codex' : key === COPILOT_CREDENTIAL_KEY ? 'github-copilot' : null
+    if (!provider) return
+    generations[provider] += 1
+    cached.delete(provider)
+    running.delete(provider)
   })
 
   async function credential(name: string) {
@@ -91,34 +93,22 @@ export function createProviderUsageService(ctx: Context) {
   }
 
   async function readCopilot(): Promise<ProviderUsage> {
-    const username = process.env['DSH_COPILOT_BILLING_USERNAME']
-    const org = process.env['DSH_COPILOT_BILLING_ORG']
-    const token = await credential('COPILOT_BILLING_TOKEN')
-    if (!token) throw new Error('未配置 COPILOT_BILLING_TOKEN（需 GitHub Billing REST 读取权限）')
-    const data = await getCopilotBilledUsage({
-      token,
-      ...(username ? { username } : {}),
-      ...(org ? { org } : {}),
-    })
-    const period = [
-      data.timePeriod.year,
-      data.timePeriod.month?.toString().padStart(2, '0'),
-      data.timePeriod.day?.toString().padStart(2, '0'),
-    ]
-      .filter(Boolean)
-      .join('-')
-    const items = data.usageItems.map((item) => ({
-      label: item.model ?? item.sku,
-      requests: item.grossQuantity,
-    }))
+    const quota = await readCopilotQuota(ctx)
     return {
-      kind: 'billing',
+      kind: 'quota',
       provider: 'github-copilot',
       label: 'Copilot',
-      payer: `${data.payer.kind === 'user' ? '个人' : '组织'} ${data.payer.name}`,
-      payerKind: data.payer.kind,
-      period,
-      items,
+      windows: [
+        {
+          id: 'premium_interactions',
+          label: '高级请求',
+          usedPct: quota.remainingPct === null ? null : 100 - quota.remainingPct,
+          resetMs: quota.resetMs,
+          remaining: quota.remaining,
+          entitlement: quota.entitlement,
+          unlimited: quota.unlimited,
+        },
+      ],
       queriedAt: Date.now(),
     }
   }
@@ -136,7 +126,8 @@ export function createProviderUsageService(ctx: Context) {
     const hit = cached.get(provider)
     if (!force && hit && Date.now() - hit.at < (hit.value.kind === 'unavailable' ? 30_000 : 240_000))
       return hit.value
-    const generation = codexGeneration
+    const accountProvider = provider === 'openai-codex' ? provider : 'github-copilot'
+    const generation = generations[accountProvider]
     const task = (async (): Promise<ProviderUsage> => {
       try {
         return provider === 'openai-codex' ? await readCodex() : await readCopilot()
@@ -146,12 +137,12 @@ export function createProviderUsageService(ctx: Context) {
     })()
     const shared = (async (): Promise<ProviderUsage> => {
       const value = await task
-      if (provider === 'openai-codex' && generation !== codexGeneration) {
+      if (generation !== generations[accountProvider]) {
         return {
           kind: 'unavailable',
           provider,
           label: USAGE_PROVIDERS[provider],
-          error: 'Codex 授权已更新，请重新查询。',
+          error: `${USAGE_PROVIDERS[provider]} 授权已更新，请重新查询。`,
         }
       }
       cached.set(provider, { value, at: Date.now() })

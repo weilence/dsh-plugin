@@ -65,7 +65,7 @@
 /* 窗口超过 3 个时按最小列宽自动换行；进度条填充为剩余占比，颜色走 ok/warn/err 语气类。 */
 .windows {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
   gap: 12px;
 }
 .window {
@@ -124,15 +124,4 @@
 }
 .note {
   min-width: 0;
-}
-.billingRow {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 8px;
-  font-variant-numeric: tabular-nums;
-}
-.billingNote {
-  color: var(--dsw-alias-label-tertiary);
-  margin-top: 10px;
 }

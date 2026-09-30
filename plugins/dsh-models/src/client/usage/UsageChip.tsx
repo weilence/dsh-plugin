@@ -127,10 +127,10 @@ function formatQueriedAt(ms: number) {
   return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-/** 脚注按数据语义区分：计费是历史数据、配额展示查询时间（Host 缓存下数据会滞后）、失败解释空面板。 */
+/** Host 缓存下查询时间可能滞后；Copilot 额度来自未公开接口。 */
 export function footerNote(result: ProviderUsage | null): string {
-  if (result?.kind === 'billing') return 'GitHub Billing · 历史数据'
-  if (result?.kind === 'quota') return `更新于 ${formatQueriedAt(result.queriedAt)}`
+  if (result?.kind === 'quota')
+    return `${result.provider === 'github-copilot' ? 'GitHub 私有接口 · ' : ''}更新于 ${formatQueriedAt(result.queriedAt)}`
   return '仅当前 Provider 显示'
 }
 
@@ -147,12 +147,17 @@ function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; loca
               {window.label}
             </div>
             <div className={panel.windowValue} title={reset}>
-              <span className={color}>{formatPct(left)}</span> · {reset}
+              <span className={color}>{window.unlimited ? '不限量' : formatPct(left)}</span> · {reset}
             </div>
+            {window.remaining != null && window.entitlement != null ? (
+              <div className={panel.windowValue}>
+                剩余 {window.remaining} / {window.entitlement}
+              </div>
+            ) : null}
             <div className={panel.bar}>
               <div
                 className={[panel.fill, color].filter(Boolean).join(' ')}
-                style={{ width: (left ?? 0) + '%' }}
+                style={{ width: (window.unlimited ? 100 : (left ?? 0)) + '%' }}
               />
             </div>
           </div>
@@ -164,27 +169,6 @@ function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; loca
 
 export function UsageDetails({ result, locale }: { result: ProviderUsage | null; locale: string }) {
   if (result?.kind === 'quota') return <WindowGrid windows={result.windows} locale={locale} />
-  if (result?.kind === 'billing')
-    return (
-      <div>
-        <div>
-          计费账号：{result.payer} · {result.period}
-        </div>
-        {result.items.length === 0 ? <div className={panel.billingNote}>本期暂无计费请求。</div> : null}
-        {result.items.map((item, index) => (
-          <div key={`${item.label}-${index}`} className={panel.billingRow}>
-            <span>{item.label}</span>
-            <span>{item.requests} 次</span>
-          </div>
-        ))}
-        <div className={panel.billingNote}>
-          {result.payerKind === 'organization'
-            ? '这是付款组织的计费用量，可能包含其他成员。'
-            : '个人计费报告不包含组织付费席位。'}
-          仅为历史计费用量，不代表订阅实时剩余额度。
-        </div>
-      </div>
-    )
   return (
     <dl className={panel.details}>
       <dt>{result === null ? '状态' : '原因'}</dt>
@@ -202,19 +186,16 @@ function UsageSummary({ label, result }: { label: string; result: ProviderUsage 
         {result.windows.map((window) => {
           const left = remainingPct(window.usedPct)
           return (
-            <span key={window.id} className={pill.sep} title={window.label + '剩余 ' + formatPct(left)}>
-              {window.label} <span className={remainingTone(left)}>{formatPct(left)}</span>
+            <span
+              key={window.id}
+              className={pill.sep}
+              title={window.label + '剩余 ' + (window.unlimited ? '不限量' : formatPct(left))}
+            >
+              {window.label}{' '}
+              <span className={remainingTone(left)}>{window.unlimited ? '不限量' : formatPct(left)}</span>
             </span>
           )
         })}
-      </>
-    )
-  if (result?.kind === 'billing')
-    return (
-      <>
-        {label}
-        {result.payerKind === 'organization' ? '组织' : '个人'}本期计费{' '}
-        {result.items.reduce((total, item) => total + item.requests, 0)} 次
       </>
     )
   return <>{label}用量…</>

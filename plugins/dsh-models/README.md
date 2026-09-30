@@ -10,7 +10,7 @@ DSH web 插件：在设置页新增「模型」菜单（面板标题「模型目
 - **卡片编辑区**：编辑 Provider 字段（`displayName` / `api` / `baseURL` / API Key / 下拉选择 `reasoning` 默认推理强度）与模型清单（新增 / 编辑 / 删除 / 拖拽排序，模型字段含 `name` / `contextWindow` / `maxTokens` / `input` / `reasoningEfforts` / 模型级 `compat`，全部有「继承」态）；保存即一次性整体写入用户层的**整个 `providers.<route>` 子树**。
 - **新建 Provider（列表顶部行内卡片，两种方式）**：点「新建 Provider」在列表首行展开表单，失败时保留填写内容；「使用内置 Provider」从尚未配置的内置目录里选一个，只写 `displayName`（可选 API Key），协议、端点与模型目录全部继承安装目录；「自定义 Provider」填 Provider ID / 显示名 / API Key，端点可从 models.dev 的 Provider 里选择（自动带上协议），也可手动填写自定义地址；「获取模型」用 API Key 向端点请求模型清单，并按 models.dev 元数据补全每个模型的能力。模型清单默认为空，不获取也可以直接创建。
 - **订阅账号登录（如 OpenAI Codex / ChatGPT Plus/Pro）**：带 OAuth 登录的内置 Provider（`openai-codex` 等）在新建与编辑表单里显示「账号登录」卡——发起登录后按事件流完成浏览器 / 设备码授权（授权链接与设备码可选中复制），令牌由宿主凭据层持久化并自动刷新；`credentials/record-updated` 后「已授权」状态即时更新。纯订阅型（无 API Key 形态）登录卡替换 API Key 字段；双形态 Provider（如 `openrouter`）登录卡与 API Key 字段并排。普通 API Key 型 Provider（`openai` / `anthropic` 等）不受影响，仍走 Key 表单。
-- **按 Provider 展示用量**：会话选择智谱 `zai-coding-cn` 时显示 5 小时 / 每周 / 工具调用剩余额度；选择 `openai-codex` 时显示 ChatGPT 订阅限额窗口；选择 `github-copilot` 时显示 GitHub Billing REST 中当期的**历史计费请求量**（不是实时剩余额度）。仅向 Host 查询，浏览器不接触凭据；查询失败在详情中展示实际原因。
+- **按 Provider 展示用量**：会话选择智谱 `zai-coding-cn` 时显示 5 小时 / 每周 / 工具调用剩余额度；选择 `openai-codex` 时显示 ChatGPT 订阅限额窗口；选择 `github-copilot` 时显示 GitHub Copilot 套餐的高级请求剩余额度（非账单计费量）。仅向 Host 查询，浏览器不接触凭据；查询失败在详情中展示实际原因。
 - **宽版弹窗**：进入本分区时自动加宽宿主设置弹窗（官方将面板固定为 800×800 且无尺寸 API），切到其他分区即还原，不影响其余设置页。
 
 ### API Key 存储
@@ -25,9 +25,9 @@ DSH web 插件：在设置页新增「模型」菜单（面板标题「模型目
 
 - **智谱**：读取 Host 凭据 `ZAI_CODING_CN_API_KEY`；未配置时尝试 `ZAI_API_KEY`。用量查询独立于 `dsh-zhipu-tools` 的 MCP 挂载。
 - **Codex**：复用模型面板中 `openai-codex` 的 ChatGPT 订阅登录；Host 使用同一份 OAuth 凭据及对应账户 ID，直接查询 Codex 的用量窗口，**不需要安装或登录 Codex CLI**。该查询地址来自 [Codex 开源实现](../../docs/research/codex-direct-usage.md)，并非 OpenAI 对第三方承诺兼容的公开 REST 接口；后端地址或响应格式变化时，面板将明确报告错误。当前实现还依赖 `llm-pi-ai` 的凭据记录格式及 pi-ai 的刷新契约，升级宿主时须复核。
-- **Copilot**：Host 凭据 `COPILOT_BILLING_TOKEN` 需要 GitHub Billing REST 读取权限。个人自费方案无需设置用户名：未指定付款组织时，Host 通过同一计费令牌请求 GitHub `GET /user`，验证返回的 `login` 后查询该用户的个人计费记录；若身份查询失败，可显式设置 `DSH_COPILOT_BILLING_USERNAME`，但绝不猜测用户名。组织付费方案必须设置 `DSH_COPILOT_BILLING_ORG` 为**实际付款组织**，不能根据个人所属组织自动推断；两项同时设置时以组织为准。个人账号的 fine-grained token 需要 `Plan: read`，组织付费方案需要对应组织的 `Administration: read`；登录模型使用的 Copilot OAuth 不能代替该权限。个人接口不包含组织付费席位，组织接口可能包含其他成员的计费用量。报告仅反映历史计费数据，不能据此推算实时剩余额度。
+- **Copilot**：先在模型面板登录 `github-copilot`，Host 复用 `llm-pi-ai` 保存的 GitHub OAuth 凭据，直接请求 `GET https://api.github.com/copilot_internal/user`，读取 `quota_snapshots.premium_interactions` 的剩余比例、额度和重置时间。**无需配置 `COPILOT_BILLING_TOKEN`，也无需安装 Copilot CLI 或 SDK。**该接口未公开，字段、授权策略可能变化；失败时展示原因，不退回历史账单或猜测额度。当前仅支持 `github.com` 登录，不支持 GitHub Enterprise 域名。Host 不向浏览器下发令牌。此额度不是会话／每周限额，也不得视为可计费余额。
 
-三种用量仅在当前会话选择对应 Provider 时轮询；Host 缓存正常结果约 4 分钟，短暂缓存失败结果，详情面板可手动刷新。参考[官方接口及权限调研](../../docs/research/copilot-codex-usage-apis.md)和[个人身份与付款方的区别](../../docs/research/copilot-billing-identity.md)。
+三种用量仅在当前会话选择对应 Provider 时轮询；Host 缓存正常结果约 4 分钟，短暂缓存失败结果，详情面板可手动刷新。参考[Copilot 套餐额度接口调研](../../docs/research/copilot-quota-implementations.md)和[Codex 用量接口调研](../../docs/research/codex-direct-usage.md)。
 
 ## 安装
 

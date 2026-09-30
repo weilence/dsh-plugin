@@ -8,7 +8,7 @@
 - `src/auth.ts`：订阅登录接口——`AuthAttemptRelay`（flow 交互 ↔ 事件缓冲中继，seq 跨尝试单调递增）+ 5 个 exact 路由：`GET /dsh-models/auth`（flow 目录 + grant 记录现状 + 进行中尝试）、`POST …/auth/begin`（预检 NO_FLOW / 404 / 409 后立即应答，异步结果走事件流）、`GET …/auth/events?after=`、`POST …/auth/answer`、`POST …/auth/cancel`。dispose 撤回仍在进行的尝试——悬空的 interaction 会让 flow 持有的 key 挂起直到进程结束。
 - `src/mirror.ts`：models.dev 目录镜像（GET + If-None-Match、6 小时周期、退避重试、快照持久化到 `$DSH_HOME/cache/dsh-models/`）。
 - `src/effective.ts`：只读能力接口（`ctx.llm.resolveModelInfo` 的面板投影，与会话模型选择器同一事实源）。
-- `src/usage/`：`GET /dsh-models/usage?provider=` 的 Provider 分型用量查询；智谱配额由 Host 缓存，Codex 直接读取 ChatGPT 限额，Copilot 读取 GitHub Billing 历史计费请求量。只向浏览器返回展示数据，不下发凭据。
+- `src/usage/`：`GET /dsh-models/usage?provider=` 的 Provider 分型用量查询；智谱配额由 Host 缓存，Codex 直接读取 ChatGPT 限额，Copilot 复用模型登录的 GitHub OAuth 凭据查询私有套餐额度接口。只向浏览器返回展示数据，不下发凭据。
 - `src/catalog/`：models.dev wire 解析与映射（parse / map / matching / types）。
 - `src/pi-ai/`：纯逻辑层——route 状态判定与写入候选（profile / ops）、官方格式归一化与校验（normalize / validate）、schema 内省（choices / view）、类型（types）。
 - `src/client/usage/`：会话输入框右侧的用量胶囊与详情，随当前 Provider 切换并按实际数据语义展示；重置时间文案跟随宿主语言——语言环境取 `ctx.locale` 服务面（client `inject` 声明 `'locale'`，`dsh.client.inject` 注入 `@deepseek-ai/dsh-client-locale`），dayjs 以实例 locale 渲染（`zh`→`zh-cn`，其余回退 `en`）。
@@ -31,7 +31,7 @@
 - API Key 经 `credentials.set` 只写存储，`settings.yaml` 只记引用（`apiKeyEnv` 或派生 `<ROUTE>_API_KEY`）；面板不读取、不缓存、不回显。
 - 订阅型 Provider 的判定是 **flow 带 `oauth` 方法**，不是「有 flow」：宿主为每个 pi-ai provider 都注册登录（api-key 型的「登录」只是交互式问密钥，面板的 API Key 字段已是其等价物），目录接口在 host 侧就过滤掉它们。oauth-only（`openai-codex` 等）登录卡替换 API Key 字段；双形态（`openrouter` 等，oauth + api-key 方法并存）卡与 Key 字段并排（`SignInView.replacesApiKey`）。
 - 官方 GUI 没有任何触发 `ctx.authorization` 登录流的入口——订阅登录全靠本接口驱动；接口不可用（authorization 服务未挂）时面板静默隐藏登录特性，目录 / 生效接口不受影响。
-- Copilot 个人计费账号可由已授权的 Billing token 请求 GitHub `GET /user` 确认，不从模型登录态或环境猜测；组织付款方必须显式配置，不能从所属组织推断。GitHub 响应中的登录名必须验证后才能拼接到固定 API 路径。
+- Copilot 套餐额度从 `llm-pi-ai/github-copilot` grant 读取 GitHub OAuth token（`refresh` 字段），不是模型请求用的 Copilot access token；向固定 `api.github.com/copilot_internal/user` 请求。企业域名不能默认为 github.com，必须明确不支持；未公开接口响应变化时禁止退回账单数据或猜额度。
 - Codex 用量直连第一方未公开的 `/backend-api/wham/usage`，不是有兼容承诺的第三方接口。当前 DSH 没有由 `llm-pi-ai` 提供的只读用量接口，因此 Host 暂时在 `credentials.modifyRecord` 锁内解析 `llm-pi-ai/openai-codex` grant，复用 pi-ai OAuth 刷新，并从同一快照取得令牌与账户 ID；这会耦合该插件的私有凭据格式。后续若宿主提供所属插件侧的用量接口，应优先移除这段跨插件解释。不能将原始 grant 或令牌传给浏览器。
 
 ## 测试

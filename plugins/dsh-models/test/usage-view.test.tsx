@@ -63,56 +63,50 @@ describe('按 Provider 显示真实用量语义', () => {
     expect(content).not.toContain('默认限额')
   })
 
-  it('Copilot 只显示历史计费次数，并明确不是实时剩余额度', () => {
+  it('Copilot 展示套餐剩余额度，不再显示账单历史记录', () => {
     const content = html({
-      kind: 'billing',
+      kind: 'quota',
       provider: 'github-copilot',
       label: 'Copilot',
-      payer: '个人 alice',
-      payerKind: 'user',
-      period: '2026-09',
-      items: [{ label: 'GPT-5', requests: 123 }],
+      windows: [
+        {
+          id: 'premium_interactions',
+          label: '高级请求',
+          usedPct: 30,
+          resetMs: null,
+          remaining: 210,
+          entitlement: 300,
+        },
+      ],
       queriedAt: 0,
     })
-    expect(content).toContain('个人 alice')
-    expect(content).toContain('GPT-5')
-    expect(content).toContain('123 次')
-    expect(content).toContain('个人计费报告不包含组织付费席位')
-    expect(content).toContain('不代表订阅实时剩余额度')
-    expect(content).not.toContain('%')
+    expect(content).toContain('高级请求')
+    expect(content).toContain('70%')
+    expect(content).toContain('剩余 210 / 300')
+    expect(content).not.toContain('计费')
   })
 
-  it('组织付款时说明报告可能包括其他成员', () => {
+  it('无限额度不显示伪造的百分比或余额', () => {
     const content = html({
-      kind: 'billing',
+      kind: 'quota',
       provider: 'github-copilot',
       label: 'Copilot',
-      payer: '组织 example',
-      payerKind: 'organization',
-      period: '2026-09',
-      items: [],
+      windows: [
+        { id: 'premium_interactions', label: '高级请求', usedPct: null, resetMs: null, unlimited: true },
+      ],
       queriedAt: 0,
     })
-    expect(content).toContain('可能包含其他成员')
-    expect(content).toContain('本期暂无计费请求')
+    expect(content).toContain('不限量')
+    expect(content).not.toContain('剩余 0')
   })
 
-  it('脚注按数据语义区分：配额显示查询时间，计费说明是历史数据，失败解释空面板', () => {
+  it('脚注显示查询时间和 Copilot 私有接口数据来源', () => {
     expect(
       footerNote({ kind: 'quota', provider: 'openai-codex', label: 'Codex', windows: [], queriedAt: 0 }),
     ).toMatch(/^更新于 \d{2}:\d{2}$/)
     expect(
-      footerNote({
-        kind: 'billing',
-        provider: 'github-copilot',
-        label: 'Copilot',
-        payer: '个人 alice',
-        payerKind: 'user',
-        period: '2026-09',
-        items: [],
-        queriedAt: 0,
-      }),
-    ).toBe('GitHub Billing · 历史数据')
+      footerNote({ kind: 'quota', provider: 'github-copilot', label: 'Copilot', windows: [], queriedAt: 0 }),
+    ).toMatch(/^GitHub 私有接口 · 更新于 \d{2}:\d{2}$/)
     expect(footerNote(null)).toBe('仅当前 Provider 显示')
   })
 
@@ -130,7 +124,12 @@ describe('按 Provider 显示真实用量语义', () => {
 
   it('缺凭据时显示查询原因', () => {
     expect(
-      html({ kind: 'unavailable', provider: 'github-copilot', label: 'Copilot', error: '缺少计费权限' }),
-    ).toContain('缺少计费权限')
+      html({
+        kind: 'unavailable',
+        provider: 'github-copilot',
+        label: 'Copilot',
+        error: 'Copilot 尚未登录 GitHub',
+      }),
+    ).toContain('Copilot 尚未登录 GitHub')
   })
 })
