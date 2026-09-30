@@ -1,12 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Button, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
-import { discoveredToCatalogEntry } from '../catalog/matching'
+import {
+  discoveredToCatalogEntry,
+  lookupModelEntry,
+  providerCatalogModels,
+  type ModelsDevLookup,
+} from '../catalog/matching'
 import type { ModelsDevCatalog } from '../catalog/types'
 import { jsonEqual } from '../pi-ai/ops'
 import type { PiAiChoices } from '../pi-ai/choices'
 import { errMsg } from '@dsh-plugins/shared'
 import {
   modelEntries,
+  foreignModelsBlocked,
   patchUserProfile,
   planAddModel,
   removeModelProfile,
@@ -18,14 +24,13 @@ import {
 } from '../pi-ai/profile'
 import type { PiAiModelEntry, PiAiProviderEntry } from '../pi-ai/types'
 import { validateProviderReasoning } from '../pi-ai/validate'
-import { effortsLabel, reasoningLabel, type PanelRoute } from '../pi-ai/view'
+import { effortsLabel, type PanelRoute } from '../pi-ai/view'
 import { deriveKeyRef, validateApiKey } from './operations'
 import type { SignInView } from './SignInCard'
 import { ModelForm } from './ModelForm'
 import {
   CardList,
   ExpandableCard,
-  ModelTable,
   SelectField,
   TextField,
   IssueList,
@@ -104,9 +109,11 @@ function draftRowLabel(source: PanelRoute['source'], row: ModelRow): string | un
 
 type ModelEdit = { creating: boolean; row: ModelRow }
 
-function isBuiltinOnly(profile: PiAiProviderEntry | undefined): boolean {
+// 连接继承：用户层没写过 api/baseURL 就沿用组合 base 的内置连接。模型编辑
+// （override / 显式清单）不影响连接形态，不能据它翻开 Endpoint 字段。
+function inheritsConnection(profile: PiAiProviderEntry | undefined): boolean {
   if (profile === undefined) return true
-  return Object.keys(profile).every((key) => ['apiKeyEnv', 'displayName', 'reasoning'].includes(key))
+  return profile.api === undefined && profile.baseURL === undefined
 }
 
 export function RouteEditor(props: RouteEditorProps) {
@@ -136,8 +143,9 @@ export function RouteEditor(props: RouteEditorProps) {
     formAppliedIdRef.current = undefined
     setModelEdit(next)
   }
-  // 内置模式不可切换：只配置凭据、显示名和默认推理等级时保留目录继承。
-  const useBuiltin = !route.declared && isBuiltinOnly(route.userProfile)
+  // 连接继承的 route 不显示 Endpoint / 协议字段：api 与 baseURL 继续取组合 base，
+  // 保存时也不把这两个键写进用户层。
+  const inheritedConnection = !route.declared && inheritsConnection(route.userProfile)
 
   const keyRef =
     typeof draftProfile.apiKeyEnv === 'string' && draftProfile.apiKeyEnv.length > 0
@@ -150,17 +158,20 @@ export function RouteEditor(props: RouteEditorProps) {
     [draftSource, draftProfile, props.catalog],
   )
   const catalogIds = useMemo(() => new Set(props.catalog.keys()), [props.catalog])
+  // 目录 route（Host 注册表认识的 provider）：模型清单来自 pi-ai 安装目录，
+  // 「获取模型」改从 models.dev 取更新鲜的清单，而不是问 Endpoint。
+  const catalogRoute = props.catalog.size > 0
 
   const candidate = useMemo(() => {
     const next = patchUserProfile(draftProfile, {
       displayName: providerDraft.displayName.trim() || undefined,
       reasoning: providerDraft.reasoning.trim() || undefined,
-      api: useBuiltin ? undefined : providerDraft.api.trim() || undefined,
-      baseURL: useBuiltin ? undefined : providerDraft.baseURL.trim() || undefined,
+      api: inheritedConnection ? undefined : providerDraft.api.trim() || undefined,
+      baseURL: inheritedConnection ? undefined : providerDraft.baseURL.trim() || undefined,
     })
     if (key.trim().length > 0 && typeof next.apiKeyEnv !== 'string') next.apiKeyEnv = keyRef
     return next
-  }, [draftProfile, providerDraft, key, keyRef, useBuiltin])
+  }, [draftProfile, providerDraft, key, keyRef, inheritedConnection])
 
   const keyError = key.trim().length > 0 ? validateApiKey(key) : undefined
   const dirty = !jsonEqual(candidate, route.userProfile ?? {}) || key.trim().length > 0
@@ -170,7 +181,7 @@ export function RouteEditor(props: RouteEditorProps) {
     const list: string[] = []
     const reasoningIssue = validateProviderReasoning(providerDraft.reasoning, props.choices.thinkingLevels)
     if (reasoningIssue !== undefined) list.push(reasoningIssue.message)
-    if (!useBuiltin) {
+    if (!inheritedConnection) {
       if (route.declared && providerDraft.api.trim().length === 0) list.push('手写 route 必须指定 API 协议')
       if (route.declared && providerDraft.baseURL.trim().length === 0) {
         list.push('手写 route 必须指定 Endpoint')
@@ -178,17 +189,42 @@ export function RouteEditor(props: RouteEditorProps) {
       if (providerDraft.baseURL.trim().length > 0 && !/^https?:\/\//i.test(providerDraft.baseURL.trim())) {
         list.push('Endpoint 必须是可解析的 HTTP 或 HTTPS URL')
       }
-      if (modelEntries(candidate).length === 0 && (candidate.models !== undefined || route.declared)) {
-        list.push(
-          route.declared
-            ? '手写 route 至少要有一个模型'
-            : '模型清单为空：添加模型后才能保存；不想要任何自定义模型请取消编辑并删除该 Provider',
-        )
-      }
+    }
+    // 目录 route 删光模型同样得到空 models：与手写 route 一律拦在保存前。
+    if (modelEntries(candidate).length === 0 && (candidate.models !== undefined || route.declared)) {
+      list.push(
+        route.declared
+          ? '手写 route 至少要有一个模型'
+          : '模型清单为空：保存前至少要有一个模型；不需要该 Provider 时请取消编辑并删除',
+      )
+    }
+    // 混协议目录 route 的目录外模型无法解析协议，保存必被 Host 拒绝——提前
+    // 拦下并点名，避免用户在死路的错误信息里猜原因。
+    const blockedForeign = foreignModelsBlocked({
+      provider: route.provider,
+      routeApi: typeof candidate.api === 'string' ? candidate.api : undefined,
+      models: modelEntries(candidate),
+      catalog: catalogIds,
+    })
+    if (blockedForeign !== undefined) {
+      const shown = blockedForeign.slice(0, 3).join('、')
+      list.push(
+        `${blockedForeign.length} 个模型不在 pi-ai 安装目录（${shown}${blockedForeign.length > 3 ? ' 等' : ''}），` +
+          '且该 Provider 的目录模型协议不统一，无法为目录外模型指定协议；请删除这些行，等 pi-ai 目录收录后再获取',
+      )
     }
     if (keyError !== undefined) list.push(keyError)
     return list
-  }, [route.declared, providerDraft, candidate, keyError, useBuiltin, props.choices.thinkingLevels])
+  }, [
+    route.declared,
+    route.provider,
+    providerDraft,
+    candidate,
+    keyError,
+    inheritedConnection,
+    catalogIds,
+    props.choices.thinkingLevels,
+  ])
 
   const rowOf = (id: string) => route.rows.find((row) => row.id === id)
   const factsOf = (id: string) => rowOf(id)?.facts
@@ -239,7 +275,7 @@ export function RouteEditor(props: RouteEditorProps) {
     if (appliedId !== undefined) {
       const previous = rows.find((row) => row.id === appliedId)
       if (previous !== undefined) {
-        profile = removeModelProfile(source, profile, previous)
+        profile = removeModelProfile(source, profile, previous, props.catalog)
         source = routeSource(route.declared, profile)
       }
     }
@@ -253,21 +289,23 @@ export function RouteEditor(props: RouteEditorProps) {
   }
 
   const removeModel = (row: ModelRow) => {
-    setDraftProfile(removeModelProfile(draftSource, draftProfile, row))
+    setDraftProfile(removeModelProfile(draftSource, draftProfile, row, props.catalog))
     // 删的是「新增中」已应用的条目：清掉应用标记，表单的下一次输入按新条目重新规划。
     if (formAppliedIdRef.current === row.id) formAppliedIdRef.current = undefined
     if (modelEdit !== undefined && modelEdit.row.id === row.id) switchModelEdit(undefined)
   }
 
   /**
-   * 获取模型：按草稿的 Endpoint + 协议询问 Host（协议留空交给 Host 自行
-   * 判断，凭据未填时回读已存密钥），返回的模型逐个走 planAddModel 追加进
-   * 草稿（已存在的跳过），元数据按 matching.ts 的匹配链自动补全；不要的
-   * 用行上的「删除」移除，最后随「保存」一次性写入。
+   * 获取模型：目录 route 从 models.dev 拉该 Provider 的整份清单（Host 的模型
+   * 发现对目录 route 只会原样返回 pi-ai 安装目录，而安装目录随包发布、滞后于
+   * models.dev），自定义 route 按草稿的 Endpoint + 协议询问 Host（协议留空
+   * 交给 Host 自行判断，凭据未填时回读已存密钥），元数据按 matching.ts 的
+   * 匹配链自动补全。两种来源都逐个走 planAddModel 追加进草稿（已存在的跳
+   * 过）；不要的用行上的「删除」移除，最后随「保存」一次性写入。
    */
   const fetchModels = async () => {
     const baseURL = providerDraft.baseURL.trim() || route.baseURL || ''
-    if (baseURL.length === 0) {
+    if (!catalogRoute && baseURL.length === 0) {
       setFetchStatus({ kind: 'error', text: '没有可用的 Endpoint；请先在连接里填写' })
       return
     }
@@ -275,21 +313,33 @@ export function RouteEditor(props: RouteEditorProps) {
     setFetching(true)
     setFetchStatus(undefined)
     try {
-      const [discovered, metadataCatalog] = await Promise.all([
-        props.onFetchModels({
-          provider: route.provider,
-          baseURL,
-          api,
-        }),
-        props.modelsDev === null ? props.onLoadModelsDev() : Promise.resolve(props.modelsDev),
-      ])
+      let entries: readonly PiAiModelEntry[]
+      if (catalogRoute) {
+        const metadataCatalog = props.modelsDev ?? (await props.onLoadModelsDev())
+        const providerModels = providerCatalogModels(metadataCatalog, route.provider)
+        if (providerModels === undefined) {
+          setFetchStatus({ kind: 'error', text: 'models.dev 未收录该 Provider，无法获取更新的模型清单' })
+          return
+        }
+        entries = providerModels
+      } else {
+        const [discovered, metadataCatalog] = await Promise.all([
+          props.onFetchModels({
+            provider: route.provider,
+            baseURL,
+            api,
+          }),
+          props.modelsDev === null ? props.onLoadModelsDev() : Promise.resolve(props.modelsDev),
+        ])
+        entries = discovered.map((model) => discoveredToCatalogEntry(metadataCatalog, model, route.provider))
+      }
       let profile = draftProfile
       let source = draftSource
       const seen = new Set(rows.map((row) => row.id))
       let added = 0
       let skipped = 0
-      for (const model of discovered) {
-        if (seen.has(model.id)) {
+      for (const entry of entries) {
+        if (seen.has(entry.id)) {
           skipped += 1
           continue
         }
@@ -297,7 +347,7 @@ export function RouteEditor(props: RouteEditorProps) {
           source,
           userProfile: profile,
           catalog: props.catalog,
-          entry: discoveredToCatalogEntry(metadataCatalog, model, route.provider),
+          entry,
         })
         if (plan.kind === 'blocked') {
           setFetchStatus({ kind: 'error', text: plan.reason })
@@ -305,20 +355,21 @@ export function RouteEditor(props: RouteEditorProps) {
         }
         profile = plan.profile
         source = routeSource(route.declared, profile)
-        seen.add(model.id)
+        seen.add(entry.id)
         added += 1
       }
       // 循环里只累加了本地变量，必须在这里折叠回草稿状态。
       if (added > 0) setDraftProfile(profile)
+      const sourceLabel = catalogRoute ? 'models.dev' : 'Endpoint'
       setFetchStatus(
         added === 0
-          ? { kind: 'info', text: '没有新增模型：Endpoint 返回的 id 都已存在' }
+          ? { kind: 'info', text: `没有新增模型：${sourceLabel} 返回的 id 都已存在` }
           : {
               kind: 'ok',
               text:
                 skipped > 0
-                  ? `获取成功：新增 ${added} 个模型，跳过 ${skipped} 个已存在`
-                  : `获取成功：新增 ${added} 个模型`,
+                  ? `获取成功：从 ${sourceLabel} 新增 ${added} 个模型，跳过 ${skipped} 个已存在`
+                  : `获取成功：从 ${sourceLabel} 新增 ${added} 个模型`,
             },
       )
     } catch (error) {
@@ -327,6 +378,18 @@ export function RouteEditor(props: RouteEditorProps) {
       setFetching(false)
     }
   }
+
+  // 新增模型的元数据查询：与「获取模型」同一条匹配链，route 的 provider 经
+  // 别名表优先（zai-coding-cn 等订阅计划 route 用 models.dev 的计划专属
+  // 条目，而不是厂商本体兜底）。
+  const lookupMetadata = useCallback(
+    async (id: string): Promise<ModelsDevLookup | undefined> => {
+      const catalog = props.modelsDev ?? (await props.onLoadModelsDev())
+      if (catalog === null) return undefined
+      return lookupModelEntry(catalog, id, route.provider)
+    },
+    [props.modelsDev, props.onLoadModelsDev, route.provider],
+  )
 
   // 仅显式清单 / 手写 route 有序（models 数组顺序即请求与展示顺序）；目录
   // route 的顺序由安装目录决定，面板不排序。from / to 是卡片下标：
@@ -369,6 +432,7 @@ export function RouteEditor(props: RouteEditorProps) {
         catalogIds={route.declared ? undefined : catalogIds}
         busy={props.busy}
         onChange={applyModelLive}
+        onLookupMetadata={lookupMetadata}
       />
     )
 
@@ -456,9 +520,6 @@ export function RouteEditor(props: RouteEditorProps) {
 
   return (
     <div className={styles.inlineEditor}>
-      {props.error ? <div className={styles.error}>{props.error}</div> : null}
-      {localError ? <div className={styles.error}>{localError}</div> : null}
-      {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
       {!props.writable ? (
         <div className={styles.notice}>当前 Settings Provider 不可写；可继续编辑，但无法保存。</div>
       ) : null}
@@ -500,7 +561,7 @@ export function RouteEditor(props: RouteEditorProps) {
               placeholder={route.displayName || route.provider}
               onChange={(value) => setProviderDraft({ ...providerDraft, displayName: value })}
             />
-            {useBuiltin ? null : (
+            {inheritedConnection ? null : (
               <TextField
                 label="Endpoint（baseURL）"
                 value={providerDraft.baseURL}
@@ -509,7 +570,7 @@ export function RouteEditor(props: RouteEditorProps) {
                 onChange={(value) => setProviderDraft({ ...providerDraft, baseURL: value })}
               />
             )}
-            {useBuiltin ? null : (
+            {inheritedConnection ? null : (
               <SelectField
                 label="API 协议"
                 value={providerDraft.api}
@@ -545,86 +606,79 @@ export function RouteEditor(props: RouteEditorProps) {
           {signIn?.card}
         </section>
 
-        {useBuiltin ? (
-          <section className={styles.section}>
-            <h3 className={styles.sectionTitle}>模型（{route.rows.length}）</h3>
-            {route.rows.length > 0 ? (
-              <ModelTable
-                rows={route.rows.map((row) => ({
-                  name: row.name,
-                  id: row.id,
-                  ctx: row.effectiveContextWindow,
-                  out: row.effectiveMaxTokens,
-                  input: row.effectiveInput,
-                  reasoning: reasoningLabel(row),
-                }))}
-              />
-            ) : (
-              <div className={styles.empty}>
-                {route.active ? '该 route 当前没有可用模型' : '该 route 未激活或未配置模型'}
-              </div>
-            )}
-          </section>
-        ) : (
-          <section className={styles.section}>
-            <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
-            <CardList
-              items={displayRows}
-              getKey={(row) => row.id}
-              renderCard={modelCard}
-              onReorder={canReorder ? reorderModel : undefined}
-              canDrag={() => !props.busy}
-              after={creatingCard}
-              empty={
-                creatingCard === undefined ? (
-                  <div className={styles.empty}>
-                    {route.declared ? '手写 route 至少需要一个模型' : '没有用户层模型配置，全部继承安装目录'}
-                  </div>
-                ) : null
-              }
-              listRef={modelListRef}
-            />
-            <div className={styles.toolbar}>
-              <Button
-                variant="outline"
-                icon={<IconPlusOutlineRegular />}
-                disabled={props.busy}
-                onClick={() =>
-                  modelEdit !== undefined && modelEdit.creating
-                    ? switchModelEdit(undefined)
-                    : switchModelEdit({ creating: true, row: BLANK_ROW })
-                }
-              >
-                新增模型
-              </Button>
-              <Button
-                variant="outline"
-                disabled={props.busy || fetching}
-                onClick={() => {
-                  void fetchModels()
-                }}
-              >
-                {fetching ? '获取中…' : '获取模型'}
-              </Button>
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>模型（{rows.length}）</h3>
+          {/* 删除目录内模型 / 新增目录外模型都会把草稿翻成显式清单：目录升级不再
+              自动生效，提示必须持续可见而不是只在触发的那一下闪现。 */}
+          {(route.source === 'inherited' || route.source === 'overridden') && draftSource === 'explicit' ? (
+            <div className={styles.notice}>
+              本次保存会把该 route 固定为一份显式模型清单；之后 pi-ai 目录升级新增的模型不会再自动出现。
             </div>
-            {fetchStatus !== undefined ? (
-              <div
-                className={
-                  fetchStatus.kind === 'ok'
-                    ? styles.success
-                    : fetchStatus.kind === 'error'
-                      ? styles.error
-                      : styles.notice
-                }
-                role={fetchStatus.kind === 'error' ? 'alert' : undefined}
-              >
-                {fetchStatus.text}
-              </div>
-            ) : null}
-          </section>
-        )}
+          ) : null}
+          <CardList
+            items={displayRows}
+            getKey={(row) => row.id}
+            renderCard={modelCard}
+            onReorder={canReorder ? reorderModel : undefined}
+            canDrag={() => !props.busy}
+            after={creatingCard}
+            empty={
+              creatingCard === undefined ? (
+                <div className={styles.empty}>
+                  {route.declared
+                    ? '手写 route 至少需要一个模型'
+                    : route.active
+                      ? '该 route 当前没有模型'
+                      : '该 route 未激活或未配置模型'}
+                </div>
+              ) : null
+            }
+            listRef={modelListRef}
+          />
+          <div className={styles.toolbar}>
+            <Button
+              variant="outline"
+              icon={<IconPlusOutlineRegular />}
+              disabled={props.busy}
+              onClick={() =>
+                modelEdit !== undefined && modelEdit.creating
+                  ? switchModelEdit(undefined)
+                  : switchModelEdit({ creating: true, row: BLANK_ROW })
+              }
+            >
+              新增模型
+            </Button>
+            <Button
+              variant="outline"
+              disabled={props.busy || fetching}
+              onClick={() => {
+                void fetchModels()
+              }}
+            >
+              {fetching ? '获取中…' : '获取模型'}
+            </Button>
+          </div>
+          {fetchStatus !== undefined ? (
+            <div
+              className={
+                fetchStatus.kind === 'ok'
+                  ? styles.success
+                  : fetchStatus.kind === 'error'
+                    ? styles.error
+                    : styles.notice
+              }
+              role={fetchStatus.kind === 'error' ? 'alert' : undefined}
+            >
+              {fetchStatus.text}
+            </div>
+          ) : null}
+        </section>
       </div>
 
+      {/* 保存相关反馈贴着动作区：表单长时顶部的提示区在视口外，点了保存看不见被拦的原因。 */}
+      {props.error ? <div className={styles.error}>{props.error}</div> : null}
+      {localError ? <div className={styles.error}>{localError}</div> : null}
+      {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
       <div className={styles.editorActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
           取消

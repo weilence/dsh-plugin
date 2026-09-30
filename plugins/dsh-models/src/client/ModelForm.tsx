@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DisclosureRow, Switch, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import { THINKING_LEVELS, type PiAiModelEntry, type PiAiModality, type ThinkingLevel } from '../pi-ai/types'
+import type { ModelsDevLookup } from '../catalog/matching'
 import { jsonEqual } from '../pi-ai/ops'
 import { validateModelEntry, type FieldIssue } from '../pi-ai/validate'
 import type { ModelRow } from '../pi-ai/profile'
@@ -28,9 +29,14 @@ export interface ModelFormProps {
   busy: boolean
   /** 实时应用：任一有效修改立即折叠进所在页面的草稿（不写文件）。 */
   onChange(entry: PiAiModelEntry): void
+  /**
+   * 新增模式下按 models.dev 元数据自动填充：传入模型 id，返回填充候选与
+   * 命中来源；目录不可用或未收录返回 undefined。
+   */
+  onLookupMetadata?(id: string): Promise<ModelsDevLookup | undefined>
 }
 
-interface Draft {
+export interface Draft {
   name: string
   contextWindow: string
   maxTokens: string
@@ -145,10 +151,112 @@ function issuesFor(entry: PiAiModelEntry, draft: Draft): FieldIssue[] {
   return issues
 }
 
+/** models.dev 条目 → 表单可自动填充的字段值（compat 不来自目录，不参与）。 */
+function autofillValuesOf(entry: PiAiModelEntry) {
+  return {
+    name: entry.name ?? '',
+    contextWindow: entry.contextWindow !== undefined ? String(entry.contextWindow) : '',
+    maxTokens: entry.maxTokens !== undefined ? String(entry.maxTokens) : '',
+    image: entry.input?.includes('image') ?? false,
+    disableEfforts: entry.reasoningEfforts === false,
+    efforts: effortModeValues(entry.reasoningEfforts),
+  }
+}
+
+function adopted<T>(
+  current: T,
+  blankValue: T,
+  previousValue: T | undefined,
+  next: T,
+  isEqual: (a: T, b: T) => boolean = Object.is,
+): T {
+  if (isEqual(current, blankValue)) return next
+  if (previousValue !== undefined && isEqual(current, previousValue)) return next
+  return current
+}
+
+/**
+ * 自动填充合并：字段当前为空白、或仍等于上一次填充值时采纳新值，用户手动
+ * 改过的字段永不覆盖——半截 id 的误填充随输入完成自动纠正（与导入合并
+ * 语义同构：已有用户字段优先，填充只补缺失）。
+ */
+export function mergedAutofillDraft(
+  draft: Draft,
+  entry: PiAiModelEntry,
+  previous: PiAiModelEntry | undefined,
+): Draft {
+  const next = autofillValuesOf(entry)
+  const previousValues = previous === undefined ? undefined : autofillValuesOf(previous)
+  const blank = autofillValuesOf({ id: entry.id })
+  return {
+    ...draft,
+    name: adopted(draft.name, blank.name, previousValues?.name, next.name),
+    contextWindow: adopted(
+      draft.contextWindow,
+      blank.contextWindow,
+      previousValues?.contextWindow,
+      next.contextWindow,
+    ),
+    maxTokens: adopted(draft.maxTokens, blank.maxTokens, previousValues?.maxTokens, next.maxTokens),
+    input: { image: adopted(draft.input.image, blank.image, previousValues?.image, next.image) },
+    disableEfforts: adopted(
+      draft.disableEfforts,
+      blank.disableEfforts,
+      previousValues?.disableEfforts,
+      next.disableEfforts,
+    ),
+    efforts: adopted(draft.efforts, blank.efforts, previousValues?.efforts, next.efforts, jsonEqual),
+  }
+}
+
+/** id 自动填充的防抖：停顿即查询，与表单实时应用哲学一致。 */
+const AUTOFILL_DEBOUNCE_MS = 500
+
+type AutofillStatus = { state: 'loading' | 'matched' | 'none'; source?: string } | undefined
+
 export function ModelForm(props: ModelFormProps) {
   const [id, setId] = useState(props.row.id)
   const [draft, setDraft] = useState<Draft>(() => initialDraft(props.row, props.facts))
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [autofillStatus, setAutofillStatus] = useState<AutofillStatus>(undefined)
+  /** 上一次自动填充的条目：重查时判定「哪些字段仍是我们填的」。 */
+  const autofillEntryRef = useRef<PiAiModelEntry | undefined>(undefined)
+  const lookupRef = useRef(props.onLookupMetadata)
+  lookupRef.current = props.onLookupMetadata
+
+  // 新增模式的 id 防抖查询：回调经 ref 取最新，父组件重渲染不重置计时；
+  // 结果按 mergedAutofillDraft 合并（只补空白 / 替换上次填充）。
+  useEffect(() => {
+    if (!props.creating) return
+    const trimmed = id.trim()
+    if (trimmed.length === 0 || lookupRef.current === undefined) {
+      setAutofillStatus(undefined)
+      return
+    }
+    let cancelled = false
+    setAutofillStatus({ state: 'loading' })
+    const timer = setTimeout(() => {
+      void lookupRef.current?.(trimmed).then((found) => {
+        if (cancelled) return
+        if (found === undefined) {
+          setAutofillStatus({ state: 'none' })
+          return
+        }
+        setDraft((current) => mergedAutofillDraft(current, found.entry, autofillEntryRef.current))
+        autofillEntryRef.current = found.entry
+        setAutofillStatus({
+          state: 'matched',
+          ...(found.source === undefined ? {} : { source: found.source }),
+        })
+      })
+    }, AUTOFILL_DEBOUNCE_MS)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+    // 只有 id 与编辑模式参与防抖重置；查询回调与上次填充均经 ref 读取最新值。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, props.creating])
 
   const entry = useMemo(() => {
     const defaultInput = props.facts?.inputModalities ?? props.row.catalogEntry?.input
@@ -240,6 +348,15 @@ export function ModelForm(props: ModelFormProps) {
             onChange={(value) => setDraft({ ...draft, maxTokens: value })}
           />
         </div>
+        {props.creating && autofillStatus !== undefined ? (
+          <div className={autofillStatus.state === 'matched' ? styles.notice : styles.hint}>
+            {autofillStatus.state === 'loading'
+              ? '正在按 models.dev 查询模型元数据…'
+              : autofillStatus.state === 'matched'
+                ? `已按 models.dev${autofillStatus.source === undefined ? '' : `（${autofillStatus.source}）`}填充空白字段，可手动修改`
+                : 'models.dev 未收录该模型（或目录暂不可用），可手动填写能力字段'}
+          </div>
+        ) : null}
         <p className={styles.hint}>
           显式配置 <code className={styles.code}>maxTokens</code>{' '}
           后，它不仅描述模型能力，还会成为该模型每次请求的默认输出上限。

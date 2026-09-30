@@ -7,6 +7,7 @@ import {
   routeSource,
   saveModelProfile,
   entryMatchesCatalog,
+  foreignModelsBlocked,
 } from '../src/pi-ai/profile'
 import { normalizeModelEntry } from '../src/pi-ai/normalize'
 import {
@@ -121,16 +122,43 @@ describe('保存单个模型能力', () => {
   })
 })
 
-describe('删除与重置', () => {
-  it('目录 route 删除模型只删 override', () => {
+describe('删除模型', () => {
+  it('目录 route 删除目录内模型：整份展开为显式清单并把它移出', () => {
     const row = {
       id: 'alpha',
       name: 'Alpha',
-      userEntry: { id: 'alpha' },
+      userEntry: undefined,
+      catalogEntry: { id: 'alpha', contextWindow: 1000, maxTokens: 100 },
+      writeSite: 'catalog' as const,
+    }
+    const next = removeModelProfile(
+      'inherited',
+      { modelOverrides: { beta: { id: 'beta', maxTokens: 9 } } },
+      row,
+      catalog,
+    )
+    expect(next).toEqual({
+      // override 折叠进显式清单后，被删模型不再出现，其余目录模型保留。
+      models: [{ id: 'beta', name: 'Beta', contextWindow: 2000, maxTokens: 9 }],
+    })
+  })
+
+  it('目录 route 删除目录外的 override 条目只删该条目', () => {
+    const row = {
+      id: 'ghost',
+      name: 'ghost',
+      userEntry: { id: 'ghost' },
       catalogEntry: undefined,
       writeSite: 'modelOverrides' as const,
     }
-    expect(removeModelProfile('overridden', { modelOverrides: { alpha: { id: 'alpha' } } }, row)).toEqual({})
+    expect(
+      removeModelProfile(
+        'overridden',
+        { modelOverrides: { alpha: { id: 'alpha' }, ghost: { id: 'ghost' } } },
+        row,
+        catalog,
+      ),
+    ).toEqual({ modelOverrides: { alpha: { id: 'alpha' } } })
   })
 
   it('显式清单删除模型从数组移除', () => {
@@ -141,7 +169,7 @@ describe('删除与重置', () => {
       catalogEntry: undefined,
       writeSite: 'models' as const,
     }
-    expect(removeModelProfile('explicit', { models: [{ id: 'a' }, { id: 'b' }] }, row)).toEqual({
+    expect(removeModelProfile('explicit', { models: [{ id: 'a' }, { id: 'b' }] }, row, catalog)).toEqual({
       models: [{ id: 'b' }],
     })
   })
@@ -164,6 +192,45 @@ describe('目录未描述模型触发整份展开', () => {
       maxTokens: 200,
     })
     expect(next.models?.at(-1)?.id).toBe('gamma')
+  })
+})
+
+describe('混协议 route 的目录外模型拦截', () => {
+  const models = [{ id: 'alpha' }, { id: 'claude-new' }]
+  const catalogIds = new Set(['alpha'])
+
+  it('混协议 route 且未写 route api 时列出目录外模型', () => {
+    expect(
+      foreignModelsBlocked({ provider: 'github-copilot', routeApi: undefined, models, catalog: catalogIds }),
+    ).toEqual(['claude-new'])
+  })
+
+  it('route 写了 api 则可解析，不拦', () => {
+    expect(
+      foreignModelsBlocked({
+        provider: 'github-copilot',
+        routeApi: 'anthropic-messages',
+        models,
+        catalog: catalogIds,
+      }),
+    ).toBeUndefined()
+  })
+
+  it('非混协议 route 不拦', () => {
+    expect(
+      foreignModelsBlocked({ provider: 'anthropic', routeApi: undefined, models, catalog: catalogIds }),
+    ).toBeUndefined()
+  })
+
+  it('清单全在目录内时不拦', () => {
+    expect(
+      foreignModelsBlocked({
+        provider: 'github-copilot',
+        routeApi: undefined,
+        models: [{ id: 'alpha' }],
+        catalog: catalogIds,
+      }),
+    ).toBeUndefined()
   })
 })
 

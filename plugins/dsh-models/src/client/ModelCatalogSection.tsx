@@ -92,6 +92,7 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
             onAnswer={(value) => void props.store.answerSignIn(value)}
             onDecline={() => void props.store.declineSignIn()}
             onCancel={() => void props.store.cancelSignIn()}
+            onSignOut={(target) => void props.store.signOut(target)}
           />
         ),
         replacesApiKey: !flow.methods.some((method) => method.id === 'api-key'),
@@ -231,7 +232,6 @@ function ModelCatalogPanel(props: { store: PanelStore; operations: PiAiOperation
                   props.store.createProvider(provider, profile, { apiKey, notice })
                 }
                 onFetchModels={(request) => props.operations.discoverEndpoint(request)}
-                onError={(message) => props.store.fail(message)}
               />
             </ExpandableCard>
           ) : null

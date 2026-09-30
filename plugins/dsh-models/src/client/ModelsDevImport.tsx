@@ -32,7 +32,6 @@ export interface ModelsDevImportProps {
     notice: string,
     apiKey?: string,
   ): Promise<boolean>
-  onError(message: string): void
 }
 
 /** ref 面：外层新建卡片的「创建」按钮触发这里。 */
@@ -67,6 +66,8 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
     const [models, setModels] = useState<readonly PiAiModelEntry[] | null>(null)
     const [fetching, setFetching] = useState(false)
     const [fetchError, setFetchError] = useState<string | null>(null)
+    /** 外层「创建」被拦的原因：渲染在内容末尾，紧贴创建按钮（顶部的提示区长表单时在视口外）。 */
+    const [applyError, setApplyError] = useState<string | null>(null)
     const endpointValue = endpoint.trim()
     // Endpoint 与 models.dev 某个来源的 api 完全一致 → 按「选择」处理；手动
     // 改过（或留空）就是自定义 Endpoint。导入只新建 provider，统一按来源
@@ -108,16 +109,17 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
     }
 
     const apply = async () => {
+      setApplyError(null)
       if (target.length === 0) {
-        props.onError('新 Provider ID 不能为空')
+        setApplyError('新 Provider ID 不能为空')
         return
       }
       if (existing) {
-        props.onError(`Provider ID「${target}」已存在；只能新建 Provider`)
+        setApplyError(`Provider ID「${target}」已存在；只能新建 Provider`)
         return
       }
       if (plan?.kind === 'unsupported' && apiValue.length === 0) {
-        props.onError(plan.reason)
+        setApplyError(plan.reason)
         return
       }
       const displayNameValue = displayName.trim()
@@ -261,6 +263,11 @@ export const ModelsDevImport = forwardRef<ModelsDevImportHandle, ModelsDevImport
               )}
             </div>
           </>
+        ) : null}
+        {applyError ? (
+          <div className={styles.error} role="alert">
+            {applyError}
+          </div>
         ) : null}
       </>
     )

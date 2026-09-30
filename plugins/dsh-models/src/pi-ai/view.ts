@@ -103,15 +103,6 @@ export function buildRoutes(
   )
 }
 
-export function reasoningLabel(row: PanelModelRow): string {
-  if (row.effectiveEfforts === undefined) return '默认'
-  if (row.effectiveEfforts.length === 0) return '不支持'
-  const efforts = row.effectiveEfforts.join(' / ')
-  return row.effectiveDefaultEffort === undefined
-    ? efforts
-    : `${efforts}（默认 ${row.effectiveDefaultEffort}）`
-}
-
 /** 草稿/清单条目的推理摘要：false = 无推理，未设置 = 默认（继承）。 */
 export function effortsLabel(entry: PiAiModelEntry): string {
   const efforts = entry.reasoningEfforts

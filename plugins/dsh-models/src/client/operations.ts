@@ -83,6 +83,8 @@ export interface PiAiOperations {
   answerAuth(answer: { value: string } | { declined: true }): Promise<void>
   /** 取消进行中的登录。 */
   cancelAuth(): Promise<void>
+  /** 退出订阅登录：删除该 Provider 的凭据记录；失败抛携带 Host 原因的错误。 */
+  revokeAuth(provider: string): Promise<void>
 }
 
 function remoteMessage(error: { message?: string } | undefined, fallback: string) {
@@ -288,6 +290,10 @@ export function createOperations(ctx: OperationsContext): PiAiOperations {
 
     async cancelAuth() {
       await authJson(`${AUTH_PATH}/cancel`, authRequestBody({}))
+    },
+
+    async revokeAuth(provider) {
+      await authJson(`${AUTH_PATH}/revoke`, authRequestBody({ provider }))
     },
   }
 }

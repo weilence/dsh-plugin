@@ -1,5 +1,10 @@
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm/types'
-import type { PiAiModelEntry, PiAiProviderEntry, RouteSource } from './types'
+import {
+  MIXED_PROTOCOL_PROVIDERS,
+  type PiAiModelEntry,
+  type PiAiProviderEntry,
+  type RouteSource,
+} from './types'
 import { isRecord } from './record'
 import { normalizeModelEntry } from './normalize'
 
@@ -231,28 +236,34 @@ export function removeModelProfile(
   source: RouteSource,
   userProfile: PiAiProviderEntry | undefined,
   row: ModelRow,
+  catalog: ReadonlyMap<string, DiscoveredModelFacts>,
 ): PiAiProviderEntry {
   if (source === 'explicit' || source === 'declared') {
     return patchUserProfile(userProfile, {
       models: modelEntries(userProfile).filter((entry) => entry.id !== row.id),
     })
   }
-  // 目录 route 的「删除」只能删掉这条 override；目录本身由 pi-ai 提供。
-  const overrides = overrideEntries(userProfile)
-  delete overrides[row.id]
+  // 目录外的 override 条目只删条目本身；目录内模型的删除只能整份展开 models 把它
+  // 移出 route——安装目录由 pi-ai 包提供，用户层没有可摘除的单点。
+  if (!catalog.has(row.id)) {
+    const overrides = overrideEntries(userProfile)
+    delete overrides[row.id]
+    return patchUserProfile(userProfile, {
+      modelOverrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+    })
+  }
   return patchUserProfile(userProfile, {
-    modelOverrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+    models: foldedCatalogModels(userProfile, catalog).filter((entry) => entry.id !== row.id),
+    modelOverrides: undefined,
   })
 }
 
-// modelOverrides 不能显式指定目录未描述的模型，因此必须把 models 展开为显式清单：目录
-// 条目按用户 override 折叠后逐个列出，再追加新条目（唯一触发整份展开的路径，
-// UI 必须二次确认）。
-export function materializeWithNewModel(
+// 把安装目录折叠成显式 models 清单：目录条目套上用户 override（字段级，override
+// 优先），供「新增目录未描述模型」「删除目录内模型」两条必经展开的路径共用。
+function foldedCatalogModels(
   userProfile: PiAiProviderEntry | undefined,
   catalog: ReadonlyMap<string, DiscoveredModelFacts>,
-  newEntry: PiAiModelEntry,
-): PiAiProviderEntry {
+): PiAiModelEntry[] {
   const overrides = overrideEntries(userProfile)
   const list: PiAiModelEntry[] = []
   for (const [id, facts] of catalog) {
@@ -260,8 +271,21 @@ export function materializeWithNewModel(
     const override = overrides[id]
     list.push(normalizeModelEntry(override === undefined ? base : { ...base, ...override }))
   }
-  list.push(normalizeModelEntry(newEntry))
-  return patchUserProfile(userProfile, { models: list, modelOverrides: undefined })
+  return list
+}
+
+// modelOverrides 不能显式指定目录未描述的模型，因此必须把 models 展开为显式清单：
+// 目录条目按用户 override 折叠后逐个列出，再追加新条目（触发整份展开的路径之一，
+// UI 必须先警告）。
+export function materializeWithNewModel(
+  userProfile: PiAiProviderEntry | undefined,
+  catalog: ReadonlyMap<string, DiscoveredModelFacts>,
+  newEntry: PiAiModelEntry,
+): PiAiProviderEntry {
+  return patchUserProfile(userProfile, {
+    models: [...foldedCatalogModels(userProfile, catalog), normalizeModelEntry(newEntry)],
+    modelOverrides: undefined,
+  })
 }
 
 export type AddModelPlan =
@@ -302,4 +326,21 @@ export function planAddModel(input: {
     }
   }
   return { kind: 'materialize', profile: materializeWithNewModel(userProfile, catalog, entry) }
+}
+
+/**
+ * 混协议 route 上无法写入的目录外模型清单：安装目录模型协议不统一（无目录
+ * 共用协议可兜底），route 又未声明 api 时，官方配置面无法为目录外模型解析
+ * 协议，保存必被 Host 拒绝。可解析时返回 undefined。
+ */
+export function foreignModelsBlocked(input: {
+  provider: string
+  routeApi: string | undefined
+  models: readonly PiAiModelEntry[]
+  catalog: ReadonlySet<string>
+}): string[] | undefined {
+  if (input.routeApi !== undefined) return undefined
+  if (!MIXED_PROTOCOL_PROVIDERS.includes(input.provider)) return undefined
+  const foreign = input.models.filter((entry) => !input.catalog.has(entry.id)).map((entry) => entry.id)
+  return foreign.length > 0 ? foreign : undefined
 }

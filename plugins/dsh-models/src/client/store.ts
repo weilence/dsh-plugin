@@ -292,6 +292,19 @@ export class PanelStore {
     }
   }
 
+  // 退出订阅登录：删除凭据记录后全量刷新——route 可能因凭据消失而失活，
+  // 「已授权」状态由 record-updated 事件与这里的显式刷新双路同步。
+  async signOut(provider: string): Promise<void> {
+    try {
+      await this.operations.revokeAuth(provider)
+    } catch (error) {
+      this.fail(errMsg(error))
+      return
+    }
+    this.set({ notice: `已退出 ${provider} 的登录`, error: null })
+    await this.refresh()
+  }
+
   // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，结束时清除整段过程
   // （authorized 给提示并刷新记录状态，failed 的原因进错误区）。
   private startAuthPoll() {

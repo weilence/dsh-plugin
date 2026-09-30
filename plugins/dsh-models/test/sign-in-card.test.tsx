@@ -67,14 +67,16 @@ describe('SignInCard', () => {
         onAnswer: () => {},
         onDecline: () => {},
         onCancel: () => {},
+        onSignOut: () => {},
       }),
     )
     expect(html).toContain('未授权')
     expect(html).toContain('登录')
+    expect(html).not.toContain('退出登录')
     expect(html).toContain('不使用 API Key')
   })
 
-  it('已授权：入口变为重新登录', () => {
+  it('已授权：主操作变为退出登录（换账号先退出再登录）', () => {
     const html = renderToStaticMarkup(
       createElement(SignInCard, {
         provider: 'openai-codex',
@@ -85,10 +87,12 @@ describe('SignInCard', () => {
         onAnswer: () => {},
         onDecline: () => {},
         onCancel: () => {},
+        onSignOut: () => {},
       }),
     )
     expect(html).toContain('已授权')
-    expect(html).toContain('重新登录')
+    expect(html).toContain('退出登录')
+    expect(html).not.toContain('重新登录')
   })
 
   it('进行中：通知里的授权链接与设备码可选中复制，问题表单就位', () => {
@@ -126,6 +130,7 @@ describe('SignInCard', () => {
         onAnswer: () => {},
         onDecline: () => {},
         onCancel: () => {},
+        onSignOut: () => {},
       }),
     )
     expect(html).toContain('href="https://auth.example/device"')
@@ -155,10 +160,11 @@ describe('SignInCard', () => {
         onAnswer: () => {},
         onDecline: () => {},
         onCancel: () => {},
+        onSignOut: () => {},
       }),
     )
     expect(html).toContain('已授权')
-    expect(html).toContain('重新登录')
+    expect(html).toContain('退出登录')
     expect(html).not.toContain('https://auth.example/device')
     expect(html).not.toContain('登录成功。')
   })
@@ -180,6 +186,7 @@ describe('SignInCard', () => {
         onAnswer: () => {},
         onDecline: () => {},
         onCancel: () => {},
+        onSignOut: () => {},
       }),
     )
     expect(html).not.toContain('别家的尝试')

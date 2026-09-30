@@ -2,48 +2,49 @@ import { discoveredToEntry, modelToEntry } from './map'
 import type { DiscoveredModel, ModelsDevCatalog, ModelsDevModel, ModelsDevProvider } from './types'
 import type { PiAiModelEntry } from '../pi-ai/types'
 
-type Preference = { pattern: RegExp; providerIds: string[]; names?: string[]; api?: string[] }
+// pi-ai 内置 route id → models.dev provider id 的静态别名表：只收两家命名
+// 不一致的（其余 id 两边同名，直接相等比较）。快照事实（pi-ai 0.85.1 ↔
+// models.dev 2026-09），升级任一侧须复核；models.dev 改名只会让 ① 层静默
+// 落空、由 ②③ 兜底，不报错。
+const ROUTE_PROVIDER_ALIASES: Record<string, string> = {
+  'zai-coding-cn': 'zai-coding-plan',
+  'qwen-token-plan': 'alibaba-token-plan',
+  'qwen-token-plan-cn': 'alibaba-token-plan-cn',
+  // models.dev 没有 individual 变体，回落基础计划条目。
+  'qwen-token-plan-individual': 'alibaba-token-plan',
+  'openai-codex': 'openai',
+  'kimi-coding': 'moonshotai',
+  'openrouter-images': 'openrouter',
+  'azure-openai-responses': 'azure',
+  fireworks: 'fireworks-ai',
+  together: 'togetherai',
+  'vercel-ai-gateway': 'vercel',
+}
+
+// 模型 id 前缀 → 厂商本体的 models.dev 精确 id。百度 / 腾讯本体 models.dev
+// 未收录，ernie / hunyuan 没有条目可指，直接走 ③ 全目录多数派。
+type Preference = { pattern: RegExp; providerIds: string[] }
 const PREFERENCES: Preference[] = [
   { pattern: /^gpt-(?!oss(?:-|$))|^o[134](?:-|$)/, providerIds: ['openai'] },
   { pattern: /^claude-/, providerIds: ['anthropic'] },
-  { pattern: /^glm-/, providerIds: ['zai', 'z-ai'], names: ['z.ai', 'z ai'], api: ['api.z.ai'] },
+  { pattern: /^glm-/, providerIds: ['zai'] },
   { pattern: /^deepseek-/, providerIds: ['deepseek'] },
-  { pattern: /^gemini-/, providerIds: ['google', 'google-ai'] },
-  {
-    pattern: /^qwen(?:-|\/|\d)/,
-    providerIds: ['alibaba', 'alibaba-cloud', 'dashscope', 'qwen'],
-    names: ['alibaba cloud', 'dashscope'],
-    api: ['dashscope.aliyuncs.com'],
-  },
-  {
-    pattern: /^(?:kimi-|moonshot-)/,
-    providerIds: ['moonshot', 'moonshotai'],
-    names: ['moonshot ai'],
-    api: ['api.moonshot.cn'],
-  },
-  { pattern: /^doubao-/, providerIds: ['volcengine', 'volcengine-ark', 'ark'], names: ['volcengine'] },
+  { pattern: /^gemini-/, providerIds: ['google'] },
+  { pattern: /^qwen(?:-|\/|\d)/, providerIds: ['alibaba'] },
+  { pattern: /^(?:kimi-|moonshot-)/, providerIds: ['moonshotai'] },
+  { pattern: /^doubao-/, providerIds: ['volcengine'] },
   { pattern: /^minimax-/, providerIds: ['minimax'] },
-  { pattern: /^grok-/, providerIds: ['xai', 'x-ai'] },
+  { pattern: /^grok-/, providerIds: ['xai'] },
   { pattern: /^(?:mistral-|codestral-|pixtral-)/, providerIds: ['mistral'] },
   { pattern: /^command(?:-|$)/, providerIds: ['cohere'] },
-  { pattern: /^ernie-/, providerIds: ['baidu', 'baidu-qianfan', 'qianfan'], names: ['baidu'] },
-  { pattern: /^hunyuan-/, providerIds: ['tencent', 'tencent-cloud', 'hunyuan'], names: ['tencent cloud'] },
-  { pattern: /^step-/, providerIds: ['stepfun', 'step-fun'], names: ['stepfun'] },
+  { pattern: /^step-/, providerIds: ['stepfun'] },
 ]
-const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '')
 
 function providerById(catalog: ModelsDevCatalog, id: string) {
-  return catalog.providers.find((provider) => normalize(provider.id) === normalize(id))
+  return catalog.providers.find((provider) => provider.id === id)
 }
 function providerByPreference(catalog: ModelsDevCatalog, preference: Preference) {
-  const ids = new Set(preference.providerIds.map(normalize))
-  const names = new Set((preference.names ?? []).map(normalize))
-  return catalog.providers.find(
-    (provider) =>
-      ids.has(normalize(provider.id)) ||
-      names.has(normalize(provider.name)) ||
-      (preference.api ?? []).some((fragment) => provider.api?.toLowerCase().includes(fragment)),
-  )
+  return catalog.providers.find((provider) => preference.providerIds.includes(provider.id))
 }
 function preferenceFor(id: string) {
   return PREFERENCES.find((preference) => preference.pattern.test(id.trim().toLowerCase()))
@@ -64,11 +65,16 @@ function suffixedModel(provider: ModelsDevProvider | undefined, id: string): Mod
   }, undefined)
 }
 
-// 匹配优先级：① Endpoint Provider 内 ID 完全相等（网关尾缀推断只对厂商自己
-// 的目录可信）→ ② 模型 ID 前缀定位已知厂商（完全相等 → -尾缀取最长）。
+// 匹配优先级：① route 的 provider（经别名表映射到 models.dev id）内 ID 完全
+// 相等（网关尾缀推断只对厂商自己的目录可信）→ ② 模型 ID 前缀定位已知厂商
+// （完全相等 → -尾缀取最长）。
 export function findModelMetadata(catalog: ModelsDevCatalog | null, id: string, fallbackProviderId?: string) {
   if (!catalog) return undefined
-  const endpoint = fallbackProviderId ? providerById(catalog, fallbackProviderId) : undefined
+  const aliased =
+    fallbackProviderId === undefined
+      ? undefined
+      : (ROUTE_PROVIDER_ALIASES[fallbackProviderId] ?? fallbackProviderId)
+  const endpoint = aliased === undefined ? undefined : providerById(catalog, aliased)
   const endpointExact = endpoint ? exactModel(endpoint, id) : undefined
   if (endpoint && endpointExact) return { provider: endpoint, model: endpointExact }
   const preference = preferenceFor(id)
@@ -169,4 +175,40 @@ export function discoveredToCatalogEntry(
   const family = crossCatalogEntry(catalog, model.id)
   if (family) return { ...discovered, ...family, id: model.id }
   return discovered
+}
+
+/** 新增模型自动填充的查询结果：entry 为填充候选，source 为命中的 provider id。 */
+export interface ModelsDevLookup {
+  entry: PiAiModelEntry
+  /** 命中来源（models.dev 的 provider id）；③ 全目录多数派无单一来源。 */
+  source?: string
+}
+
+// 新增模型表单的 id 查询：与「获取模型」同一条 ①②③ 匹配链，输入从 Endpoint
+// 返回值换成用户手输的 id；未收录返回 undefined。
+export function lookupModelEntry(
+  catalog: ModelsDevCatalog | null,
+  id: string,
+  fallbackProviderId?: string,
+): ModelsDevLookup | undefined {
+  const metadata = findModelMetadata(catalog, id, fallbackProviderId)
+  if (metadata) return { entry: modelToEntry(metadata.model), source: metadata.provider.id }
+  const family = crossCatalogEntry(catalog, id)
+  if (family === undefined) return undefined
+  return { entry: { id, ...family } }
+}
+
+// 目录 route「获取模型」的来源：models.dev 该 Provider 的整份模型清单（经
+// 别名表映射）。pi-ai 安装目录随包发布、滞后于 models.dev——Host 的模型发现
+// 对目录 route 只会原样返回安装目录，更新的清单只能从这边拿；Provider 未
+// 收录返回 undefined。
+export function providerCatalogModels(
+  catalog: ModelsDevCatalog | null,
+  fallbackProviderId?: string,
+): PiAiModelEntry[] | undefined {
+  if (!catalog || fallbackProviderId === undefined) return undefined
+  const aliased = ROUTE_PROVIDER_ALIASES[fallbackProviderId] ?? fallbackProviderId
+  const provider = providerById(catalog, aliased)
+  if (provider === undefined) return undefined
+  return provider.models.map((model) => modelToEntry(model))
 }

@@ -15,7 +15,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
 vi.mock('@dsh-plugins/client-ui', () => ({
   CardList: ({ items }: { items: readonly unknown[] }) => <div>模型卡片 {items.length}</div>,
   ExpandableCard: () => null,
-  ModelTable: ({ rows }: { rows: readonly unknown[] }) => <div>目录模型 {rows.length}</div>,
   SelectField: ({
     label,
     value,
@@ -42,6 +41,9 @@ vi.mock('@dsh-plugins/client-ui', () => ({
 }))
 
 function renderEditor(declared: boolean) {
+  // 手写 route 没有安装目录（「获取模型」走 endpoint 询问）；内置 route 的
+  // 目录非空（「获取模型」改从 models.dev 取更新清单）。
+  const catalog = declared ? new Map() : new Map([['a', { name: '模型 A', contextWindow: 1000 }]])
   const route = buildRoutes(
     {
       user: {
@@ -53,14 +55,14 @@ function renderEditor(declared: boolean) {
       base: {},
     },
     [{ provider: 'gateway', displayName: 'Gateway', declared, active: true }],
-    new Map([['gateway', new Map([['a', { name: '模型 A', contextWindow: 1000 }]])]]),
+    new Map([['gateway', catalog]]),
     new Map(),
   )[0]!
   return renderToStaticMarkup(
     createElement(RouteEditor, {
       route,
       choices: FALLBACK_CHOICES,
-      catalog: new Map(),
+      catalog,
       keyConfigured: false,
       writable: true,
       busy: false,
@@ -89,14 +91,20 @@ describe('Provider 行内编辑', () => {
     }
     expect(html).toContain('模型卡片 1')
     expect(html).toContain('新增模型')
+    expect(html).toContain('获取模型')
     expect(html).toContain('取消')
     expect(html).toContain('保存')
     expect(html).not.toContain('删除 Provider')
   })
 
-  it('内置 Provider 仍可查看目录模型', () => {
+  it('内置 Provider 的模型与自定义一样行内编辑，连接字段继承不显示', () => {
     const html = renderEditor(false)
-    expect(html).toContain('目录模型 1')
-    expect(html).not.toContain('获取模型')
+    expect(html).toContain('模型卡片 1')
+    expect(html).toContain('新增模型')
+    // 目录 route 的「获取模型」从 models.dev 取更新的清单（Host 只会原样返回
+    // pi-ai 安装目录），按钮照常显示。
+    expect(html).toContain('获取模型')
+    expect(html).not.toContain('Endpoint')
+    expect(html).not.toContain('API 协议')
   })
 })

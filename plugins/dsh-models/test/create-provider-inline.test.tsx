@@ -39,7 +39,6 @@ function renderForm(
       onCreate: async () => true,
       onSaveProfile: async () => true,
       onFetchModels: async () => [],
-      onError: () => {},
     }),
   )
 }

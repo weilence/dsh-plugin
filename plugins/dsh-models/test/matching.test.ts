@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { discoveredToCatalogEntry, findModelMetadata } from '../src/catalog/matching'
+import {
+  discoveredToCatalogEntry,
+  findModelMetadata,
+  lookupModelEntry,
+  providerCatalogModels,
+} from '../src/catalog/matching'
 import type { ModelsDevCatalog, ModelsDevModel, ModelsDevProvider } from '../src/catalog/types'
 
 function model(id: string, name = id, patch: Partial<ModelsDevModel> = {}): ModelsDevModel {
@@ -33,7 +38,7 @@ describe('model family metadata provider matching', () => {
   const directory = catalog([
     provider('openai', 'OpenAI'),
     provider('anthropic', 'Anthropic'),
-    provider('z-ai', 'Z.AI'),
+    provider('zai', 'Z.AI'),
     provider('deepseek', 'DeepSeek'),
     provider('google', 'Google'),
     provider('alibaba', 'Alibaba Cloud'),
@@ -43,8 +48,6 @@ describe('model family metadata provider matching', () => {
     provider('xai', 'xAI'),
     provider('mistral', 'Mistral'),
     provider('cohere', 'Cohere'),
-    provider('baidu', 'Baidu'),
-    provider('tencent', 'Tencent Cloud'),
     provider('stepfun', 'StepFun'),
   ])
 
@@ -52,7 +55,7 @@ describe('model family metadata provider matching', () => {
     ['gpt-5', 'openai'],
     ['o3-mini', 'openai'],
     ['claude-sonnet-4', 'anthropic'],
-    ['glm-4.5', 'z-ai'],
+    ['glm-4.5', 'zai'],
     ['deepseek-chat', 'deepseek'],
     ['gemini-2.5-pro', 'google'],
     ['qwen3-max', 'alibaba'],
@@ -62,12 +65,10 @@ describe('model family metadata provider matching', () => {
     ['grok-3', 'xai'],
     ['codestral-25.01', 'mistral'],
     ['command-r', 'cohere'],
-    ['ernie-4.5', 'baidu'],
-    ['hunyuan-t1', 'tencent'],
     ['step-2', 'stepfun'],
   ])('prefers %s metadata from %s via the preference table', (id, providerId) => {
     // 偏好表现在只经 findModelMetadata 的 ② 层消费：把模型放进其厂商目录，
-    // 前缀定位应命中同一家厂商；路由错位会让精确匹配落空。
+    // 前缀定位应命中同一家厂商；候选 id 是 models.dev 的精确 id。
     const source = provider(providerId, providerId, [model(id)])
     expect(findModelMetadata(catalog([source]), id)?.provider.id).toBe(providerId)
   })
@@ -229,5 +230,76 @@ describe('model family metadata provider matching', () => {
       contextWindow: 1000000,
       maxTokens: 393216,
     })
+  })
+})
+
+describe('route provider 别名表（① 层）', () => {
+  it('pi-ai 订阅计划 route 经别名命中 models.dev 的计划专属条目，优先于 ② 厂商本体', () => {
+    const codingPlan = provider('zai-coding-plan', 'Z.AI Coding Plan', [
+      model('glm-5.3', 'GLM 5.3 (Coding Plan)', { limit: { context: 128000, output: 8192 } }),
+    ])
+    const vendor = provider('zai', 'Z.AI', [
+      model('glm-5.3', 'GLM 5.3', { limit: { context: 1000000, output: 131072 } }),
+    ])
+    const current = catalog([vendor, codingPlan])
+    const metadata = findModelMetadata(current, 'glm-5.3', 'zai-coding-cn')
+    expect(metadata?.provider.id).toBe('zai-coding-plan')
+    expect(metadata?.model.name).toBe('GLM 5.3 (Coding Plan)')
+  })
+
+  it('两边同名的 route（如 github-copilot）直接精确命中，不走前缀厂商', () => {
+    const copilot = provider('github-copilot', 'GitHub Copilot', [
+      model('claude-opus-4.7', 'Claude Opus 4.7 (Copilot)', { limit: { context: 200000, output: 32000 } }),
+    ])
+    const anthropic = provider('anthropic', 'Anthropic', [
+      model('claude-opus-4.7', 'Claude Opus 4.7', { limit: { context: 1000000, output: 128000 } }),
+    ])
+    const metadata = findModelMetadata(catalog([anthropic, copilot]), 'claude-opus-4.7', 'github-copilot')
+    expect(metadata?.provider.id).toBe('github-copilot')
+    expect(metadata?.model.name).toBe('Claude Opus 4.7 (Copilot)')
+  })
+
+  it('provider id 精确比较：分隔符变体在 ①② 两层都不再软匹配', () => {
+    // 目录里只有连字符变体 'moonshot-ai'：route 名 'moonshotai' 与偏好表
+    // 候选 ['moonshotai'] 都精确比较不过它，整体落空。
+    const variant = provider('moonshot-ai', 'Moonshot AI', [model('kimi-k2')])
+    expect(findModelMetadata(catalog([variant]), 'kimi-k2', 'moonshotai')).toBeUndefined()
+  })
+})
+
+describe('lookupModelEntry（新增模型自动填充查询）', () => {
+  it('命中 ①② 层返回来源 provider id 与填充条目', () => {
+    const anthropic = provider('anthropic', 'Anthropic', [model('claude-sonnet-4', 'Claude Sonnet 4')])
+    const found = lookupModelEntry(catalog([anthropic]), 'claude-sonnet-4')
+    expect(found?.source).toBe('anthropic')
+    expect(found?.entry).toMatchObject({ name: 'Claude Sonnet 4', contextWindow: 128000 })
+  })
+
+  it('③ 全目录多数派无单一来源；未收录 / 无目录返回 undefined', () => {
+    const a = provider('gateway-a', 'A', [
+      model('fam-model', 'Fam', { limit: { context: 1000, output: 100 } }),
+    ])
+    const b = provider('gateway-b', 'B', [
+      model('fam-model', 'Fam', { limit: { context: 1000, output: 100 } }),
+    ])
+    const family = lookupModelEntry(catalog([a, b]), 'fam-model')
+    expect(family?.source).toBeUndefined()
+    expect(family?.entry).toMatchObject({ name: 'Fam', contextWindow: 1000 })
+    expect(lookupModelEntry(catalog([a, b]), 'unknown-model')).toBeUndefined()
+    expect(lookupModelEntry(null, 'gpt-5')).toBeUndefined()
+  })
+})
+
+describe('providerCatalogModels（目录 route 的获取模型来源）', () => {
+  it('经别名表返回该 Provider 的整份清单；未收录返回 undefined', () => {
+    const codingPlan = provider('zai-coding-plan', 'Z.AI Coding Plan', [
+      model('glm-5.3', 'GLM 5.3'),
+      model('glm-5.3-air', 'GLM 5.3 Air', { limit: { context: 128000, output: 8192 } }),
+    ])
+    const entries = providerCatalogModels(catalog([codingPlan]), 'zai-coding-cn')
+    expect(entries?.map((entry) => entry.id)).toEqual(['glm-5.3', 'glm-5.3-air'])
+    expect(entries?.[1]).toMatchObject({ name: 'GLM 5.3 Air', contextWindow: 128000 })
+    expect(providerCatalogModels(catalog([codingPlan]), 'anthropic')).toBeUndefined()
+    expect(providerCatalogModels(null, 'zai-coding-cn')).toBeUndefined()
   })
 })

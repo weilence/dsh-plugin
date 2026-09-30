@@ -67,6 +67,8 @@ export function SignInCard(props: {
   onAnswer(value: string): void
   onDecline(): void
   onCancel(): void
+  /** 退出登录：删除该 Provider 的凭据记录，卡片回到未登录态。 */
+  onSignOut(provider: string): void
 }) {
   const { auth } = props
   const mine: AuthAttemptState | null =
@@ -181,13 +183,24 @@ export function SignInCard(props: {
         </div>
       ) : (
         <div className={styles.actions}>
-          <Button
-            variant="primary"
-            disabled={auth.attempt?.running === true}
-            onClick={() => props.onBegin(props.provider)}
-          >
-            {authorized ? '重新登录' : '登录'}
-          </Button>
+          {authorized ? (
+            // 已授权的主操作是退出登录（删记录）；要换账号先退出再登录。
+            <Button
+              variant="ghost"
+              className={styles.dangerGhost}
+              onClick={() => props.onSignOut(props.provider)}
+            >
+              退出登录
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={auth.attempt?.running === true}
+              onClick={() => props.onBegin(props.provider)}
+            >
+              登录
+            </Button>
+          )}
         </div>
       )}
     </section>

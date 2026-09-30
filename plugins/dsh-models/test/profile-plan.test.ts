@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { saveModelProfile, materializeWithNewModel, planAddModel } from '../src/pi-ai/profile'
+import {
+  saveModelProfile,
+  materializeWithNewModel,
+  planAddModel,
+  removeModelProfile,
+} from '../src/pi-ai/profile'
 
 // 写入规划路径：这些函数同时服务「保存」的整值 set providers.<route>，
 // 断言直接落在 profile 对象上（用户层落点语义），不经过任何文本渲染。
@@ -70,5 +75,11 @@ describe('写入规划路径', () => {
       entry: { id: 'gamma' },
     })
     expect(planned.kind === 'materialize' ? planned.profile : null).toEqual(direct)
+  })
+
+  it('删除目录内模型 → 展开完整 models 清单并移出该模型', () => {
+    const profile = removeModelProfile('inherited', undefined, row, catalog)
+    expect((profile.models ?? []).map((entry) => entry.id)).toEqual(['beta'])
+    expect(profile.modelOverrides).toBeUndefined()
   })
 })

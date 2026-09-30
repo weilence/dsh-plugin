@@ -22,6 +22,19 @@ const THINKING_LEVEL_FLAGS = {
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = Object.keys(THINKING_LEVEL_FLAGS) as ThinkingLevel[]
 
+// pi-ai 0.85.1 安装目录核实：这些 provider 的目录模型横跨多种协议。官方配
+// 置面没有模型级 api、route 级 api 又会覆盖全部目录模型、目录共用协议也不
+// 存在——目录外模型在它们的 route 上无法写入。复核方法：扫
+// @earendil-works/pi-ai 的 providers/data/*.json，顶层协议键多于一个即入表。
+export const MIXED_PROTOCOL_PROVIDERS: readonly string[] = [
+  'cloudflare-ai-gateway',
+  'fireworks',
+  'github-copilot',
+  'opencode',
+  'opencode-go',
+  'openrouter',
+]
+
 // 从官方 Profile 派生的 raw user settings 层投影（字段语义归官方），差异仅：
 // compat 不透明（面板经 schema envelope 内省，见 choices.ts）、集合改
 // readonly、索引签名允许未知字段原样往返。

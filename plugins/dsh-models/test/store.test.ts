@@ -52,6 +52,7 @@ function operationsStub(overrides: Partial<PiAiOperations> = {}) {
     authEvents: async () => ({ events: [], running: false }),
     answerAuth: async () => {},
     cancelAuth: async () => {},
+    revokeAuth: async () => {},
     ...overrides,
   }
   return { operations, writeProfile, deleteProfile }
@@ -418,5 +419,26 @@ describe('订阅登录状态', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('signOut 删除登录记录并刷新；失败原因进错误区', async () => {
+    const scope = scopeStub({ user: {}, value: {} })
+    const revokeAuth = vi.fn<PiAiOperations['revokeAuth']>(async () => {})
+    const { operations } = operationsStub({ revokeAuth })
+    const { store } = storeOf({ scope, operations })
+    await store.refresh()
+    await store.signOut('openai-codex')
+    expect(revokeAuth).toHaveBeenCalledWith('openai-codex')
+    expect(store.getSnapshot().notice).toContain('已退出 openai-codex')
+    expect(store.getSnapshot().error).toBeNull()
+
+    const failing = vi.fn<PiAiOperations['revokeAuth']>(async () => {
+      throw new Error('登录正在进行中；请先完成或取消')
+    })
+    const { operations: failingOperations } = operationsStub({ revokeAuth: failing })
+    const { store: failingStore } = storeOf({ scope, operations: failingOperations })
+    await failingStore.refresh()
+    await failingStore.signOut('openai-codex')
+    expect(failingStore.getSnapshot().error).toContain('登录正在进行中')
   })
 })

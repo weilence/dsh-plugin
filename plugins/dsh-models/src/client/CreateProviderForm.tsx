@@ -32,7 +32,6 @@ export function CreateProviderForm(props: {
   onCreate(provider: string, profile: Record<string, unknown>, apiKey?: string): Promise<boolean>
   onSaveProfile: ModelsDevImportProps['onSaveProfile']
   onFetchModels: ModelsDevImportProps['onFetchModels']
-  onError(message: string): void
 }) {
   const [mode, setMode] = useState<'builtin' | 'modelsdev'>(
     props.dormantProviders.length > 0 ? 'builtin' : 'modelsdev',
@@ -97,11 +96,6 @@ export function CreateProviderForm(props: {
           </Pill>
         </div>
       </div>
-      {props.error ? (
-        <div className={styles.error} role="alert">
-          {props.error}
-        </div>
-      ) : null}
       {mode === 'modelsdev' ? (
         <ModelsDevImport
           ref={importRef}
@@ -112,15 +106,11 @@ export function CreateProviderForm(props: {
           protocols={props.protocols}
           busy={props.busy}
           onCancel={props.onCancel}
-          onError={props.onError}
           onSaveProfile={props.onSaveProfile}
           onFetchModels={props.onFetchModels}
         />
       ) : (
         <>
-          {touched && issues.length > 0 ? (
-            <IssueList issues={issues.map((message) => ({ message }))} />
-          ) : null}
           <div className={styles.grid}>
             <SelectField
               label="内置 Provider"
@@ -136,6 +126,13 @@ export function CreateProviderForm(props: {
           {signIn?.card}
         </>
       )}
+      {/* 创建结果与校验贴着动作区渲染：表单较长时顶部的提示区在视口外，点了创建看不见原因。 */}
+      {props.error ? (
+        <div className={styles.error} role="alert">
+          {props.error}
+        </div>
+      ) : null}
+      {touched && issues.length > 0 ? <IssueList issues={issues.map((message) => ({ message }))} /> : null}
       <div className={styles.formActions}>
         <Button variant="outline" disabled={props.busy} onClick={props.onCancel}>
           取消

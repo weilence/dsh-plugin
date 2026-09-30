@@ -119,6 +119,8 @@ function postReq(body: unknown, headers: Record<string, string> = HEADERS): Inco
 function authorizationStub(
   script: {
     run?: (interaction: AuthorizationInteraction) => Promise<void>
+    /** 视为「登录进行中」的键（joined 形如 'llm-pi-ai/openai-codex'）。 */
+    inFlight?: readonly string[]
   } = {},
 ) {
   const flows = new Map<string, AuthorizationFlow>()
@@ -149,7 +151,12 @@ function authorizationStub(
       const flow = flows.get(key.toString())
       return flow === undefined
         ? undefined
-        : { key: flow.key, label: flow.label, methods: flow.methods, inFlight: false }
+        : {
+            key: flow.key,
+            label: flow.label,
+            methods: flow.methods,
+            inFlight: script.inFlight?.includes(key.toString()) ?? false,
+          }
     },
     begin,
     cancel: vi.fn(),
@@ -190,6 +197,7 @@ function bridgeHost(script?: Parameters<typeof authorizationStub>[0]) {
     run: async () => {},
   })
   const describeRecord = vi.fn(async () => ({ configured: true, kind: 'grant' as const, writable: true }))
+  const deleteRecord = vi.fn(async () => {})
   const ctx = {
     webServer: {
       host: '127.0.0.1',
@@ -202,7 +210,7 @@ function bridgeHost(script?: Parameters<typeof authorizationStub>[0]) {
       },
     },
     authorization: authorization.service,
-    get: (name: string) => (name === 'credentials' ? { describeRecord } : undefined),
+    get: (name: string) => (name === 'credentials' ? { describeRecord, deleteRecord } : undefined),
   }
   const dispose = applyAuthBridge(ctx as never)
   const request = async (method: 'GET' | 'POST', path: string, body?: unknown, headers = HEADERS) => {
@@ -212,7 +220,7 @@ function bridgeHost(script?: Parameters<typeof authorizationStub>[0]) {
     await handler(method === 'GET' ? getReq(path, headers) : postReq(body, headers), res)
     return done
   }
-  return { request, dispose, authorization, describeRecord }
+  return { request, dispose, authorization, describeRecord, deleteRecord }
 }
 
 describe('订阅登录接口', () => {
@@ -357,5 +365,26 @@ describe('订阅登录接口', () => {
     expect(pending.authorization.service.cancel).toHaveBeenCalledWith(
       credentialKey('llm-pi-ai', 'openai-codex'),
     )
+  })
+
+  it('revoke 退出登录：删除 llm-pi-ai 的凭据记录；键不可寻址 / 缺 provider 拒绝', async () => {
+    const host = bridgeHost()
+    expect((await host.request('POST', '/dsh-models/auth/revoke', { provider: 'openai-codex' })).status).toBe(
+      200,
+    )
+    expect(host.deleteRecord).toHaveBeenCalledWith(credentialKey('llm-pi-ai', 'openai-codex'))
+    expect((await host.request('POST', '/dsh-models/auth/revoke', { provider: 'My.Gateway' })).status).toBe(
+      404,
+    )
+    expect((await host.request('POST', '/dsh-models/auth/revoke', {})).status).toBe(400)
+    host.dispose()
+  })
+
+  it('revoke 与进行中的登录互斥：409 且不删除记录', async () => {
+    const host = bridgeHost({ inFlight: [credentialKey('llm-pi-ai', 'openai-codex').toString()] })
+    const response = await host.request('POST', '/dsh-models/auth/revoke', { provider: 'openai-codex' })
+    expect(response.status).toBe(409)
+    expect(host.deleteRecord).not.toHaveBeenCalled()
+    host.dispose()
   })
 })

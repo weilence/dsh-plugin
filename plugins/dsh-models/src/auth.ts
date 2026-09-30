@@ -24,6 +24,7 @@ export const AUTH_BEGIN_PATH = '/dsh-models/auth/begin'
 export const AUTH_EVENTS_PATH = '/dsh-models/auth/events'
 export const AUTH_ANSWER_PATH = '/dsh-models/auth/answer'
 export const AUTH_CANCEL_PATH = '/dsh-models/auth/cancel'
+export const AUTH_REVOKE_PATH = '/dsh-models/auth/revoke'
 
 export interface AuthFlowWire {
   label: string
@@ -184,7 +185,7 @@ function providerOf(body: Record<string, unknown>): string {
 }
 
 /**
- * 注册订阅登录接口（5 个 exact 路由）。只在 authorization 服务可用时由
+ * 注册订阅登录接口（6 个 exact 路由）。只在 authorization 服务可用时由
  * index.ts 挂接；返回的清理函数同时撤销路由与仍在进行的登录尝试——插件的
  * interaction 回调一旦悬空，flow 会持有 key 挂起直到进程结束。
  */
@@ -324,6 +325,32 @@ export function applyAuthBridge(ctx: Context): () => void {
           writeJson(res, 200, { ok: true })
         } catch (error) {
           writeJson(res, 500, { error: errMsg(error) })
+        }
+      },
+    },
+    {
+      kind: 'exact' as const,
+      path: AUTH_REVOKE_PATH,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (!guard(req, ctx.webServer.host, 'POST', res)) return
+        try {
+          const provider = providerOf(await readJsonBody(req))
+          // 手写 route 的键不受记录语法约束（大写 / 点号），先拒绝再寻址。
+          if (!isCredentialKeySegment(provider)) {
+            throw new HttpError(404, `Provider「${provider}」的 ID 无法寻址凭据记录，不能退出登录`)
+          }
+          const key = credentialKey(PI_AI_RECORD_SCOPE, provider)
+          // 删除记录撤不回进行中的 flow，它结束时还会提交新记录——「退出后又
+          // 自动登录」，因此先要求完成或取消。
+          if (ctx.authorization.describe(key)?.inFlight) {
+            throw new HttpError(409, `Provider「${provider}」的登录正在进行中；请先完成或取消`)
+          }
+          const credentials = ctx.get('credentials')
+          if (credentials === undefined) throw new HttpError(500, '凭据服务不可用，无法删除登录记录')
+          await credentials.deleteRecord(key)
+          writeJson(res, 200, { ok: true })
+        } catch (error) {
+          writeJson(res, error instanceof HttpError ? error.status : 500, { error: errMsg(error) })
         }
       },
     },
