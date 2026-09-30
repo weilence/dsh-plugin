@@ -2,12 +2,13 @@
   "name": "@dsh-plugins/shared",
   "version": "0.0.0",
   "private": true,
-  "description": "DSH 插件共享工具：同构 errMsg（根导出）、host 侧 HTTP 请求校验（./http）、client 侧 HTTP 封装（./api）。构建期由各插件 bundle 内联（workspace 源码包，无独立产物、无运行时依赖）。",
+  "description": "DSH 插件共享工具：同构 errMsg（根导出）、host 侧 HTTP 请求校验（./http）、client 侧 HTTP 封装（./api）、用户 patch 文件编辑原语（./patch）。构建期由各插件 bundle 内联（workspace 源码包，无独立产物、无运行时依赖）。",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
     "./http": "./src/http.ts",
     "./api": "./src/api.ts",
+    "./patch": "./src/patch.ts",
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yaml": "^2.9.0"
   }
 }
