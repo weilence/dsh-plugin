@@ -84,12 +84,8 @@ export function createProviderUsageService(ctx: Context) {
           label: bucketName ? `${bucketName} · ${duration}` : duration,
           usedPct: window.usedPct,
           resetMs: window.resetMs,
-          allowed: window.allowed,
-          limitReached: window.limitReached,
         }
       }),
-      ...(value.allowed === undefined ? {} : { allowed: value.allowed }),
-      ...(value.limitReached === undefined ? {} : { limitReached: value.limitReached }),
       queriedAt: Date.now(),
     }
   }

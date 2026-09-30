@@ -9,8 +9,6 @@ export interface UsageWindow {
   label: string
   usedPct: number | null
   resetMs: number | null
-  allowed?: boolean
-  limitReached?: boolean
 }
 
 export type ProviderUsage =
@@ -19,8 +17,6 @@ export type ProviderUsage =
       provider: 'zai-coding-cn' | 'openai-codex'
       label: string
       windows: UsageWindow[]
-      allowed?: boolean
-      limitReached?: boolean
       queriedAt: number
     }
   | {

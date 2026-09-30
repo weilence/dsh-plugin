@@ -51,8 +51,6 @@ describe('Codex ChatGPT 配额直接读取', () => {
     const { ctx, modifyRecord } = setup()
     const request = fakeFetch()
     await expect(readCodexQuota(ctx, { fetch: request })).resolves.toEqual({
-      allowed: true,
-      limitReached: false,
       windows: [
         {
           bucketId: 'codex',
@@ -61,8 +59,6 @@ describe('Codex ChatGPT 配额直接读取', () => {
           usedPct: 100,
           resetMs: 2_000_000_000_000,
           windowMins: 300,
-          allowed: true,
-          limitReached: false,
         },
       ],
     })
@@ -115,7 +111,7 @@ describe('Codex ChatGPT 配额直接读取', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('输出顶层与所有附加桶，并尊重各桶 allowed/limit_reached', async () => {
+  it('输出顶层与所有附加桶，忽略未消费的 allowed/limit_reached 字段', async () => {
     const { ctx } = setup()
     const request = fakeFetch({
       ...base,
@@ -135,20 +131,17 @@ describe('Codex ChatGPT 配额直接读取', () => {
       ],
     })
     const quota = await readCodexQuota(ctx, { fetch: request })
-    expect(quota.allowed).toBe(false)
-    expect(quota.limitReached).toBe(true)
     expect(quota.windows).toHaveLength(3)
-    expect(quota.windows[0]).toMatchObject({ usedPct: 100, allowed: false, limitReached: true })
+    expect(quota.windows[0]).toMatchObject({ usedPct: 100 })
     expect(quota.windows[1]).toMatchObject({
       bucketId: 'code_review',
       bucketName: 'Reviews',
       usedPct: 0,
-      allowed: true,
     })
     expect(quota.windows[2]).toMatchObject({ bucketId: 'code_review', kind: 'secondary', windowMins: 10080 })
   })
 
-  it('没有默认桶时仍能展示附加桶，不虚构默认桶授权状态', async () => {
+  it('没有默认桶时仍能展示附加桶', async () => {
     const { ctx } = setup()
     const value = await readCodexQuota(ctx, {
       fetch: fakeFetch({
@@ -167,9 +160,18 @@ describe('Codex ChatGPT 配额直接读取', () => {
         ],
       }),
     })
-    expect(value).not.toHaveProperty('allowed')
-    expect(value.windows).toHaveLength(1)
-    expect(value.windows[0]).toMatchObject({ bucketId: 'other', allowed: false, limitReached: true })
+    expect(value).toEqual({
+      windows: [
+        {
+          bucketId: 'other',
+          bucketName: 'Other',
+          kind: 'primary',
+          usedPct: 100,
+          resetMs: 2_000_000_000_000,
+          windowMins: 300,
+        },
+      ],
+    })
   })
 
   it.each([
@@ -185,7 +187,6 @@ describe('Codex ChatGPT 配额直接读取', () => {
   })
 
   it.each([
-    [{ ...base, rate_limit: { ...base.rate_limit, allowed: undefined } }, 'allowed'],
     [
       { ...base, rate_limit: { ...base.rate_limit, primary_window: { ...primary, reset_at: 'bad' } } },
       'reset_at',
@@ -195,15 +196,6 @@ describe('Codex ChatGPT 配额直接读取', () => {
       'used_percent',
     ],
     [{ ...base, rate_limit: null }, '没有可展示'],
-    [
-      {
-        ...base,
-        additional_rate_limits: [
-          { limit_name: 'Bad', metered_feature: 'bad', rate_limit: { allowed: 'yes' } },
-        ],
-      },
-      'allowed',
-    ],
   ])('拒绝无效的官方响应而不猜测数据', async (body, message) => {
     const { ctx } = setup()
     await expect(readCodexQuota(ctx, { fetch: fakeFetch(body) })).rejects.toMatchObject({

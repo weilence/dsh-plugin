@@ -1,13 +1,13 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { UsageDetails } from '../src/client/usage/UsageChip'
+import { footerNote, formatReset, UsageDetails } from '../src/client/usage/UsageChip'
 import type { ProviderUsage } from '../src/usage/types'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({}))
 
-function html(result: ProviderUsage | null) {
-  return renderToStaticMarkup(createElement(UsageDetails, { result }))
+function html(result: ProviderUsage | null, locale = 'zh') {
+  return renderToStaticMarkup(createElement(UsageDetails, { result, locale }))
 }
 
 describe('按 Provider 显示真实用量语义', () => {
@@ -44,28 +44,23 @@ describe('按 Provider 显示真实用量语义', () => {
     ).not.toContain('100%')
   })
 
-  it('Codex 不能仅凭剩余百分比推断当前是否允许请求', () => {
+  it('Codex 达到限额时不再提示，仅以各窗口 0% 表达已达限额', () => {
     const content = html({
       kind: 'quota',
       provider: 'openai-codex',
       label: 'Codex',
-      allowed: false,
-      limitReached: true,
       windows: [
-        {
-          id: 'main',
-          label: '5 小时',
-          usedPct: 80,
-          resetMs: null,
-          allowed: false,
-          limitReached: true,
-        },
+        { id: 'primary', label: '5 小时', usedPct: 100, resetMs: null },
+        { id: 'secondary', label: '每周', usedPct: 63, resetMs: null },
       ],
       queriedAt: 0,
     })
-    expect(content).toContain('20%')
-    expect(content).toContain('默认限额已达限额')
-    expect(content).toContain('5 小时 · 已达限额')
+    expect(content).toContain('5 小时')
+    expect(content).toContain('每周')
+    expect(content).toContain('>0%</span>')
+    expect(content).toContain('37%')
+    expect(content).not.toContain('已达限额')
+    expect(content).not.toContain('默认限额')
   })
 
   it('Copilot 只显示历史计费次数，并明确不是实时剩余额度', () => {
@@ -100,6 +95,37 @@ describe('按 Provider 显示真实用量语义', () => {
     })
     expect(content).toContain('可能包含其他成员')
     expect(content).toContain('本期暂无计费请求')
+  })
+
+  it('脚注按数据语义区分：配额显示查询时间，计费说明是历史数据，失败解释空面板', () => {
+    expect(
+      footerNote({ kind: 'quota', provider: 'openai-codex', label: 'Codex', windows: [], queriedAt: 0 }),
+    ).toMatch(/^更新于 \d{2}:\d{2}$/)
+    expect(
+      footerNote({
+        kind: 'billing',
+        provider: 'github-copilot',
+        label: 'Copilot',
+        payer: '个人 alice',
+        payerKind: 'user',
+        period: '2026-09',
+        items: [],
+        queriedAt: 0,
+      }),
+    ).toBe('GitHub Billing · 历史数据')
+    expect(footerNote(null)).toBe('仅当前 Provider 显示')
+  })
+
+  it('重置时间跟随宿主语言：中文走 dayjs zh-cn，英文走 dayjs en，过期与缺失显示 —', () => {
+    const now = new Date(2026, 9, 1, 9).getTime()
+    expect(formatReset(now + 60_000, 'zh', now)).toBe('1 分钟内重置')
+    expect(formatReset(now + 3 * 3_600_000, 'zh', now)).toBe('3 小时内重置')
+    expect(formatReset(now + 6 * 86_400_000, 'zh', now)).toBe('6 天内重置')
+    expect(formatReset(now + 40 * 86_400_000, 'zh', now)).toBe('1 个月内重置')
+    expect(formatReset(now - 60_000, 'zh', now)).toBe('—')
+    expect(formatReset(null, 'zh', now)).toBe('—')
+    expect(formatReset(now + 3 * 3_600_000, 'en', now)).toBe('resets in 3 hours')
+    expect(formatReset(now - 60_000, 'en', now)).toBe('—')
   })
 
   it('缺凭据时显示查询原因', () => {

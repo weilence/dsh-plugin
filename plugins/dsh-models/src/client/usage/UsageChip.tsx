@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn'
 import {
   Button,
   IconGaugeOutlineRegular,
@@ -27,6 +31,18 @@ export interface ModelDirectories {
 }
 
 const EMPTY: { current?: { provider?: string } | null } = {}
+
+dayjs.extend(relativeTime)
+
+/** DSH 内置语言只有 zh/en；dayjs 的中文数据 id 是 zh-cn，其余语言无内置数据，统一回退英文。 */
+function dayjsLocaleId(active: string): string {
+  return active.toLowerCase() === 'zh' ? 'zh-cn' : 'en'
+}
+
+function useActiveLocale(locale: LocaleRuntime): string {
+  const subscribe = useCallback((listener: () => void) => locale.subscribe(listener), [locale])
+  return useSyncExternalStore(subscribe, () => locale.getLocale().active)
+}
 
 function useProvider(directories: ModelDirectories | undefined, sessionId: string) {
   const directory = directories?.directoryFor(sessionId)
@@ -103,28 +119,38 @@ function formatPct(value: number | null) {
   return value === null ? '—' : Math.round(value * 10) / 10 + '%'
 }
 
-function formatReset(resetMs: number | null) {
+/** 重置时间用 dayjs 相对时间回答「还要等多久」，语言跟随宿主 locale 服务；缺失或已过期显示 —。 */
+export function formatReset(resetMs: number | null, locale: string, now = Date.now()): string {
   if (resetMs === null) return '—'
-  const remainingMs = resetMs - Date.now()
-  if (remainingMs <= 0) return '—'
-  const minutes = Math.ceil(remainingMs / 60_000)
-  if (minutes < 60) return minutes + ' 分钟后重置'
-  if (minutes < 24 * 60) return Math.floor(minutes / 60) + ' 小时后重置'
-  return new Date(resetMs).toLocaleDateString() + '重置'
+  const id = dayjsLocaleId(locale)
+  const reset = dayjs(resetMs).locale(id)
+  if (reset.isBefore(dayjs(now))) return '—'
+  const relative = dayjs(now).locale(id).to(reset)
+  return id === 'zh-cn' ? `${relative}重置` : `resets ${relative}`
 }
 
-function WindowGrid({ windows }: { windows: readonly UsageWindow[] }) {
+function formatQueriedAt(ms: number) {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+/** 脚注按数据语义区分：计费是历史数据、配额展示查询时间（Host 缓存下数据会滞后）、失败解释空面板。 */
+export function footerNote(result: ProviderUsage | null): string {
+  if (result?.kind === 'billing') return 'GitHub Billing · 历史数据'
+  if (result?.kind === 'quota') return `更新于 ${formatQueriedAt(result.queriedAt)}`
+  return '仅当前 Provider 显示'
+}
+
+function WindowGrid({ windows, locale }: { windows: readonly UsageWindow[]; locale: string }) {
   return (
     <div className={panel.windows}>
       {windows.map((window) => {
         const left = remainingPct(window.usedPct)
         const color = remainingTone(left)
-        const reset = formatReset(window.resetMs)
+        const reset = formatReset(window.resetMs, locale)
         return (
           <div key={window.id} className={panel.window}>
             <div className={panel.windowName} title={window.label}>
               {window.label}
-              {window.allowed === false ? ` · ${window.limitReached ? '已达限额' : '当前不可用'}` : ''}
             </div>
             <div className={panel.windowValue} title={reset}>
               <span className={color}>{formatPct(left)}</span> · {reset}
@@ -142,19 +168,8 @@ function WindowGrid({ windows }: { windows: readonly UsageWindow[] }) {
   )
 }
 
-export function UsageDetails({ result }: { result: ProviderUsage | null }) {
-  if (result?.kind === 'quota')
-    return (
-      <>
-        {result.provider === 'openai-codex' && result.allowed === false ? (
-          <div className={panel.billingNote}>
-            Codex 默认限额{result.limitReached ? '已达限额' : '当前不允许请求，接口未说明原因'}
-            ；其他限额以各窗口为准。
-          </div>
-        ) : null}
-        <WindowGrid windows={result.windows} />
-      </>
-    )
+export function UsageDetails({ result, locale }: { result: ProviderUsage | null; locale: string }) {
+  if (result?.kind === 'quota') return <WindowGrid windows={result.windows} locale={locale} />
   if (result?.kind === 'billing')
     return (
       <div>
@@ -211,8 +226,9 @@ function UsageSummary({ label, result }: { label: string; result: ProviderUsage 
   return <>{label}用量…</>
 }
 
-function UsagePill({ provider }: { provider: string }) {
+function UsagePill({ provider, locale: store }: { provider: string; locale: LocaleRuntime }) {
   const { result, refreshing, refresh } = useUsage(provider)
+  const locale = useActiveLocale(store)
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLSpanElement>(null)
   const surface = useRef<HTMLDivElement>(null)
@@ -275,7 +291,7 @@ function UsagePill({ provider }: { provider: string }) {
               </span>
             </div>
             <div className={panel.titleRule} aria-hidden />
-            <UsageDetails result={result} />
+            <UsageDetails result={result} locale={locale} />
             <div className={panel.footerRule} aria-hidden />
             <div className={panel.footer}>
               <Button
@@ -288,13 +304,7 @@ function UsagePill({ provider }: { provider: string }) {
               >
                 {refreshing ? '刷新中…' : '刷新'}
               </Button>
-              <span className={panel.note}>
-                {result?.kind === 'billing'
-                  ? 'GitHub Billing · 历史数据'
-                  : result?.kind === 'quota'
-                    ? '剩余额度 · 重置时间'
-                    : '仅当前 Provider 显示'}
-              </span>
+              <span className={panel.note}>{footerNote(result)}</span>
             </div>
           </MenuSurface>,
           document.body,
@@ -306,11 +316,13 @@ function UsagePill({ provider }: { provider: string }) {
 export function ProviderUsageChip({
   sessionId,
   directories,
+  locale,
 }: {
   sessionId: string
   directories?: ModelDirectories
+  locale: LocaleRuntime
 }) {
   const provider = useProvider(directories, sessionId)
   if (provider === null || !Object.hasOwn(USAGE_PROVIDERS, provider)) return null
-  return <UsagePill key={provider} provider={provider} />
+  return <UsagePill key={provider} provider={provider} locale={locale} />
 }

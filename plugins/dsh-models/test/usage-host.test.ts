@@ -100,8 +100,6 @@ describe('Provider 用量 Host 路由', () => {
           kind: 'primary',
           usedPct,
           resetMs: Date.now() + 300_000,
-          allowed: true,
-          limitReached: false,
           windowMins: 300,
         },
       ],
@@ -145,7 +143,7 @@ describe('Provider 用量 Host 路由', () => {
           { bucketId: 'codex', bucketName: 'Codex', kind: 'secondary', windowMins: 10080 },
           { bucketId: 'code_review', bucketName: 'Reviews', kind: 'primary', windowMins: 300 },
         ] as const
-      ).map((window) => ({ ...window, usedPct: 20, resetMs: 0, allowed: true, limitReached: false })),
+      ).map((window) => ({ ...window, usedPct: 20, resetMs: 0 })),
     })
     const { request } = setup()
     const response = await request(`${USAGE_PATH}?provider=openai-codex`)

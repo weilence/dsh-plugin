@@ -27,6 +27,7 @@ catalog:
   '@deepseek-ai/dsh-api-settings-controller': 0.2.0-rc.2
   '@deepseek-ai/dsh-app-boot': 0.2.0-rc.2
   '@deepseek-ai/dsh-authorization': 0.2.0-rc.2
+  '@deepseek-ai/dsh-client-locale': 0.2.0-rc.2
   '@deepseek-ai/dsh-client-ui-primitives': 0.2.0-rc.2
   '@deepseek-ai/dsh-client-ui-renderer': 0.2.0-rc.2
   '@deepseek-ai/dsh-client-ui-session': 0.2.0-rc.2
@@ -54,5 +55,5 @@ catalog:
   typescript: ^7.0.2
   vitest: ^3.2.4
 
-# 单一消费者依赖不进 catalog，留在各插件 package.json：
-#   dsh-zhipu-tools   clsx@^2.1.1（client bundle 白名单内联）
+# 凡 DSH 自带包（@deepseek-ai/*）一律进 catalog 同版本协同，插件不得自行锁版本；
+# 第三方库（如 dsh-models 的 dayjs）由各插件自行声明，不进 catalog。

@@ -15,14 +15,10 @@ export interface CodexQuotaWindow {
   usedPct: number
   resetMs: number
   windowMins?: number
-  allowed: boolean
-  limitReached: boolean
 }
 
 export interface CodexQuota {
   windows: CodexQuotaWindow[]
-  allowed?: boolean
-  limitReached?: boolean
 }
 
 export type CodexQuotaErrorCode =
@@ -87,8 +83,6 @@ function parseWindow(
   kind: 'primary' | 'secondary',
   bucketId: string,
   bucketName: string | undefined,
-  allowed: boolean,
-  limitReached: boolean,
 ): CodexQuotaWindow | undefined {
   if (value === null || value === undefined) return undefined
   if (!object(value)) invalid(`${kind} 窗口不是对象`)
@@ -119,22 +113,17 @@ function parseWindow(
     usedPct: used,
     resetMs,
     windowMins: duration / 60,
-    allowed,
-    limitReached,
   }
 }
 
 function parseBucket(value: unknown, bucketId: string, bucketName?: string): CodexQuotaWindow[] {
   if (!object(value)) invalid('rate_limit 不是对象')
-  if (typeof value.allowed !== 'boolean' || typeof value.limit_reached !== 'boolean') {
-    invalid('rate_limit.allowed / limit_reached 无效')
-  }
   const windows: CodexQuotaWindow[] = []
   for (const [field, kind] of [
     ['primary_window', 'primary'],
     ['secondary_window', 'secondary'],
   ] as const) {
-    const window = parseWindow(value[field], kind, bucketId, bucketName, value.allowed, value.limit_reached)
+    const window = parseWindow(value[field], kind, bucketId, bucketName)
     if (window !== undefined) windows.push(window)
   }
   return windows
@@ -164,13 +153,7 @@ function parseUsage(value: unknown): CodexQuota {
     }
   }
   if (!windows.length) invalid('没有可展示的 ChatGPT 配额窗口')
-  const base = value.rate_limit
-  return {
-    windows,
-    ...(object(base) && typeof base.allowed === 'boolean' && typeof base.limit_reached === 'boolean'
-      ? { allowed: base.allowed, limitReached: base.limit_reached }
-      : {}),
-  }
+  return { windows }
 }
 
 async function readBounded(response: Response, maxBodyBytes: number): Promise<unknown> {

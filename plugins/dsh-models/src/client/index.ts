@@ -1,4 +1,5 @@
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { ConfigForms, SettingsSchemaService } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { readChoices } from '../pi-ai/choices'
 import { createOperations, type PiAiOperations } from './operations'
@@ -22,6 +23,7 @@ interface OfficialServices {
 
 interface CordisLike extends SectionContext, OfficialServices {
   modelDirectories?: ModelDirectories
+  locale: LocaleRuntime
   effect(body: () => (() => void) | void, label?: string): unknown
 }
 
@@ -39,6 +41,8 @@ export const inject: string[] = [
   'configForms',
   'settingsSchema',
   'modelDirectories',
+  // 用量面板的重置时间文案跟随宿主语言，语言环境取自 locale 插件的服务面。
+  'locale',
 ]
 
 export function apply(ctx: unknown) {
@@ -66,7 +70,11 @@ export function apply(ctx: unknown) {
         name: 'conversation.input.right',
         id: 'dsh-models-usage',
         order: 10,
-        inject: (sessionId: string) => ({ sessionId, directories: services.modelDirectories }),
+        inject: (sessionId: string) => ({
+          sessionId,
+          directories: services.modelDirectories,
+          locale: services.locale,
+        }),
       },
       ProviderUsageChip,
     ),
