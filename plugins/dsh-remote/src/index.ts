@@ -25,6 +25,7 @@ import {
 } from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
+import { ForwardRegistry } from './forwards'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
 import {
   CONNECT_PATH,
@@ -224,6 +225,7 @@ function makeEngine(ctx: Context): RemoteEngine {
     localPluginVersion: localPluginVersion(),
     packPlugin,
     packPackage,
+    forwards: new ForwardRegistry(dshHomePath()),
     homeDir: dshHomePath(),
     now: () => new Date().toISOString(),
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),

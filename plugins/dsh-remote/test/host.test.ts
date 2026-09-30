@@ -10,6 +10,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { applyWithEngine } from '../src/index'
 import { RemoteEngine } from '../src/engine'
+import { ForwardRegistry } from '../src/forwards'
 
 function postReq(body: unknown, headers: Record<string, string | string[] | undefined>): IncomingMessage {
   const payload = Buffer.from(JSON.stringify(body))
@@ -133,7 +134,7 @@ async function makeHarness(): Promise<Harness> {
   }
   const engine = new RemoteEngine({
     exec: async () => ({ code: 0, stdout: '', stderr: '' }),
-    startForward: () => ({ kill() {}, onExit() {} }),
+    startForward: () => ({ kill() {}, onExit() {}, pid: 4242 }),
     freeLocalPort: async () => 19999,
     healthCheck: async () => true,
     pushTar: async () => {},
@@ -145,6 +146,7 @@ async function makeHarness(): Promise<Harness> {
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
     packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
     readGlobalPrompt: async () => null,
+    forwards: new ForwardRegistry(root),
     homeDir: root,
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},

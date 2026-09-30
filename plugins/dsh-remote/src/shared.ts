@@ -77,7 +77,7 @@ export interface ConnState {
   phase: ConnPhase
   op: ConnOp | null
   running: ConnRunning | null
-  /** phase = error 时的错误事实。 */
+  /** 最近一次操作的错误；同步失败时连接仍可处于 running。 */
   error: { message: string; kind: SshErrorKind } | null
   /** 最近一次各同步的结果摘要（面板展示用；同步只新增/覆盖，skipped = 已一致跳过）。 */
   lastSync: {

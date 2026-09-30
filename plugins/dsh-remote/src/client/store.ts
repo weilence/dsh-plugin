@@ -58,7 +58,7 @@ function anyBusy(connections: readonly ConnRow[]): boolean {
 /** 同步操作的完成摘要（op 从 sync-* 变为空时发 notice）。 */
 function syncDoneNotice(kind: string, row: ConnRow): string {
   const label = SYNC_OP_KINDS[kind] ?? kind
-  if (row.state.phase === 'error') return `同步${label}失败，原因见卡片错误行`
+  if (row.state.error !== null) return `同步${label}失败：${row.state.error.message}`
   if (kind === 'sync-skills' && row.state.lastSync.skills !== null) {
     const { pushed, skipped } = row.state.lastSync.skills
     return `同步 Skills 完成：推送 ${pushed}${skipped > 0 ? ` · 跳过 ${skipped}（已一致）` : ''}`

@@ -1,5 +1,6 @@
 import type { ForwardHandle, SshExec } from './ssh'
 import { SshFailure, shQuote } from './ssh'
+import type { ForwardRegistry } from './forwards'
 import { createHash } from 'node:crypto'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
@@ -118,6 +119,8 @@ export interface EngineDeps {
   packPlugin(): Promise<{ path: string; fileName: string }>
   /** 本地打包任意本机插件包根目录（插件同步传输用）；失败抛 SshFailure。 */
   packPackage(root: string): Promise<{ path: string; fileName: string }>
+  /** 本地转发租约登记处：连接成功落盘、断开清除、load 清扫上个宿主生命周期遗留。 */
+  forwards: ForwardRegistry
   homeDir: string
   now(): string
   delay(ms: number): Promise<void>
@@ -190,6 +193,9 @@ export class RemoteEngine {
   async load(): Promise<void> {
     if (this.loaded) return
     this.store = await readStore(this.deps.homeDir)
+    // 上个宿主生命周期遗留的本地转发：杀进程 + 清租约（宿主被 SIGKILL / 崩溃
+    // 时不走 dispose 兜底），重启后的 idle 才不带幽灵隧道
+    await this.deps.forwards.sweep()
     for (const connection of this.store.connections) this.runtimeOf(connection.id)
     this.loaded = true
   }
@@ -275,13 +281,19 @@ export class RemoteEngine {
 
   private fail(id: string, error: unknown): void {
     const runtime = this.runtimeOf(id)
+    // 同步操作的失败不等于连接中断；连接或断开失败则不能留下无主转发。
+    const keepForward = runtime.op?.kind.startsWith('sync-') && runtime.running !== null
+    if (!keepForward) {
+      runtime.forward?.kill()
+      runtime.forward = null
+      runtime.running = null
+    }
     runtime.op = null
-    runtime.phase = 'error'
+    runtime.phase = keepForward ? 'running' : 'error'
     runtime.error =
       error instanceof SshFailure
         ? { message: error.message, kind: error.kind }
         : { message: errMsg(error), kind: 'unknown' }
-    runtime.running = null
   }
 
   private step(id: string, step: string, detail?: string): void {
@@ -515,6 +527,8 @@ export class RemoteEngine {
       runtime.forward = forward
       forward.onExit(() => {
         const current = this.runtimeOf(id)
+        // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
+        void this.deps.forwards.clear(id)
         if (current.forward === forward && current.running !== null) {
           current.phase = 'error'
           current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
@@ -547,6 +561,15 @@ export class RemoteEngine {
         pid: Number.isInteger(pid) ? pid : 0,
         since: this.deps.now(),
       }
+      // 转发进程与内存句柄可能同时幸存于宿主重启——租约落盘供下次 load 清扫
+      if (forward.pid !== null) {
+        await this.deps.forwards.record(id, {
+          pid: forward.pid,
+          localPort,
+          remotePort: launch.remotePort,
+          at: this.deps.now(),
+        })
+      }
       this.settle(id, 'running')
     } catch (error) {
       this.fail(id, error)
@@ -559,12 +582,14 @@ export class RemoteEngine {
   }
 
   /** 宿主卸载插件（含退出）时杀掉全部本地转发；远端实例不动（仍在远端运行，
-   *  下次连接按 pid 复用）。 */
+   *  下次连接按 pid 复用）。租约清空是尽力而为（进程退出不等异步写完成），
+   *  漏掉的由下次 load 的清扫兜底（死 pid 直接清记录）。 */
   dispose(): void {
     for (const runtime of this.runtimes.values()) {
       runtime.forward?.kill()
       runtime.forward = null
     }
+    void this.deps.forwards.clearAll()
   }
 
   private async runDisconnect(connection: RemoteConnection): Promise<void> {
@@ -573,6 +598,7 @@ export class RemoteEngine {
       const runtime = this.runtimeOf(id)
       runtime.forward?.kill()
       runtime.forward = null
+      await this.deps.forwards.clear(id)
 
       this.step(id, 'stop-remote')
       const pidFile = `~/.dsh/dsh-remote/${id}.pid`

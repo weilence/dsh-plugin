@@ -6,12 +6,13 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BusyError, RemoteEngine, REMOTE_PLUGIN_FACTS_SCRIPT, type EngineDeps } from '../src/engine'
 import type { ForwardHandle, SshResult } from '../src/ssh'
+import { ForwardRegistry } from '../src/forwards'
 import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
 import { readStore, writeStore } from '../src/connections'
 import { foldSkillDigest, packageTreeDigest, type LocalPatchLayer } from '../src/localenv'
@@ -85,6 +86,7 @@ function makeDeps(options: FakeOptions = {}) {
           forwardKilled += 1
         },
         onExit() {},
+        pid: 4242,
       }
     },
     freeLocalPort: async () => 19999,
@@ -124,6 +126,7 @@ function makeDeps(options: FakeOptions = {}) {
       packedRoots.push(root)
       return { path: `C:/tmp/packed.tgz`, fileName: 'packed-1.0.0.tgz' }
     },
+    forwards: new ForwardRegistry(''),
     homeDir: '',
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},
@@ -164,6 +167,7 @@ describe('RemoteEngine', () => {
   function makeEngine(options: FakeOptions = {}): RemoteEngine {
     fake = makeDeps(options)
     fake.deps.homeDir = home
+    fake.deps.forwards = new ForwardRegistry(home)
     engine = new RemoteEngine(fake.deps)
     return engine
   }
@@ -400,6 +404,83 @@ describe('RemoteEngine', () => {
     // 连接路径零同步动作：skills 只在手动「同步 skills」时推送
     expect(fake.tarPushes).toEqual([])
     expect(state.lastSync.skills).toBeNull()
+  })
+
+  it('运行中同步失败只报告操作错误，不丢失仍在运行的转发', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
+        return undefined
+      },
+      globalPrompt: null,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+
+    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box')).toMatchObject({
+      phase: 'running',
+      running: { localPort: 19999 },
+      error: { message: expect.stringContaining('本机没有全局提示词') },
+    })
+    expect(fake.forwardCount()).toBe(0)
+  })
+
+  it('转发租约：connect 落盘、disconnect 清除、新引擎 load 清扫上个生命周期遗留', async () => {
+    // 宿主重启会清空内存运行态但 ssh 子进程可能存活——租约让面板的 idle
+    // 与本机进程不再各说各话（现场：面板 idle + 隧道端口仍在应答 401）
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const leasePath = join(home, 'dsh-remote', 'forwards.json')
+    expect(JSON.parse(await readFile(leasePath, 'utf8'))).toEqual({
+      'dev-box': { pid: 4242, localPort: 19999, remotePort: 4321, at: '2027-01-01T00:00:00.000Z' },
+    })
+
+    engine.startDisconnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'idle')
+    expect(JSON.parse(await readFile(leasePath, 'utf8'))).toEqual({})
+
+    // 模拟上个宿主生命周期遗留：租约在、进程归属未知——load 时核验后杀掉
+    await writeFile(
+      leasePath,
+      JSON.stringify({
+        'dev-box': { pid: 5555, localPort: 20001, remotePort: 4321, at: '2027-01-01T00:00:00.000Z' },
+      }),
+      'utf8',
+    )
+    const killed: { pid: number; localPort: number }[] = []
+    const reborn = new RemoteEngine({
+      ...fake.deps,
+      forwards: new ForwardRegistry(home, async (pid, localPort) => {
+        killed.push({ pid, localPort })
+        return 'killed'
+      }),
+    })
+    await reborn.load()
+    expect(reborn.stateOf('dev-box').phase).toBe('idle')
+    expect(killed).toEqual([{ pid: 5555, localPort: 20001 }])
+    expect(JSON.parse(await readFile(leasePath, 'utf8'))).toEqual({})
   })
 
   it('connect 重连先杀旧转发：句柄覆盖前必须 kill，否则 ssh 进程无主泄漏', async () => {

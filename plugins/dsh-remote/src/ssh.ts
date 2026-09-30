@@ -133,6 +133,8 @@ export interface ForwardHandle {
   kill(): void
   /** 进程意外退出的观察回调（转发中断 → 连接转 error）。 */
   onExit(callback: () => void): void
+  /** 子进程 pid（转发租约落盘用；spawn 未完成时为 null）。 */
+  pid: number | null
 }
 
 /** 起 `ssh -N -L` 本地转发；不等待退出，返回句柄由调用方持有。 */
@@ -153,7 +155,57 @@ export function startSshForward(alias: string, localPort: number, remotePort: nu
     onExit(callback) {
       listeners.add(callback)
     },
+    pid: child.pid ?? null,
   }
+}
+
+/** 核验后杀掉租约记录的遗留转发进程。直接信 pid 会误杀已复用到无关进程的 pid：
+ *  先读命令行，确认它仍是本插件形态的 `ssh -N -L 127.0.0.1:<port>:`（Windows 的
+ *  tasklist 只有映像名，退化为只认 ssh 映像）；核验工具启动失败时不杀（宁泄漏
+ *  不误杀，租约留待下次清扫）。 */
+export async function killOrphanForward(
+  pid: number,
+  localPort: number,
+): Promise<'killed' | 'dead' | 'unverified'> {
+  if (!Number.isInteger(pid) || pid <= 0) return 'dead'
+  const described = await describeProcess(pid)
+  if (described === undefined) return 'unverified'
+  if (described === null) return 'dead'
+  const tokens = described.command.trim().split(/\s+/)
+  const isSsh = tokens.some((token) => /(?:^|[\\/])(?:ssh|ssh\.exe)$/i.test(token))
+  const ours = described.fullArgs
+    ? isSsh && described.command.includes('-N') && described.command.includes(`127.0.0.1:${localPort}:`)
+    : isSsh
+  if (!ours) return 'dead'
+  process.kill(pid)
+  return 'killed'
+}
+
+/** 进程概况：undefined = 核验工具缺失；null = 进程已不存在。 */
+async function describeProcess(
+  pid: number,
+): Promise<{ command: string; fullArgs: boolean } | null | undefined> {
+  const run = (file: string, args: string[]): Promise<{ stdout: string; code: number | null } | undefined> =>
+    new Promise((resolve) => {
+      const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+      let stdout = ''
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8')
+      })
+      child.on('error', () => resolve(undefined))
+      child.on('close', (code) => resolve({ stdout, code }))
+    })
+  if (process.platform === 'win32') {
+    const result = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])
+    if (result === undefined) return undefined
+    const first = (result.stdout.split(/\r?\n/)[0] ?? '').trim()
+    if (first === '' || /^INFO:/i.test(first)) return null
+    return { command: first.replace(/"/g, ''), fullArgs: false }
+  }
+  const result = await run('ps', ['-p', String(pid), '-o', 'command='])
+  if (result === undefined) return undefined
+  if (result.code !== 0 || result.stdout.trim() === '') return null
+  return { command: result.stdout, fullArgs: true }
 }
 
 /** tar-over-ssh 单通道推送：本地 tar 打包的 stdout 直接写入远端 tar 解包的 stdin。
