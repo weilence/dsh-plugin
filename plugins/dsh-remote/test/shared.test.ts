@@ -1,5 +1,7 @@
 // 条目级一致性判定：canonicalJson 的规范化口径 + 三个 status 谓词的状态矩阵
 // （same 跳过 / diff 覆盖 / absent 远端安装 / unknown 任侧指纹缺失按 diff 保守执行）。
+// 插件谓词按传输形态选比对值（push 比内容指纹 / remote npm 比版本），谓词本身
+// 只做字符串相等——字段选择是调用侧的事。
 
 import { describe, expect, it } from 'vitest'
 import {
@@ -9,7 +11,6 @@ import {
   pluginStatus,
   skillStatus,
   type RemoteMcpFact,
-  type RemotePluginFact,
   type RemoteSkillFact,
 } from '../src/shared'
 
@@ -50,11 +51,11 @@ describe('mcpStatus', () => {
 })
 
 describe('pluginStatus', () => {
-  it('四态：absent（未激活）/ same（激活且版本等）/ diff / unknown（任侧版本缺失）', () => {
+  it('四态：absent（未激活）/ same（比对值相等）/ diff / unknown（任侧值缺失）', () => {
     expect(pluginStatus('1.0.0', undefined)).toBe('absent')
-    expect(pluginStatus('1.0.0', { name: 'p', version: '1.0.0' } satisfies RemotePluginFact)).toBe('same')
-    expect(pluginStatus('1.0.0', { name: 'p', version: '2.0.0' } satisfies RemotePluginFact)).toBe('diff')
-    expect(pluginStatus(null, { name: 'p', version: '1.0.0' } satisfies RemotePluginFact)).toBe('unknown')
-    expect(pluginStatus('1.0.0', { name: 'p', version: null } satisfies RemotePluginFact)).toBe('unknown')
+    expect(pluginStatus('1.0.0', '1.0.0')).toBe('same')
+    expect(pluginStatus('1.0.0', '2.0.0')).toBe('diff')
+    expect(pluginStatus(null, '1.0.0')).toBe('unknown')
+    expect(pluginStatus('1.0.0', null)).toBe('unknown')
   })
 })

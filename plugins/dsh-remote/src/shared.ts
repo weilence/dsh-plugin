@@ -124,10 +124,12 @@ export interface RemoteMcpFact {
   summary: string
 }
 
-/** 远端一个插件的事实（列表恒为 bundles 激活清单；version null = 读不到）。 */
+/** 远端一个插件的事实（列表恒为 bundles 激活清单；version / digest null = 读不到）。 */
 export interface RemotePluginFact {
   name: string
   version: string | null
+  /** 已装包树的内容指纹（与 localenv.packageTreeDigest 同口径）；读不到为 null。 */
+  digest: string | null
 }
 
 export function skillStatus(local: string | null, remote: RemoteSkillFact | undefined): ItemStatus {
@@ -141,10 +143,14 @@ export function mcpStatus(localSignature: string, remote: RemoteMcpFact | undefi
   return remote.signature === localSignature ? 'same' : 'diff'
 }
 
-export function pluginStatus(local: string | null, remote: RemotePluginFact | undefined): ItemStatus {
+/** 插件条目比对（remote 缺席 = 远端 bundles 未激活，任侧值缺失 = 无法比对）。
+ *  比对值由调用侧按传输形态选字段：本地打包传输比内容指纹（开发版同版本换
+ *  内容只有指纹可见），远端 npm 下载比版本（npm 同版本内容不可变，版本即
+ *  内容的充分代理）。 */
+export function pluginStatus(local: string | null, remote: string | null | undefined): ItemStatus {
   if (remote === undefined) return 'absent'
-  if (local === null || remote.version === null) return 'unknown'
-  return local === remote.version ? 'same' : 'diff'
+  if (local === null || remote === null) return 'unknown'
+  return local === remote ? 'same' : 'diff'
 }
 
 /** 面板一行：持久化声明 + 运行态快照。 */
@@ -195,6 +201,8 @@ export interface LocalPluginRow {
   root: string | null
   /** 本机包版本（root 下 package.json 的 version）；读取失败为 null。 */
   version: string | null
+  /** 包树内容指纹（与打包文件集同口径；本地传输路径的相等性判据）；计算失败为 null。 */
+  digest: string | null
 }
 
 /** GET /local-rows 的响应。 */
@@ -214,7 +222,7 @@ export interface RemoteInventoryResponse {
   skills: Record<'user-dsh' | 'user-agents', RemoteSkillFact[] | null>
   /** 远端 profile patch 内 MCP 行（按 serverName 对齐）。 */
   mcp: RemoteMcpFact[] | null
-  /** 远端 bundles 激活清单及各自已装版本。 */
+  /** 远端 bundles 激活清单及各自已装版本与包树内容指纹。 */
   plugins: RemotePluginFact[] | null
 }
 

@@ -37,7 +37,8 @@ const KIND_DESCRIPTIONS: Record<SyncKind, string> = {
 const STATUS_LABELS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, string>> = {
   skills: { diff: '内容不同', absent: '远端没有', unknown: '无法比对' },
   mcp: { diff: '配置不同', absent: '远端没有', unknown: '无法比对' },
-  plugins: { diff: '版本不同', absent: '远端未激活', unknown: '无法比对' },
+  // 插件的 diff 按传输形态比指纹或版本（见 rowsOf），措辞取对两种比对都成立的说法
+  plugins: { diff: '与远端不同', absent: '远端未激活', unknown: '无法比对' },
 }
 
 interface DraftState {
@@ -68,11 +69,14 @@ function statusLabel(kind: SyncKind, status: ItemStatus): string {
   return status === 'same' ? '已一致' : STATUS_LABELS[kind][status]
 }
 
-/** 本机清单 × 远端事实 → 本类全部行的判定（清单不可比对时由调用方拦截）。 */
+/** 本机清单 × 远端事实 → 本类全部行的判定（清单不可比对时由调用方拦截）。
+ *  registryPluginInstall 只参与插件行：传输什么就比什么——本地打包传输比内容
+ *  指纹，远端 npm 下载比版本（与引擎执行时的判定同源同函数）。 */
 function rowsOf(
   kind: SyncKind,
   localRows: LocalRowsResponse,
   inventory: RemoteInventoryResponse | null,
+  registryInstall: RegistryPluginInstall,
 ): SyncRow[] {
   if (kind === 'skills') {
     return localRows.skillRows.map((skill) => {
@@ -124,8 +128,13 @@ function rowsOf(
   return localRows.pluginRows.map((plugin) => {
     const facts = inventory?.plugins
     const fact = facts?.find((item) => item.name === plugin.name)
+    const viaPush = plugin.install === 'local' || registryInstall === 'push'
     const status: ItemStatus =
-      facts === undefined || facts === null ? 'unknown' : pluginStatus(plugin.version, fact)
+      facts === undefined || facts === null
+        ? 'unknown'
+        : viaPush
+          ? pluginStatus(plugin.digest, fact?.digest)
+          : pluginStatus(plugin.version, fact?.version)
     const remote =
       fact === undefined
         ? statusLabel(kind, status)
@@ -196,12 +205,12 @@ export function SyncDialog(props: {
   // same 沉底：变化项在前（错误降级时全 unknown，顺序即本机清单顺序）
   const rows = useMemo(() => {
     if (unavailable || localRows === null || !settled) return []
-    const all = rowsOf(kind, localRows, inventory)
+    const all = rowsOf(kind, localRows, inventory, draft.registryPluginInstall)
     return [
       ...all.filter((entry) => entry.status !== 'same'),
       ...all.filter((entry) => entry.status === 'same'),
     ]
-  }, [kind, localRows, inventory, settled, unavailable])
+  }, [kind, localRows, inventory, settled, unavailable, draft.registryPluginInstall])
 
   const statusOfKey = useMemo(() => new Map(rows.map((entry) => [entry.key, entry.status])), [rows])
   const pickedOfKind =

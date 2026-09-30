@@ -11,7 +11,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { errMsg } from '@dsh-plugins/shared'
-import { composeLocalRows, profileContextOf, readLocalLayers, scanSkillRows, skillsRoots } from './localenv'
+import {
+  PACKAGE_PACK_EXCLUDED,
+  composeLocalRows,
+  packageTreeDigest,
+  payloadFileName,
+  profileContextOf,
+  readLocalLayers,
+  scanSkillRows,
+  skillsRoots,
+} from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
@@ -70,8 +79,10 @@ function localPluginVersion(): string | null {
 
 /**
  * 本地组装任意插件包根的 tgz（npm tarball 布局：package/ 前缀）。整目录拷贝
- * 排除 node_modules / .git——任意插件结构（lib/、bin/、静态资源）不漏文件；
- * registry 实体的 symlink 先 realpath 落到 .pnpm 真实目录。不用 `pnpm pack`——
+ * 排除段与 packageTreeDigest 单一来源（PACKAGE_PACK_EXCLUDED）——指纹所见即
+ * 打包所装；registry 实体的 symlink 先 realpath 落到 .pnpm 真实目录。文件名
+ * 内容寻址（name-version-指纹8，见 localenv.payloadFileName）：同版本换内容
+ * 必须换文件名，远端 pnpm（hoisted linker）才会重新解包。不用 `pnpm pack`——
  * 宿主形态（desktop / web CLI）不保证带着包管理器；系统 tar（Windows 10+
  * 自带 bsdtar）即可产出 pnpm 可安装的包。staging 留在系统 tmp，交给 OS 清理。
  */
@@ -91,7 +102,7 @@ async function packPackage(root: string): Promise<{ path: string; fileName: stri
   const staging = await mkdtemp(join(tmpdir(), 'dsh-remote-pack-'))
   const bundle = join(staging, 'package')
   // 排除只看根内相对段：根自身可能就位于 node_modules（.pnpm 实体）之内
-  const excluded = new Set(['node_modules', '.git'])
+  const excluded = new Set(PACKAGE_PACK_EXCLUDED)
   await cp(real, bundle, {
     recursive: true,
     filter: (src) => {
@@ -99,11 +110,22 @@ async function packPackage(root: string): Promise<{ path: string; fileName: stri
       return !segments.some((segment) => excluded.has(segment))
     },
   })
-  // npm tarball 命名规则：@scope/name → scope-name（非 scoped 名不变）
-  const fileName = `${name.replace(/^@/, '').replace(/\//g, '-')}-${version}.tgz`
+  // 指纹取暂存目录（与源根经同一过滤拷贝，故与 LocalPluginRow.digest 同口径）；
+  // 算不出属于文件不可读——显式失败，不带病打包。
+  const digest = await packageTreeDigest(bundle)
+  if (digest === null) {
+    throw new SshFailure('unknown', `包 ${real} 的内容指纹计算失败（存在不可读文件），无法打包`)
+  }
+  const fileName = payloadFileName(name, version, digest)
   const tarball = join(staging, fileName)
   await new Promise<void>((resolve, reject) => {
-    const child = spawn('tar', ['-czf', tarball, '-C', staging, 'package'], { windowsHide: true })
+    // COPYFILE_DISABLE：macOS bsdtar 默认把扩展属性序列化成 ._* AppleDouble 条目
+    // 打进 tgz，Linux 端照原样解包——幽灵文件会污染已装指纹，令每次同步都误判
+    // diff（且同版本同名重装被 hoisted linker 跳过，永远无法收敛）。
+    const child = spawn('tar', ['-czf', tarball, '-C', staging, 'package'], {
+      windowsHide: true,
+      env: { ...process.env, COPYFILE_DISABLE: '1' },
+    })
     child.on('error', (error: NodeJS.ErrnoException) => {
       reject(
         error.code === 'ENOENT'

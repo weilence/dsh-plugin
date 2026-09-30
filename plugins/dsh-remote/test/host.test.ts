@@ -193,7 +193,13 @@ describe('dsh-remote 路由', () => {
     expect(response.body).toMatchObject({ available: true })
     const rows = response.body as unknown as {
       mcpRows: { id: string }[]
-      pluginRows: { id: string; name: string; install: string; version: string | null }[]
+      pluginRows: {
+        id: string
+        name: string
+        install: string
+        version: string | null
+        digest: string | null
+      }[]
     }
     expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
     expect(rows.pluginRows.map((row) => row.name)).toEqual([
@@ -203,8 +209,10 @@ describe('dsh-remote 路由', () => {
     ])
     // link spec → 本地（root 为 spec 目标）；semver spec → registry（root 为层内 node_modules）
     expect(rows.pluginRows[0]).toMatchObject({ install: 'local', version: '2.0.0' })
-    // bundles 补充行：无实体 → registry 形态、version null
-    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null })
+    // 本地实体的内容指纹可算（推送路径的比对判据）
+    expect(typeof rows.pluginRows[0].digest).toBe('string')
+    // bundles 补充行：无实体 → registry 形态、version 与指纹均 null
+    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null, digest: null })
     expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
   })
 
