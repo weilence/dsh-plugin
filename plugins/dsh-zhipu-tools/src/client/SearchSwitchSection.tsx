@@ -1,18 +1,23 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { Switch, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { MetaItem, Panel } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import type { SearchSwitchStore } from './store'
 import { projectSwitch } from './view'
-import type { ZhipuT } from './locales'
+import type { NS } from './locales'
 
-/** 面板注入面（client/index.ts 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
-export interface SearchSwitchPanelEnv {
+/** 注册方注入面（client/index.ts 装配，slot inject 回调提供）。 */
+export interface SearchSwitchSectionInjected {
   store: SearchSwitchStore
 }
 
-export function SearchSwitchSection(props: SearchSwitchPanelEnv & SettingsSectionOwnerProps & { t: ZhipuT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type SearchSwitchSectionProps = PropsRuntime<'settings.section'> &
+  PropsLocale<typeof NS> &
+  InjectFace<SearchSwitchSectionInjected>
+
+export function SearchSwitchSection(props: SearchSwitchSectionProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => {

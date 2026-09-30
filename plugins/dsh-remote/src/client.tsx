@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { NS, en, zh, type RemoteT } from './client/locales'
-import { RemoteSection, type RemotePanelEnv } from './client/RemoteSection'
+import { RemoteSection, type RemoteSectionInjected } from './client/RemoteSection'
 import { RemoteStore } from './client/store'
 
 export const inject: string[] = ['slots', 'locale']
@@ -16,7 +16,7 @@ export function apply(ctx: ClientContext) {
   // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
   const t = ctx.locale.bind(NS)
   const store = new RemoteStore()
-  const env: RemotePanelEnv = { store }
+  const injected: RemoteSectionInjected = { store }
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
@@ -26,7 +26,7 @@ export function apply(ctx: ClientContext) {
         order: 42,
         label: () => t('section.label'),
         locale: NS,
-        inject: (): RemotePanelEnv => env,
+        inject: (): RemoteSectionInjected => injected,
       },
       RemoteSection,
     )

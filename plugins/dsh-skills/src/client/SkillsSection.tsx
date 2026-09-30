@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   CardList,
   ConfirmDialog,
@@ -14,7 +14,7 @@ import type { SkillRow } from '../shared'
 import { sourceOrder } from '../shared'
 import type { SkillsStore } from './store'
 import { updateKey } from './store'
-import type { SkillsT } from './locales'
+import type { NS, SkillsT } from './locales'
 import { sourceLabelT } from './locales'
 import { SkillForm, SkillView } from './SkillForm'
 import { GitInstallDialog } from './GitInstallDialog'
@@ -88,29 +88,29 @@ export interface WorkspaceScopeSource {
   getSnapshot(): string | undefined
 }
 
-/** 面板注入面（client.tsx 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
-export interface SkillsPanelEnv {
+/** 注册方注入面（client.tsx 装配，slot inject 回调提供）。 */
+export interface SkillsSectionInjected {
   store: SkillsStore
   workspace: WorkspaceScopeSource
 }
 
-export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps & { t: SkillsT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type SkillsSectionProps = PropsRuntime<'settings.section'> &
+  PropsLocale<typeof NS> &
+  InjectFace<SkillsSectionInjected>
+
+export function SkillsSection(props: SkillsSectionProps) {
   useWideSettingsDialog()
-  return <SkillsPanel {...props} env={props} />
+  return <SkillsPanel {...props} />
 }
 
-function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv; t: SkillsT }) {
-  const { store } = props.env
-  const { t } = props
+function SkillsPanel(props: SkillsSectionProps) {
+  const { store, workspace, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => () => store.dismissNotice(), [store])
 
   // 当前工作区 = 主视图会话（retainedBy.mainView > 0）的 cwd。
-  const workspaceCwd = useSyncExternalStore(
-    props.env.workspace.subscribe,
-    props.env.workspace.getSnapshot,
-    props.env.workspace.getSnapshot,
-  )
+  const workspaceCwd = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot)
 
   const [mode, setMode] = useState<ScopeMode>(() => {
     try {

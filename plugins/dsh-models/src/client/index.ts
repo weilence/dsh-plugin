@@ -9,13 +9,8 @@ import { readChoices } from '../pi-ai/choices'
 import { createOperations, type PiAiOperations } from './operations'
 import { PanelStore } from './store'
 import { NS, en, zh } from './locales'
-import { ModelCatalogSection } from './ModelCatalogSection'
+import { ModelCatalogSection, type ModelCatalogInjected } from './ModelCatalogSection'
 import { ProviderUsageChip } from './usage/UsageChip'
-
-interface Injected {
-  store: PanelStore
-  operations: PiAiOperations
-}
 
 export const inject: string[] = [
   'slots',
@@ -50,6 +45,7 @@ export function apply(ctx: ClientContext) {
   }
   const store = new PanelStore({ ctx, operations, scope, getChoices })
   ctx.effect(() => store.start(), 'dsh-models: model catalog panel')
+  const catalogInjected: ModelCatalogInjected = { store, operations }
   ctx.slots.inject('conversation.input.right', () =>
     ctx.slots.register(
       {
@@ -74,7 +70,7 @@ export function apply(ctx: ClientContext) {
         order: 12,
         label: () => t('section.label'),
         locale: NS,
-        inject: (): Injected => ({ store, operations }),
+        inject: (): ModelCatalogInjected => catalogInjected,
       },
       ModelCatalogSection,
     ),

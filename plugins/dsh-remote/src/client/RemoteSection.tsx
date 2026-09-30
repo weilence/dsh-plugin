@@ -10,10 +10,10 @@ import {
   type ExpandableCardProps,
   type PillData,
 } from '@dsh-plugins/client-ui'
-import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnOp, ConnRow } from '../shared'
 import { REMOTE_PROFILE } from '../shared'
-import { messageText, type RemoteKey, type RemoteT } from './locales'
+import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
 import { SyncDialog } from './SyncDialog'
 import type { RemoteStore } from './store'
@@ -22,7 +22,8 @@ import shared from '@dsh-plugins/client-ui/styles'
 
 const styles = { ...shared, ...local }
 
-export interface RemotePanelEnv {
+/** 注册方注入面（client.tsx 装配，slot inject 回调提供）。 */
+export interface RemoteSectionInjected {
   store: RemoteStore
 }
 
@@ -46,14 +47,18 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   'sync-prompts': 'op.sync-prompts',
 }
 
-export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps & { t: RemoteT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type RemoteSectionProps = PropsRuntime<'settings.section'> &
+  PropsLocale<typeof NS> &
+  InjectFace<RemoteSectionInjected>
+
+export function RemoteSection(props: RemoteSectionProps) {
   useWideSettingsDialog()
-  return <RemotePanel {...props} env={props} />
+  return <RemotePanel {...props} />
 }
 
-function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv; t: RemoteT }) {
-  const { store } = props.env
-  const { t } = props
+function RemotePanel(props: RemoteSectionProps) {
+  const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
 

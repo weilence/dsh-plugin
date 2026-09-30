@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   ModelDirectory,
   ModelDirectoryResolver,
@@ -18,7 +19,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { toneStyles } from '@dsh-plugins/client-ui/tone'
 import { formatReset, intlLocale, providerName, windowName } from './locales'
-import type { ModelsT } from '../locales'
+import type { ModelsT, NS } from '../locales'
 import {
   USAGE_PROVIDERS,
   type ProviderUsage,
@@ -311,17 +312,19 @@ function UsagePill({ provider, locale, t }: { provider: string; locale: LocaleRu
   )
 }
 
-export function ProviderUsageChip({
-  sessionId,
-  directories,
-  locale,
-  t,
-}: {
+/** 注册方注入面（client/index.ts 装配，slot inject 回调提供；sessionId 是 session 域的位置参数）。 */
+interface UsageChipInjected {
   sessionId: SessionId
   directories?: ModelDirectoryResolver
   locale: LocaleRuntime
-  t: ModelsT
-}) {
+}
+
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type ProviderUsageChipProps = PropsRuntime<'conversation.input.right'> &
+  PropsLocale<typeof NS> &
+  InjectFace<UsageChipInjected>
+
+export function ProviderUsageChip({ sessionId, directories, locale, t }: ProviderUsageChipProps) {
   const provider = useProvider(directories, sessionId)
   if (provider === null || !(USAGE_PROVIDERS as readonly string[]).includes(provider)) return null
   return <UsagePill key={provider} provider={provider} locale={locale} t={t} />

@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import { SkillsSection, type SkillsPanelEnv } from './client/SkillsSection'
+import { SkillsSection, type SkillsSectionInjected } from './client/SkillsSection'
 import { SkillsStore } from './client/store'
 import { NS, en, zh } from './client/locales'
 
@@ -35,7 +35,7 @@ export function apply(ctx: ClientContext) {
     return undefined
   }
 
-  const env: SkillsPanelEnv = {
+  const injected: SkillsSectionInjected = {
     store,
     workspace: {
       getSnapshot: mainWorkspaceCwd,
@@ -51,7 +51,7 @@ export function apply(ctx: ClientContext) {
         order: 40,
         label: () => t('section.label'),
         locale: NS,
-        inject: (): SkillsPanelEnv => env,
+        inject: (): SkillsSectionInjected => injected,
       },
       SkillsSection,
     )

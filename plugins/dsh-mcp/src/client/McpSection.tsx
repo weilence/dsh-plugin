@@ -1,10 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { CardList, ConfirmDialog, ExpandableCard, Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import type { McpRow } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
-import { messageText, type McpT } from './locales'
+import { messageText, type McpT, type NS } from './locales'
 import type { McpStore } from './store'
 import { McpServerForm, McpServerView } from './McpServerForm'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -12,12 +12,17 @@ import local from './McpSection.module.css'
 
 const styles = { ...shared, ...local }
 
-/** 面板注入面（client.tsx 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
-export interface McpPanelEnv {
+/** 注册方注入面（client.tsx 装配，slot inject 回调提供）。 */
+export interface McpSectionInjected {
   store: McpStore
 }
 
-export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps & { t: McpT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type McpSectionProps = PropsRuntime<'settings.section'> &
+  PropsLocale<typeof NS> &
+  InjectFace<McpSectionInjected>
+
+export function McpSection(props: McpSectionProps) {
   useWideSettingsDialog()
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)

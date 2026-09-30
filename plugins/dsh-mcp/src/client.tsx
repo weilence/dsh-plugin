@@ -3,7 +3,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { McpSection, type McpPanelEnv } from './client/McpSection'
+import { McpSection, type McpSectionInjected } from './client/McpSection'
 import { NS, en, zh } from './client/locales'
 import { McpStore } from './client/store'
 
@@ -19,7 +19,7 @@ export function apply(ctx: ClientContext) {
   // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
   const t = ctx.locale.bind(NS)
   const store = new McpStore()
-  const env: McpPanelEnv = { store }
+  const injected: McpSectionInjected = { store }
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
@@ -29,7 +29,7 @@ export function apply(ctx: ClientContext) {
         order: 41,
         label: () => t('section.label'),
         locale: NS,
-        inject: (): McpPanelEnv => env,
+        inject: (): McpSectionInjected => injected,
       },
       McpSection,
     )

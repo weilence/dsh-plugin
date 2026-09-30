@@ -9,6 +9,7 @@ import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/c
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
@@ -109,7 +110,10 @@ function notify(ctx: ClientContext, t: NotifyT, sessionId: string, kind: NotifyK
   fire()
 }
 
-function NotifyPanel({ t }: { t: NotifyT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat（本面板无注入面）。 */
+type NotifyPanelProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
+
+function NotifyPanel({ t }: NotifyPanelProps) {
   const [permission, setPermission] = useState<PermissionState>(readPermission)
   const [busy, setBusy] = useState(false)
   const [enabled, setEnabled] = useState(() => notifyEnabled)

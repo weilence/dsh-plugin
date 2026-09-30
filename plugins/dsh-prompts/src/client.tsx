@@ -2,20 +2,24 @@ import { useEffect, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import { createBridgeClient } from '@dsh-plugins/shared/api'
 import { errMsg } from '@dsh-plugins/shared'
 import { DELETE_PATH, FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
-import { NS, en, zh, type PromptsT } from './client/locales'
+import { NS, en, zh } from './client/locales'
 import styles from './client.module.css'
 
 export const inject: string[] = ['slots', 'locale']
 
 const api = createBridgeClient('x-dsh-prompts')
 
-function PromptSection({ t }: { t: PromptsT }) {
+/** 完整组件 props：运行时份额 + locale 标准 seat（本面板无注入面）。 */
+type PromptSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
+
+function PromptSection({ t }: PromptSectionProps) {
   useWideSettingsDialog()
   const [file, setFile] = useState<PromptFile | null>(null)
   const [draft, setDraft] = useState('')

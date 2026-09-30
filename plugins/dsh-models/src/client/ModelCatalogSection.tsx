@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { SettingsSectionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PiAiOperations } from './operations'
-import type { ModelsT } from './locales'
+import type { ModelsT, NS } from './locales'
 import { messageText } from './locales'
 import type { PanelStore } from './store'
 import { RouteEditor } from './RouteEditor'
@@ -23,28 +23,23 @@ const styles = { ...shared }
 
 const PROVIDER_ORDER_KEY = 'dsh-models/provider-order'
 
-export interface ModelCatalogSectionProps extends SettingsSectionOwnerProps {
-  store?: PanelStore
-  operations?: PiAiOperations
-  t?: ModelsT
+/** 注册方注入面（client/index.ts 装配，slot inject 回调提供）。 */
+export interface ModelCatalogInjected {
+  store: PanelStore
+  operations: PiAiOperations
 }
+
+/** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
+export type ModelCatalogSectionProps = PropsRuntime<'settings.section'> &
+  PropsLocale<typeof NS> &
+  InjectFace<ModelCatalogInjected>
 
 export function ModelCatalogSection(props: ModelCatalogSectionProps) {
   useWideSettingsDialog()
-  const store = props.store
-  const operations = props.operations
-  if (!store || !operations || !props.t) {
-    return <div className={styles.empty}>模型目录面板尚未注入。</div>
-  }
-  return <ModelCatalogPanel store={store} operations={operations} t={props.t} close={props.close} />
+  return <ModelCatalogPanel {...props} />
 }
 
-function ModelCatalogPanel(props: {
-  store: PanelStore
-  operations: PiAiOperations
-  t: ModelsT
-  close: () => void
-}) {
+function ModelCatalogPanel(props: ModelCatalogSectionProps) {
   const { t } = props
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot, props.store.getSnapshot)
   // notice 的唯一清除路径是 Toast 的 onDone，而 Toast 计时只在挂载期间有效：
