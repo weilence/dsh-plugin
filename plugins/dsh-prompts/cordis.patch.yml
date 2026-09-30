@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-prompts
+      name: '@weilence/dsh-prompts'
