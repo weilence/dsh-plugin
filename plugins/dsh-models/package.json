@@ -57,7 +57,8 @@
     "dsh": ">=0.2.0-rc.2 <0.3.0"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1"
