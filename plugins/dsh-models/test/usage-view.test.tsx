@@ -29,7 +29,7 @@ describe('按 Provider 显示真实用量语义', () => {
         kind: 'quota',
         provider: 'openai-codex',
         label: 'Codex',
-        windows: [{ id: 'primary', label: 'Codex · 5 小时', usedPct: 90, resetMs: null }],
+        windows: [{ id: 'primary', label: '5 小时', usedPct: 90, resetMs: null }],
         queriedAt: 0,
       }),
     ).toContain('10%')

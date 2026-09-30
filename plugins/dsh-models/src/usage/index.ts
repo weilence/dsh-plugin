@@ -66,14 +66,28 @@ export function createProviderUsageService(ctx: Context) {
       kind: 'quota',
       provider: 'openai-codex',
       label: 'Codex',
-      windows: value.windows.map((window) => ({
-        id: `${window.bucketId ?? 'codex'}:${window.kind}`,
-        label: `${window.bucketName ?? window.bucketId ?? 'Codex'} · ${window.windowMins === 300 ? '5 小时' : window.windowMins === 10080 ? '每周' : window.windowMins ? `${window.windowMins} 分钟` : window.kind === 'primary' ? '主窗口' : '次窗口'}`,
-        usedPct: window.usedPct,
-        resetMs: window.resetMs,
-        allowed: window.allowed,
-        limitReached: window.limitReached,
-      })),
+      windows: value.windows.map((window) => {
+        const bucketId = window.bucketId ?? 'codex'
+        const duration =
+          window.windowMins === 300
+            ? '5 小时'
+            : window.windowMins === 10080
+              ? '每周'
+              : window.windowMins
+                ? `${window.windowMins} 分钟`
+                : window.kind === 'primary'
+                  ? '主窗口'
+                  : '次窗口'
+        const bucketName = bucketId === 'codex' ? null : (window.bucketName ?? bucketId)
+        return {
+          id: `${bucketId}:${window.kind}`,
+          label: bucketName ? `${bucketName} · ${duration}` : duration,
+          usedPct: window.usedPct,
+          resetMs: window.resetMs,
+          allowed: window.allowed,
+          limitReached: window.limitReached,
+        }
+      }),
       ...(value.allowed === undefined ? {} : { allowed: value.allowed }),
       ...(value.limitReached === undefined ? {} : { limitReached: value.limitReached }),
       queriedAt: Date.now(),

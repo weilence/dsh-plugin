@@ -135,6 +135,26 @@ describe('Provider 用量 Host 路由', () => {
     expect(read).toHaveBeenCalledTimes(2)
   })
 
+  it('Codex 默认窗口只显示时长，附加额度保留桶名称', async () => {
+    const read = vi.mocked(readCodexQuota)
+    read.mockReset()
+    read.mockResolvedValueOnce({
+      windows: (
+        [
+          { bucketId: 'codex', bucketName: 'Codex', kind: 'primary', windowMins: 300 },
+          { bucketId: 'codex', bucketName: 'Codex', kind: 'secondary', windowMins: 10080 },
+          { bucketId: 'code_review', bucketName: 'Reviews', kind: 'primary', windowMins: 300 },
+        ] as const
+      ).map((window) => ({ ...window, usedPct: 20, resetMs: 0, allowed: true, limitReached: false })),
+    })
+    const { request } = setup()
+    const response = await request(`${USAGE_PATH}?provider=openai-codex`)
+    expect(response.body).toMatchObject({
+      kind: 'quota',
+      windows: [{ label: '5 小时' }, { label: '每周' }, { label: 'Reviews · 5 小时' }],
+    })
+  })
+
   it('Copilot 无计费令牌时明确报错，不要求额外填写个人用户名', async () => {
     const { request } = setup()
     expect(await request(`${USAGE_PATH}?provider=github-copilot`)).toMatchObject({

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Button,
@@ -55,60 +55,59 @@ async function fetchUsage(provider: string, force: boolean): Promise<ProviderUsa
 function useUsage(provider: string) {
   const [result, setResult] = useState<ProviderUsage | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const latest = useRef(0)
-  const live = useRef(true)
+  const latestRequest = useRef(0)
   const request = useCallback(
-    (force: boolean) => {
-      const sequence = ++latest.current
+    async (force: boolean) => {
+      const sequence = ++latestRequest.current
       if (force) setRefreshing(true)
-      void fetchUsage(provider, force)
-        .then((next) => {
-          if (live.current && latest.current === sequence) setResult(next)
-        })
-        .catch((error: unknown) => {
-          if (live.current && latest.current === sequence)
-            setResult({
-              kind: 'unavailable',
-              provider,
-              label: USAGE_PROVIDERS[provider as keyof typeof USAGE_PROVIDERS] ?? provider,
-              error: error instanceof Error ? error.message : String(error),
-            })
-        })
-        .finally(() => {
-          if (live.current && latest.current === sequence) setRefreshing(false)
-        })
+      try {
+        const next = await fetchUsage(provider, force)
+        if (latestRequest.current === sequence) setResult(next)
+      } catch (error) {
+        if (latestRequest.current === sequence)
+          setResult({
+            kind: 'unavailable',
+            provider,
+            label: USAGE_PROVIDERS[provider as keyof typeof USAGE_PROVIDERS] ?? provider,
+            error: error instanceof Error ? error.message : String(error),
+          })
+      } finally {
+        if (latestRequest.current === sequence) setRefreshing(false)
+      }
     },
     [provider],
   )
   useEffect(() => {
-    live.current = true
-    request(false)
-    const timer = setInterval(() => request(false), 15_000)
+    void request(false)
+    const timer = setInterval(() => {
+      void request(false)
+    }, 15_000)
     return () => {
-      live.current = false
-      latest.current += 1
+      latestRequest.current += 1
       clearInterval(timer)
     }
   }, [request])
-  return { result, refreshing, refresh: () => request(true) }
+  return { result, refreshing, refresh: () => void request(true) }
 }
 
-function remaining(used: number | null) {
-  return used === null ? null : Math.max(0, Math.min(100, 100 - used))
+function remainingPct(usedPct: number | null) {
+  return usedPct === null ? null : Math.max(0, Math.min(100, 100 - usedPct))
 }
 
-function tone(value: number | null) {
+function remainingTone(value: number | null) {
   if (value === null) return undefined
   return value <= 10 ? toneStyles.err : value <= 30 ? toneStyles.warn : toneStyles.ok
 }
 
-function pct(value: number | null) {
+function formatPct(value: number | null) {
   return value === null ? '—' : Math.round(value * 10) / 10 + '%'
 }
 
-function resetLabel(resetMs: number | null) {
-  if (resetMs === null || resetMs <= Date.now()) return '—'
-  const minutes = Math.ceil((resetMs - Date.now()) / 60_000)
+function formatReset(resetMs: number | null) {
+  if (resetMs === null) return '—'
+  const remainingMs = resetMs - Date.now()
+  if (remainingMs <= 0) return '—'
+  const minutes = Math.ceil(remainingMs / 60_000)
   if (minutes < 60) return minutes + ' 分钟后重置'
   if (minutes < 24 * 60) return Math.floor(minutes / 60) + ' 小时后重置'
   return new Date(resetMs).toLocaleDateString() + '重置'
@@ -118,19 +117,21 @@ function WindowGrid({ windows }: { windows: readonly UsageWindow[] }) {
   return (
     <div className={panel.windows}>
       {windows.map((window) => {
-        const left = remaining(window.usedPct)
+        const left = remainingPct(window.usedPct)
+        const color = remainingTone(left)
+        const reset = formatReset(window.resetMs)
         return (
           <div key={window.id} className={panel.window}>
             <div className={panel.windowName} title={window.label}>
               {window.label}
               {window.allowed === false ? ` · ${window.limitReached ? '已达限额' : '当前不可用'}` : ''}
             </div>
-            <div className={panel.windowValue} title={resetLabel(window.resetMs)}>
-              <span className={tone(left)}>{pct(left)}</span> · {resetLabel(window.resetMs)}
+            <div className={panel.windowValue} title={reset}>
+              <span className={color}>{formatPct(left)}</span> · {reset}
             </div>
             <div className={panel.bar}>
               <div
-                className={[panel.fill, tone(left)].filter(Boolean).join(' ')}
+                className={[panel.fill, color].filter(Boolean).join(' ')}
                 style={{ width: (left ?? 0) + '%' }}
               />
             </div>
@@ -183,6 +184,33 @@ export function UsageDetails({ result }: { result: ProviderUsage | null }) {
   )
 }
 
+function UsageSummary({ label, result }: { label: string; result: ProviderUsage | null }) {
+  if (result?.kind === 'unavailable') return <span className={toneStyles.err}>{label}用量不可用</span>
+  if (result?.kind === 'quota')
+    return (
+      <>
+        {label}
+        {result.windows.map((window) => {
+          const left = remainingPct(window.usedPct)
+          return (
+            <span key={window.id} className={pill.sep} title={window.label + '剩余 ' + formatPct(left)}>
+              {window.label} <span className={remainingTone(left)}>{formatPct(left)}</span>
+            </span>
+          )
+        })}
+      </>
+    )
+  if (result?.kind === 'billing')
+    return (
+      <>
+        {label}
+        {result.payerKind === 'organization' ? '组织' : '个人'}本期计费{' '}
+        {result.items.reduce((total, item) => total + item.requests, 0)} 次
+      </>
+    )
+  return <>{label}用量…</>
+}
+
 function UsagePill({ provider }: { provider: string }) {
   const { result, refreshing, refresh } = useUsage(provider)
   const [open, setOpen] = useState(false)
@@ -207,36 +235,12 @@ function UsagePill({ provider }: { provider: string }) {
     return () => document.removeEventListener('keydown', onKey)
   }, [open])
   const label = USAGE_PROVIDERS[provider as keyof typeof USAGE_PROVIDERS] ?? provider
-  let summary: ReactNode = label + '用量…'
-  if (result?.kind === 'unavailable') summary = <span className={toneStyles.err}>{label}用量不可用</span>
-  if (result?.kind === 'quota')
-    summary = (
-      <>
-        {label}
-        {result.windows.map((window) => (
-          <span
-            key={window.id}
-            className={pill.sep}
-            title={window.label + '剩余 ' + pct(remaining(window.usedPct))}
-          >
-            {window.label}{' '}
-            <span className={tone(remaining(window.usedPct))}>{pct(remaining(window.usedPct))}</span>
-          </span>
-        ))}
-      </>
-    )
-  if (result?.kind === 'billing')
-    summary = (
-      <>
-        {label}
-        {result.payerKind === 'organization' ? '组织' : '个人'}本期计费{' '}
-        {result.items.reduce((total, item) => total + item.requests, 0)} 次
-      </>
-    )
   const content = (
     <>
       <IconGaugeOutlineRegular />
-      <span className={pill.label}>{summary}</span>
+      <span className={pill.label}>
+        <UsageSummary label={label} result={result} />
+      </span>
     </>
   )
   return (
