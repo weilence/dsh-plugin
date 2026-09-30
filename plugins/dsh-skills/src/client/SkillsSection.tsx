@@ -101,10 +101,6 @@ export type SkillsSectionProps = PropsRuntime<'settings.section'> &
 
 export function SkillsSection(props: SkillsSectionProps) {
   useWideSettingsDialog()
-  return <SkillsPanel {...props} />
-}
-
-function SkillsPanel(props: SkillsSectionProps) {
   const { store, workspace, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => () => store.dismissNotice(), [store])

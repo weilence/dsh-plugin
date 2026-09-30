@@ -111,9 +111,9 @@ function notify(ctx: ClientContext, t: NotifyT, sessionId: string, kind: NotifyK
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat（本面板无注入面）。 */
-type NotifyPanelProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
+type NotifySectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
 
-function NotifyPanel({ t }: NotifyPanelProps) {
+function NotifySection({ t }: NotifySectionProps) {
   const [permission, setPermission] = useState<PermissionState>(readPermission)
   const [busy, setBusy] = useState(false)
   const [enabled, setEnabled] = useState(() => notifyEnabled)
@@ -229,7 +229,7 @@ export function apply(ctx: ClientContext) {
         label: () => t('section.label'),
         locale: NS,
       },
-      NotifyPanel,
+      NotifySection,
     )
   })
 }

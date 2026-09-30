@@ -36,10 +36,6 @@ export type ModelCatalogSectionProps = PropsRuntime<'settings.section'> &
 
 export function ModelCatalogSection(props: ModelCatalogSectionProps) {
   useWideSettingsDialog()
-  return <ModelCatalogPanel {...props} />
-}
-
-function ModelCatalogPanel(props: ModelCatalogSectionProps) {
   const { t } = props
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot, props.store.getSnapshot)
   // notice 的唯一清除路径是 Toast 的 onDone，而 Toast 计时只在挂载期间有效：

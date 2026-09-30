@@ -54,10 +54,6 @@ export type RemoteSectionProps = PropsRuntime<'settings.section'> &
 
 export function RemoteSection(props: RemoteSectionProps) {
   useWideSettingsDialog()
-  return <RemotePanel {...props} />
-}
-
-function RemotePanel(props: RemoteSectionProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
