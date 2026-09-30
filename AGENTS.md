@@ -32,6 +32,10 @@
 - 提交前运行全量验证（与 CI 相同的四项检查）：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
 - 发布：改插件 version → `git tag @weilence/<目录>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。新 scope 各包首发需手动 `npm publish` 一次。
 
+## 沙箱权限拦截
+
+- 开发中撞上沙箱导致的权限拦截（spawn 系统工具被禁、文件访问被拒等）：停下来向用户报告被拦的具体操作与影响，由用户决定放开开发权限还是走替代方案——禁止未经确认把沙箱迁就写进代码或测试（抽纯函数替身、加环境分支、换次优实现）；开发环境的限制不是产品需求（实际发生过：测试沙箱禁 ps spawn，为绕开抽了纯函数替身测试，事后整体回退）。
+
 ## 代码与提交风格
 
 - 注释中文、写 why 不写 what、落在实现处；删非必要注释与单用途间接层，优先命名与官方包类型，不建本地镜像。
