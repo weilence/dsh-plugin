@@ -4,7 +4,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { McpSection, type McpPanelEnv } from './client/McpSection'
-import { NS, en, zh, type McpT } from './client/locales'
+import { NS, en, zh } from './client/locales'
 import { McpStore } from './client/store'
 
 export const inject: string[] = [
@@ -15,11 +15,11 @@ export const inject: string[] = [
 
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-mcp: copy dictionaries')
-  // 导航 label thunk 与面板注入面共用一个绑定取词函数：调用时读取当前语言，
-  // 新鲜度由 locale revision 驱动的 outlet 重绘保证。
-  const t: McpT = ctx.locale.bind(NS)
+  // 导航 label thunk 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
+  // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
+  const t = ctx.locale.bind(NS)
   const store = new McpStore()
-  const env: McpPanelEnv = { store, t }
+  const env: McpPanelEnv = { store }
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
@@ -28,6 +28,7 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-mcp',
         order: 41,
         label: () => t('section.label'),
+        locale: NS,
         inject: (): McpPanelEnv => env,
       },
       McpSection,

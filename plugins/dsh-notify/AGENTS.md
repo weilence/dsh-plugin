@@ -6,7 +6,7 @@
 
 - `src/client.tsx`：client half——`ctx.remote.$on('api-session/status')` 订阅回合完成、`ctx.uiSession.sessionStatus` 订阅 pendingInteraction diff（提问 / 审批）；`settings.section` 设置面板。
 - `src/detail.ts`：通知文案组装（会话标题、多题汇总、工具名 + 原因），取词函数 `t` 由调用方传入。
-- `src/client/locales.ts`：本插件词典（命名空间 `dsh-notify`，zh 为键集事实源、en 编译期查全），client `apply` 经 `ctx.locale.register` 注册、`ctx.locale.bind` 绑定后供事件路径与面板取词；导航 label 是 thunk（`label: () => t('section.label')`）。通知文案在投递瞬间取词——桌面通知是一次性载体，不随语言切换重渲染。
+- `src/client/locales.ts`：本插件词典（命名空间 `dsh-notify`，zh 为键集事实源、en 编译期查全），client `apply` 经 `ctx.locale.register` 注册；面板的 `t` 由 slot 注册声明 `locale: NS` 的框架标准 seat 合成进 props（apply 域 `bind` 服务事件路径与导航 label thunk）。通知文案在投递瞬间取词——桌面通知是一次性载体，不随语言切换重渲染。
 - `src/index.ts`：host half——仅 `POST /dsh-notify/activate`（spawn `dsh://open` 协议恢复 desktop 窗口）。
 
 ## 改动约定

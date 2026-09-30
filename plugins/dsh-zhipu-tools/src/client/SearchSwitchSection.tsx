@@ -7,13 +7,12 @@ import type { SearchSwitchStore } from './store'
 import { projectSwitch } from './view'
 import type { ZhipuT } from './locales'
 
-/** 面板注入面（client/index.ts 装配，槽位 inject 回调提供）。 */
+/** 面板注入面（client/index.ts 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
 export interface SearchSwitchPanelEnv {
   store: SearchSwitchStore
-  t: ZhipuT
 }
 
-export function SearchSwitchSection(props: SearchSwitchPanelEnv & SettingsSectionOwnerProps) {
+export function SearchSwitchSection(props: SearchSwitchPanelEnv & SettingsSectionOwnerProps & { t: ZhipuT }) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => {

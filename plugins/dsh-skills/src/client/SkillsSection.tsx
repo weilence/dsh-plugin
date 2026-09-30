@@ -88,20 +88,20 @@ export interface WorkspaceScopeSource {
   getSnapshot(): string | undefined
 }
 
-/** 面板注入面（client.tsx 装配，槽位 inject 回调提供）。 */
+/** 面板注入面（client.tsx 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
 export interface SkillsPanelEnv {
   store: SkillsStore
   workspace: WorkspaceScopeSource
-  t: SkillsT
 }
 
-export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps) {
+export function SkillsSection(props: SkillsPanelEnv & SettingsSectionOwnerProps & { t: SkillsT }) {
   useWideSettingsDialog()
   return <SkillsPanel {...props} env={props} />
 }
 
-function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv }) {
-  const { store, t } = props.env
+function SkillsPanel(props: SettingsSectionOwnerProps & { env: SkillsPanelEnv; t: SkillsT }) {
+  const { store } = props.env
+  const { t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => () => store.dismissNotice(), [store])
 

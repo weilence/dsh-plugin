@@ -8,14 +8,13 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { readChoices } from '../pi-ai/choices'
 import { createOperations, type PiAiOperations } from './operations'
 import { PanelStore } from './store'
-import { NS, en, zh, type ModelsT } from './locales'
+import { NS, en, zh } from './locales'
 import { ModelCatalogSection } from './ModelCatalogSection'
 import { ProviderUsageChip } from './usage/UsageChip'
 
 interface Injected {
   store: PanelStore
   operations: PiAiOperations
-  t: ModelsT
 }
 
 export const inject: string[] = [
@@ -33,8 +32,9 @@ export const inject: string[] = [
 
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-models: copy dictionaries')
-  // 导航 label thunk 与两个面板注入面共用一个绑定取词函数：调用时读取当前
-  // 语言，新鲜度由 locale revision 驱动的 outlet 重绘保证。
+  // 导航 label thunk 用 apply 域绑定（调用时读当前语言）；面板的 t 由注册声明
+  // locale 命名空间获得框架标准 seat——每个语言切换换新函数引用，memo 组件
+  // 靠浅比较自动刷新。
   const t = ctx.locale.bind(NS)
   const operations = createOperations(ctx)
   const scope = ctx.configForms.get('llm-pi-ai')
@@ -56,11 +56,11 @@ export function apply(ctx: ClientContext) {
         name: 'conversation.input.right',
         id: 'dsh-models-usage',
         order: 10,
+        locale: NS,
         inject: (sessionId: SessionId) => ({
           sessionId,
           directories: ctx.modelDirectories,
           locale: ctx.locale,
-          t,
         }),
       },
       ProviderUsageChip,
@@ -73,7 +73,8 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-models',
         order: 12,
         label: () => t('section.label'),
-        inject: (): Injected => ({ store, operations, t }),
+        locale: NS,
+        inject: (): Injected => ({ store, operations }),
       },
       ModelCatalogSection,
     ),

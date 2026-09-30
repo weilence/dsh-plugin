@@ -223,7 +223,7 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-notify',
         order: 50,
         label: () => t('section.label'),
-        inject: (): { t: NotifyT } => ({ t }),
+        locale: NS,
       },
       NotifyPanel,
     )

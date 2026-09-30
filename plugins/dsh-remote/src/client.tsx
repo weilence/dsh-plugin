@@ -12,11 +12,11 @@ export const inject: string[] = ['slots', 'locale']
 export function apply(ctx: ClientContext) {
   // 全部展示文案跟随宿主语言：词典注册进 locale 服务，语言环境取其服务面。
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-remote: copy dictionaries')
-  // 导航 label thunk 与面板注入面共用一个绑定取词函数：调用时读取当前语言，
-  // 新鲜度由 locale revision 驱动的 outlet 重绘保证。
+  // 导航 label thunk 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
+  // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
   const t = ctx.locale.bind(NS)
   const store = new RemoteStore()
-  const env: RemotePanelEnv = { store, t }
+  const env: RemotePanelEnv = { store }
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
@@ -25,6 +25,7 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-remote',
         order: 42,
         label: () => t('section.label'),
+        locale: NS,
         inject: (): RemotePanelEnv => env,
       },
       RemoteSection,

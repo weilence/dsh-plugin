@@ -24,7 +24,6 @@ const styles = { ...shared, ...local }
 
 export interface RemotePanelEnv {
   store: RemoteStore
-  t: RemoteT
 }
 
 const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone: PillData['tone'] }> = {
@@ -47,13 +46,14 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   'sync-prompts': 'op.sync-prompts',
 }
 
-export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps) {
+export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps & { t: RemoteT }) {
   useWideSettingsDialog()
   return <RemotePanel {...props} env={props} />
 }
 
-function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv }) {
-  const { store, t } = props.env
+function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv; t: RemoteT }) {
+  const { store } = props.env
+  const { t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
 

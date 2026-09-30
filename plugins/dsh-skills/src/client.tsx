@@ -19,8 +19,8 @@ export const inject: string[] = [
 
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-skills: copy dictionaries')
-  // 导航 label thunk 与面板注入面共用一个绑定取词函数：调用时读取当前
-  // 语言，新鲜度由 locale revision 驱动的 outlet 重绘保证。
+  // 导航 label thunk 与 store 即显 notice 用 apply 域绑定；面板的 t 由注册声明
+  // locale 命名空间获得框架标准 seat（每个语言切换换新引用）。
   const t = ctx.locale.bind(NS)
   const store = new SkillsStore(t)
 
@@ -41,7 +41,6 @@ export function apply(ctx: ClientContext) {
       getSnapshot: mainWorkspaceCwd,
       subscribe: (listener: () => void): (() => void) => ctx.sessions.list.subscribe(listener),
     },
-    t,
   }
 
   ctx.slots.inject('settings.section', () => {
@@ -51,6 +50,7 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-skills',
         order: 40,
         label: () => t('section.label'),
+        locale: NS,
         inject: (): SkillsPanelEnv => env,
       },
       SkillsSection,

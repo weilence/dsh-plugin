@@ -158,6 +158,8 @@ function PromptSection({ t }: { t: PromptsT }) {
 
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-prompts: copy dictionaries')
+  // 导航 label thunk 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
+  // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
   const t = ctx.locale.bind(NS)
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
@@ -166,7 +168,7 @@ export function apply(ctx: Context): void {
         id: 'dsh-prompts',
         order: 45,
         label: () => t('section.label'),
-        inject: (): { t: PromptsT } => ({ t }),
+        locale: NS,
       },
       PromptSection,
     ),

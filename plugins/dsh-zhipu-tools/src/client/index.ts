@@ -11,9 +11,11 @@ export const inject: string[] = ['slots', 'locale']
 
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-zhipu-tools: copy dictionaries')
+  // 导航 label thunk 与 store 即显 notice 用 apply 域绑定；面板的 t 由注册声明
+  // locale 命名空间获得框架标准 seat（每个语言切换换新引用）。
   const t = ctx.locale.bind(NS)
   const store = new SearchSwitchStore(t)
-  const env: SearchSwitchPanelEnv = { store, t }
+  const env: SearchSwitchPanelEnv = { store }
 
   ctx.slots.inject('settings.section', () => {
     return ctx.slots.register(
@@ -22,6 +24,7 @@ export function apply(ctx: ClientContext) {
         id: 'dsh-zhipu-tools',
         order: 42,
         label: () => t('section.label'),
+        locale: NS,
         inject: (): SearchSwitchPanelEnv => env,
       },
       SearchSwitchSection,

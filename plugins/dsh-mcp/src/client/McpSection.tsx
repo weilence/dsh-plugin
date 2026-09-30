@@ -12,13 +12,12 @@ import local from './McpSection.module.css'
 
 const styles = { ...shared, ...local }
 
-/** 面板注入面（client.tsx 装配，槽位 inject 回调提供）。 */
+/** 面板注入面（client.tsx 装配，槽位 inject 回调提供；t 是 locale 声明的框架标准 seat）。 */
 export interface McpPanelEnv {
   store: McpStore
-  t: McpT
 }
 
-export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps) {
+export function McpSection(props: McpPanelEnv & SettingsSectionOwnerProps & { t: McpT }) {
   useWideSettingsDialog()
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
