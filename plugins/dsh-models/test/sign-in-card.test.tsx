@@ -134,16 +134,20 @@ describe('SignInCard', () => {
     expect(html).toContain('取消登录')
   })
 
-  it('尝试已结束：结果行可见，登录入口立即恢复', () => {
+  it('尝试已结束：只显示授权结果和重新登录入口，不重放授权链接或成功事件', () => {
     const html = renderToStaticMarkup(
       createElement(SignInCard, {
-        provider: 'github-copilot',
+        provider: 'openai-codex',
         flow,
         auth: authOf({
+          records: { 'openai-codex': { configured: true, kind: 'grant' } },
           attempt: {
-            provider: 'github-copilot',
+            provider: 'openai-codex',
             running: false,
-            events: [{ seq: 1, kind: 'outcome', status: 'cancelled' }],
+            events: [
+              { seq: 1, kind: 'notice', message: '打开授权页', url: 'https://auth.example/device' },
+              { seq: 2, kind: 'outcome', status: 'authorized' },
+            ],
           },
         }),
         replacesApiKey: true,
@@ -153,9 +157,10 @@ describe('SignInCard', () => {
         onCancel: () => {},
       }),
     )
-    expect(html).toContain('登录已取消')
-    expect(html).toContain('再次登录')
-    expect(html).not.toContain('取消登录')
+    expect(html).toContain('已授权')
+    expect(html).toContain('重新登录')
+    expect(html).not.toContain('https://auth.example/device')
+    expect(html).not.toContain('登录成功。')
   })
 
   it('其他 Provider 的尝试不在本卡渲染', () => {

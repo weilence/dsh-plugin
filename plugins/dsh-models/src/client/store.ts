@@ -234,8 +234,8 @@ export class PanelStore {
 
   // 登录目录与本地尝试态的合成：flow/records 以 Host 为准；attempt 归轮询
   // 循环所有——本地轮询仍在进行就保留，Host 报告仍有进行中的登录而本地没有（页面
-  // 刷新 / 双开）则给出待重挂的尝试态（由 load 在 set 后启动轮询）。已结束
-  // 的本地尝试只是即时的结果反馈，刷新时丢弃，不沉淀成持久 UI 态。
+  // 刷新 / 双开）则给出待重挂的尝试态（由 load 在 set 后启动轮询）。结束时
+  // 轮询立即清理过程；刷新也不恢复已结束的尝试。
   private authStateOf(directory: AuthDirectory | null): AuthState {
     const flows = directory?.flows ?? {}
     const records = directory?.records ?? {}
@@ -297,8 +297,8 @@ export class PanelStore {
     }
   }
 
-  // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，running 变为 false
-  // 即尝试结束（authorized 给提示并刷新记录状态，failed 的原因进错误区）。
+  // 轮询循环是 attempt 状态的唯一写者：新事件追加进快照，结束时清除整段过程
+  // （authorized 给提示并刷新记录状态，failed 的原因进错误区）。
   private startAuthPoll() {
     if (this.authPolling) return
     this.authPolling = true
@@ -333,7 +333,7 @@ export class PanelStore {
   private finishAuthAttempt() {
     const attempt = this.snapshot.auth.attempt
     if (attempt === null || !attempt.running) return
-    this.set({ auth: { ...this.snapshot.auth, attempt: { ...attempt, running: false } } })
+    this.set({ auth: { ...this.snapshot.auth, attempt: null } })
     const outcome = attempt.events.at(-1)
     if (outcome === undefined || outcome.kind !== 'outcome') return
     if (outcome.status === 'authorized') {

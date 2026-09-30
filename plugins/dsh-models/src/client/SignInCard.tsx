@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Button, Input, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { AuthAttemptState, AuthState } from './store'
 import type { AuthFlow, AuthSequencedEvent } from './operations'
-import { IssueList, fieldInputCls } from '@dsh-plugins/client-ui'
+import { fieldInputCls } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './SignInCard.module.css'
 
@@ -70,15 +70,15 @@ export function SignInCard(props: {
 }) {
   const { auth } = props
   const mine: AuthAttemptState | null =
-    auth.attempt !== null && auth.attempt.provider === props.provider ? auth.attempt : null
+    auth.attempt !== null && auth.attempt.provider === props.provider && auth.attempt.running
+      ? auth.attempt
+      : null
   const record = auth.records[props.provider]
   const authorized = record?.configured === true
-  const running = mine?.running === true
   const [manualValue, setManualValue] = useState('')
   const [selectDraft, setSelectDraft] = useState('')
 
   const activePrompt = mine !== null ? activePromptOf(mine.events) : undefined
-  const outcome = mine !== null && !mine.running ? mine.events.at(-1) : undefined
   // 选择题草稿回退到首项：授权流程的问题总有推荐项，避免空选阻塞提交。
   const selectOptions =
     (activePrompt?.prompt.kind === 'select' ? activePrompt.prompt.options : undefined) ?? []
@@ -165,8 +165,7 @@ export function SignInCard(props: {
           : `该 Provider 支持账号登录（${props.flow.label}）；也可继续使用 API Key。`}
       </div>
       {mine !== null ? (
-        // 进行中 / 刚结束的尝试收纳进同一块有边界的面板：事件流、问题、结束
-        // 按钮在视觉上是一个整体，不再与表单字段的松散堆叠混排。
+        // 进行中的事件流、问题和取消按钮放在同一个区域；已结束的过程不再重放。
         <div className={local.attempt}>
           {mine.events.map((event) =>
             event.kind === 'notice' ? (
@@ -174,31 +173,10 @@ export function SignInCard(props: {
             ) : null,
           )}
           {promptForm}
-          {outcome !== undefined && outcome.kind === 'outcome' ? (
-            outcome.status === 'authorized' ? (
-              <div className={styles.success}>登录成功。</div>
-            ) : outcome.status === 'cancelled' ? (
-              <div className={styles.notice}>登录已取消。</div>
-            ) : (
-              <IssueList issues={[{ message: outcome.error ?? '登录失败。' }]} />
-            )
-          ) : null}
           <div className={local.attemptActions}>
-            {running ? (
-              <Button variant="outline" onClick={props.onCancel}>
-                取消登录
-              </Button>
-            ) : (
-              // 尝试已结束：结果行只展示这一次，登录入口必须立即恢复，否则
-              // 取消后卡片停留在「登录已取消」状态。
-              <Button
-                variant="primary"
-                disabled={auth.attempt?.running === true}
-                onClick={() => props.onBegin(props.provider)}
-              >
-                {authorized ? '重新登录' : '再次登录'}
-              </Button>
-            )}
+            <Button variant="outline" onClick={props.onCancel}>
+              取消登录
+            </Button>
           </div>
         </div>
       ) : (

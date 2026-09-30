@@ -298,7 +298,7 @@ describe('订阅登录状态', () => {
       type AuthDirectoryOf = PiAiOperations['authDirectory']
       const authEvents = vi.fn<AuthEvents>(async () => ({
         events: [
-          { seq: 1, kind: 'notice', message: '打开授权页' },
+          { seq: 1, kind: 'notice', message: '打开授权页', url: 'https://auth.example/device' },
           { seq: 2, kind: 'prompt', promptId: 2, prompt: { kind: 'text', message: '粘贴授权码' } },
         ],
         running: true,
@@ -324,7 +324,6 @@ describe('订阅登录状态', () => {
           'prompt',
         ]),
       )
-      let attempt = store.getSnapshot().auth.attempt
 
       // 应答后下一次轮询拿到 outcome（authorized），结束并刷新记录状态。
       authEvents.mockResolvedValueOnce({
@@ -336,9 +335,8 @@ describe('订阅登录状态', () => {
       })
       await store.answerSignIn('paste-code')
       await vi.advanceTimersByTimeAsync(700)
-      attempt = store.getSnapshot().auth.attempt
-      expect(attempt?.running).toBe(false)
-      expect(attempt?.events.at(-1)).toMatchObject({ kind: 'outcome', status: 'authorized' })
+      // 授权完成后不能在面板保留历史授权链接及「登录成功」结果块。
+      expect(store.getSnapshot().auth.attempt).toBeNull()
       expect(store.getSnapshot().notice).toBe('账号登录成功')
       expect(store.getSnapshot().auth.records['openai-codex']).toEqual({ configured: true, kind: 'grant' })
       // 结束后循环退出：不再发起新轮询。
@@ -370,7 +368,7 @@ describe('订阅登录状态', () => {
         running: false,
       })
       await vi.advanceTimersByTimeAsync(700)
-      expect(store.getSnapshot().auth.attempt?.running).toBe(false)
+      expect(store.getSnapshot().auth.attempt).toBeNull()
       expect(store.getSnapshot().error).toBe('令牌交换失败')
     } finally {
       vi.useRealTimers()
@@ -400,7 +398,7 @@ describe('订阅登录状态', () => {
     stop()
   })
 
-  it('已结束的尝试在下次刷新时丢弃，不沉淀成持久 UI 态', async () => {
+  it('取消的尝试立即清理，刷新后也不恢复旧过程', async () => {
     vi.useFakeTimers()
     try {
       const scope = scopeStub({ user: {}, value: {} })
@@ -413,8 +411,8 @@ describe('订阅登录状态', () => {
       await store.refresh()
       await store.beginSignIn('openai-codex')
       await vi.advanceTimersByTimeAsync(700)
-      expect(store.getSnapshot().auth.attempt?.running).toBe(false)
-      // 刷新（Host 也不再报告进行中尝试）后结果展示清空。
+      expect(store.getSnapshot().auth.attempt).toBeNull()
+      // 刷新（Host 也不再报告进行中尝试）后不会恢复旧过程。
       await store.refresh()
       expect(store.getSnapshot().auth.attempt).toBeNull()
     } finally {
