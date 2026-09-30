@@ -1,5 +1,6 @@
 import type { ForwardHandle, SshExec } from './ssh'
 import { SshFailure, shQuote } from './ssh'
+import { createHash } from 'node:crypto'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
@@ -26,6 +27,7 @@ import {
   isRemoteSelf,
   mcpSignature,
   pluginStatus,
+  promptStatus,
   skillStatus,
   type ConnOp,
   type ConnRow,
@@ -35,6 +37,7 @@ import {
   type RemoteInventoryResponse,
   type RemoteMcpFact,
   type RemotePluginFact,
+  type RemotePromptFact,
   type RemoteSkillFact,
   type SaveRequest,
   type SshErrorKind,
@@ -105,6 +108,8 @@ export interface EngineDeps {
   scanSkills(): Promise<
     { key: 'user-dsh' | 'user-agents'; path: string; rows: { name: string; digest: string | null }[] }[]
   >
+  /** 本机全局提示词（AGENTS.md）原文；文件不存在为 null。 */
+  readGlobalPrompt(): Promise<string | null>
   /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 连接部署段直接失败（禁止回退安装 latest）。 */
   localDshVersion: string | null
   /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
@@ -147,7 +152,7 @@ function freshRuntime(): ConnRuntime {
     op: null,
     error: null,
     running: null,
-    lastSync: { skills: null, mcp: null, plugins: null },
+    lastSync: { skills: null, mcp: null, plugins: null, prompts: null },
     forward: null,
   }
 }
@@ -175,7 +180,7 @@ export class RemoteEngine {
   }
 
   private manifestOf(id: string): SyncManifest {
-    return this.store.manifest[id] ?? { skills: {}, mcp: [], plugins: [] }
+    return this.store.manifest[id] ?? { skills: {}, mcp: [], plugins: [], prompts: false }
   }
 
   private async persist(): Promise<void> {
@@ -204,6 +209,7 @@ export class RemoteEngine {
         skills: runtime.lastSync.skills === null ? null : { ...runtime.lastSync.skills },
         mcp: runtime.lastSync.mcp === null ? null : { ...runtime.lastSync.mcp },
         plugins: runtime.lastSync.plugins === null ? null : { ...runtime.lastSync.plugins },
+        prompts: runtime.lastSync.prompts === null ? null : { ...runtime.lastSync.prompts },
       },
     }
   }
@@ -688,7 +694,24 @@ export class RemoteEngine {
     }))
   }
 
-  /** POST /remote-inventory：同步弹窗的徽标判定源（远端三类条目的事实）。
+  /** 远端全局提示词事实：单文件 sha256（sha256sum / shasum 择一，文件缺失打
+   *  __ABSENT__ 哨兵、hasher 缺失打 __NO_HASHER__）。命令失败回 null——按
+   *  「无法比对」处理，同步侧保守推送。仅需 ssh 可达（同 skills / MCP）。 */
+  private async remotePromptFact(alias: string): Promise<RemotePromptFact | null> {
+    const file = '~/.dsh/AGENTS.md'
+    const out = await this.deps.exec(
+      alias,
+      `f=${file}; if [ ! -f "$f" ]; then echo __ABSENT__; elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$f"; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$f"; else echo __NO_HASHER__; fi`,
+    )
+    if (out.code !== 0) return null
+    const text = out.stdout.trim()
+    if (text === '__NO_HASHER__') return null
+    if (text === '__ABSENT__') return { exists: false, digest: null }
+    const hash = /^([0-9a-f]{64})\b/.exec(text)
+    return hash === null ? null : { exists: true, digest: hash[1] }
+  }
+
+  /** POST /remote-inventory：同步弹窗的徽标判定源（远端四类条目的事实）。
    *  读侧任一环节失败按该类 null 降级——弹窗按「无法比对」渲染但不阻断同步
    *  （只有新增/覆盖，无删除风险）；ssh 连接级失败仍抛（路由转 5xx，弹窗提示）。 */
   async remoteInventory(id: string): Promise<RemoteInventoryResponse> {
@@ -720,11 +743,12 @@ export class RemoteEngine {
       alias,
       pluginRows.map((row) => row.name),
     )
-    return { skills, mcp, plugins }
+    const prompts = await this.remotePromptFact(alias)
+    return { skills, mcp, plugins, prompts }
   }
 
-  /** 触发同步：names 为勾选项（勾选 = 安装/覆盖，一致项引擎侧跳过；
-   *  未勾选 = 不动——只新增/覆盖，永不删除远端内容）。 */
+  /** 触发同步：names 为勾选项（勾选 = 安装/覆盖，指纹一致项引擎侧跳过；
+   *  未勾选 = 不动——同步只往远端新增/覆盖，永不删除远端内容）。 */
   startSync(
     id: string,
     kind: SyncKind,
@@ -732,7 +756,14 @@ export class RemoteEngine {
     registryInstall: RegistryPluginInstall = 'remote',
   ): void {
     const restPhase = this.runtimeOf(id).running !== null ? 'running' : 'idle'
-    const kindOfOp = kind === 'skills' ? 'sync-skills' : kind === 'mcp' ? 'sync-mcp' : 'sync-plugins'
+    const kindOfOp =
+      kind === 'skills'
+        ? 'sync-skills'
+        : kind === 'mcp'
+          ? 'sync-mcp'
+          : kind === 'plugins'
+            ? 'sync-plugins'
+            : 'sync-prompts'
     this.beginOp(id, { kind: kindOfOp, step: kind === 'skills' ? 'scan' : 'read-local' }, restPhase)
     const selected = new Set(names)
     void (async () => {
@@ -740,7 +771,8 @@ export class RemoteEngine {
       try {
         if (kind === 'skills') await this.doSkillsSync(id, selected)
         else if (kind === 'mcp') await this.doMcpSync(id, selected)
-        else await this.doPluginSync(id, selected, registryInstall)
+        else if (kind === 'plugins') await this.doPluginSync(id, selected, registryInstall)
+        else await this.doPromptSync(id, selected)
         this.settle(id, this.restPhase(runtime))
       } catch (error) {
         this.fail(id, error)
@@ -748,7 +780,7 @@ export class RemoteEngine {
     })()
   }
 
-  /** skills 同步：勾选且指纹不同的按根打包推送；一致项跳过（不重传）；
+  /** Skills 同步：勾选且指纹不同的按根打包推送；一致项跳过（不重传）；
    *  未勾选不动——同步只往远端新增/覆盖，不删除远端内容。 */
   private async doSkillsSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
@@ -917,6 +949,43 @@ export class RemoteEngine {
     this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
     await this.persist()
     runtime.lastSync.plugins = { at: this.deps.now(), installed, skipped }
+  }
+
+  /** 提示词同步：勾选且内容指纹不同才推送（tmp+mv 原子落盘远端 AGENTS.md）；
+   *  一致跳过，未勾选不动。远端实例在下一次尚未开始的模型步骤读取新内容。 */
+  private async doPromptSync(id: string, selected: ReadonlySet<string>): Promise<void> {
+    const runtime = this.runtimeOf(id)
+    const connection = this.connectionOf(id)
+    const content = await this.deps.readGlobalPrompt()
+    if (content === null) {
+      throw new SshFailure('unknown', '本机没有全局提示词文件（AGENTS.md），无可同步')
+    }
+    let pushed = false
+    let skipped = false
+    if (selected.size > 0) {
+      const digest = createHash('sha256').update(content, 'utf8').digest('hex')
+      const status = promptStatus(digest, await this.remotePromptFact(connection.sshAlias))
+      if (status === 'same') skipped = true
+      else {
+        const target = '~/.dsh/AGENTS.md'
+        this.step(id, 'push', 'AGENTS.md')
+        const write = await this.deps.exec(
+          connection.sshAlias,
+          `mkdir -p ~/.dsh && cat > ${target}.tmp-dsh-remote && mv ${target}.tmp-dsh-remote ${target}`,
+          { stdin: content },
+        )
+        if (write.code !== 0) {
+          throw new SshFailure(
+            'remote-cmd-failed',
+            `远端提示词写入失败：${write.stderr.trim().slice(0, 200)}`,
+          )
+        }
+        pushed = true
+      }
+    }
+    this.store.manifest[id] = { ...this.manifestOf(id), prompts: pushed }
+    await this.persist()
+    runtime.lastSync.prompts = { at: this.deps.now(), pushed, skipped }
   }
 
   /** 打包本机包根 → 推送 payload → 远端 add tgz → 清同包旧指纹文件（本地路径

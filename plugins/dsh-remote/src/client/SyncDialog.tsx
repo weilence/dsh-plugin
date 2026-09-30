@@ -5,6 +5,7 @@ import { errMsg } from '@dsh-plugins/shared'
 import {
   mcpStatus,
   pluginStatus,
+  promptStatus,
   skillStatus,
   type ConnRow,
   type ItemStatus,
@@ -17,12 +18,18 @@ import { remoteApi } from './api'
 import type { RemoteStore } from './store'
 import local from './RemoteForm.module.css'
 
-const KIND_TITLES: Record<SyncKind, string> = { skills: 'Skills', mcp: 'MCP', plugins: '插件' }
-// 与卡片同步下拉菜单的三个入口同词，避免「同步 skills」点开变「同步Skills」
+const KIND_TITLES: Record<SyncKind, string> = {
+  skills: 'Skills',
+  mcp: 'MCP',
+  plugins: '插件',
+  prompts: '提示词',
+}
+// 与卡片同步下拉菜单的四个入口同词，与卡片同步下拉菜单的四个入口同词，避免点开后措辞跳变
 const KIND_ACTION_LABELS: Record<SyncKind, string> = {
-  skills: '同步 skills',
+  skills: '同步 Skills',
   mcp: '同步 MCP',
   plugins: '同步插件',
+  prompts: '同步提示词',
 }
 
 const KIND_DESCRIPTIONS: Record<SyncKind, string> = {
@@ -31,6 +38,8 @@ const KIND_DESCRIPTIONS: Record<SyncKind, string> = {
   mcp: '列表为本机两层 patch 的 MCP 声明：勾选项写入远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
   plugins:
     '列表为本机已装插件：勾选项安装 / 升级到远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
+  prompts:
+    '全局提示词为单文件（用户级 AGENTS.md，与「全局提示词」面板管理同一文件）：勾选即推送到远端（内容一致自动跳过）；未勾选不动，不会删除远端文件。远端实例在下一次尚未开始的模型步骤读取新内容。',
 }
 
 /** same 不占状态标签位（它由锁定勾选 + 汇总行表达），其余三态一类一套措辞。 */
@@ -39,12 +48,15 @@ const STATUS_LABELS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, string
   mcp: { diff: '配置不同', absent: '远端没有', unknown: '无法比对' },
   // 插件的 diff 按传输形态比指纹或版本（见 rowsOf），措辞取对两种比对都成立的说法
   plugins: { diff: '与远端不同', absent: '远端未激活', unknown: '无法比对' },
+  prompts: { diff: '内容不同', absent: '远端没有', unknown: '无法比对' },
 }
 
 interface DraftState {
   skillNames: Set<string>
   mcpServerNames: Set<string>
   pluginNames: Set<string>
+  /** 提示词是单文件：集合只含 AGENTS.md 一个键。 */
+  promptNames: Set<string>
   registryPluginInstall: RegistryPluginInstall
 }
 
@@ -54,6 +66,7 @@ function initialDraft(): DraftState {
     skillNames: new Set(),
     mcpServerNames: new Set(),
     pluginNames: new Set(),
+    promptNames: new Set(),
     registryPluginInstall: 'remote',
   }
 }
@@ -78,6 +91,24 @@ function rowsOf(
   inventory: RemoteInventoryResponse | null,
   registryInstall: RegistryPluginInstall,
 ): SyncRow[] {
+  if (kind === 'prompts') {
+    const prompt = localRows.promptRow
+    // 本机没有 AGENTS.md：空列表，弹窗空态说明（无可同步不进引擎）
+    if (prompt.digest === null) return []
+    const status = promptStatus(prompt.digest, inventory?.prompts ?? null)
+    return [
+      {
+        key: 'AGENTS.md',
+        status,
+        item: {
+          key: 'AGENTS.md',
+          title: 'AGENTS.md',
+          titleMeta: statusLabel(kind, status),
+          lines: [prompt.path],
+        },
+      },
+    ]
+  }
   if (kind === 'skills') {
     return localRows.skillRows.map((skill) => {
       const facts = inventory?.skills[skill.root]
@@ -214,7 +245,13 @@ export function SyncDialog(props: {
 
   const statusOfKey = useMemo(() => new Map(rows.map((entry) => [entry.key, entry.status])), [rows])
   const pickedOfKind =
-    kind === 'skills' ? draft.skillNames : kind === 'mcp' ? draft.mcpServerNames : draft.pluginNames
+    kind === 'skills'
+      ? draft.skillNames
+      : kind === 'mcp'
+        ? draft.mcpServerNames
+        : kind === 'plugins'
+          ? draft.pluginNames
+          : draft.promptNames
 
   // 判定就绪后把一致项锁定进勾选集（恒在提交名单——引擎对其无操作）；
   // 非 same 项保持初始不勾选，由用户逐项决定。
@@ -228,7 +265,9 @@ export function SyncDialog(props: {
         ? { ...previous, skillNames: merged }
         : kind === 'mcp'
           ? { ...previous, mcpServerNames: merged }
-          : { ...previous, pluginNames: merged }
+          : kind === 'plugins'
+            ? { ...previous, pluginNames: merged }
+            : { ...previous, promptNames: merged }
     })
   }, [rows, kind])
 
@@ -243,7 +282,9 @@ export function SyncDialog(props: {
         ? { skillNames: next }
         : kind === 'mcp'
           ? { mcpServerNames: next }
-          : { pluginNames: next },
+          : kind === 'plugins'
+            ? { pluginNames: next }
+            : { promptNames: next },
     )
   }
 
@@ -331,7 +372,9 @@ export function SyncDialog(props: {
                 ? '本机两个用户级根（~/.dsh/skills、~/.agents/skills）没有可发现的技能。'
                 : kind === 'mcp'
                   ? '本机没有可同步的 MCP 声明。'
-                  : '本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。'}
+                  : kind === 'plugins'
+                    ? '本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。'
+                    : '本机没有全局提示词文件（AGENTS.md），无可同步——在「全局提示词」面板创建后再来。'}
             </p>
           ) : (
             <>
@@ -359,5 +402,11 @@ export function SyncDialog(props: {
 
 /** 当前类别在草稿里的勾选集（锁定合并用，读当前态而非渲染缓存）。 */
 function pickedSetOf(kind: SyncKind, draft: DraftState): Set<string> {
-  return kind === 'skills' ? draft.skillNames : kind === 'mcp' ? draft.mcpServerNames : draft.pluginNames
+  return kind === 'skills'
+    ? draft.skillNames
+    : kind === 'mcp'
+      ? draft.mcpServerNames
+      : kind === 'plugins'
+        ? draft.pluginNames
+        : draft.promptNames
 }

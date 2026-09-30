@@ -14,10 +14,12 @@ import { errMsg } from '@dsh-plugins/shared'
 import {
   PACKAGE_PACK_EXCLUDED,
   composeLocalRows,
+  globalPromptFile,
   packageTreeDigest,
   payloadFileName,
   profileContextOf,
   readLocalLayers,
+  scanGlobalPrompt,
   scanSkillRows,
   skillsRoots,
 } from './localenv'
@@ -210,6 +212,14 @@ function makeEngine(ctx: Context): RemoteEngine {
       }
       return roots
     },
+    readGlobalPrompt: async () => {
+      const home = profileContextOf(ctx)?.home ?? dshHomePath()
+      try {
+        return await readFile(globalPromptFile(home), 'utf8')
+      } catch {
+        return null
+      }
+    },
     localDshVersion,
     localPluginVersion: localPluginVersion(),
     packPlugin,
@@ -313,17 +323,24 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
                 skillRows: [],
                 mcpRows: [],
                 pluginRows: [],
+                promptRow: { path: globalPromptFile(dshHomePath()), digest: null },
                 available: false,
               }
               writeJson(res, 200, response as unknown as Record<string, unknown>)
               return
             }
             const { mcpRows, pluginRows } = await composeLocalRows(await readLocalLayers(profile))
-            // skills 根是 DSH 用户级全局（非 profile 内），清单与 profile 无关
+            // skills 根与全局提示词是 DSH 用户级全局（非 profile 内），清单与 profile 无关
             const skillRows: LocalSkillRow[] = []
             for (const root of skillsRoots()) skillRows.push(...(await scanSkillRows(root)))
             skillRows.sort((left, right) => left.name.localeCompare(right.name))
-            const response: LocalRowsResponse = { skillRows, mcpRows, pluginRows, available: true }
+            const response: LocalRowsResponse = {
+              skillRows,
+              mcpRows,
+              pluginRows,
+              promptRow: await scanGlobalPrompt(profile.home),
+              available: true,
+            }
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             writeJson(res, 500, { error: errMsg(error) })
@@ -448,8 +465,13 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
             if (!guard(req, res, 'POST')) return
             const body = await readJsonBody(req)
             const request = body as unknown as SyncRequest
-            if (request.kind !== 'skills' && request.kind !== 'mcp' && request.kind !== 'plugins') {
-              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins')
+            if (
+              request.kind !== 'skills' &&
+              request.kind !== 'mcp' &&
+              request.kind !== 'plugins' &&
+              request.kind !== 'prompts'
+            ) {
+              throw new HttpError(400, 'kind 必须是 skills / mcp / plugins / prompts')
             }
             if (!Array.isArray(request.names) || request.names.some((name) => typeof name !== 'string')) {
               throw new HttpError(400, 'names 必须是字符串数组（勾选清单随请求直传）')

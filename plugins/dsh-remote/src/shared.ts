@@ -55,7 +55,7 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。 */
 export interface ConnOp {
-  kind: 'test' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins'
+  kind: 'test' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
   /** 当前步骤（连接的部署段 probe-node/install-dsh…、启动段 start/poll/forward…）。 */
   step?: string
   /** 步骤的补充说明（版本号、插件名等）。 */
@@ -84,6 +84,7 @@ export interface ConnState {
     skills: { at: string; pushed: number; skipped: number } | null
     mcp: { at: string; installed: string[]; skipped: string[] } | null
     plugins: { at: string; installed: string[]; skipped: string[] } | null
+    prompts: { at: string; pushed: boolean; skipped: boolean } | null
   }
 }
 
@@ -135,6 +136,20 @@ export interface RemotePluginFact {
 export function skillStatus(local: string | null, remote: RemoteSkillFact | undefined): ItemStatus {
   if (remote === undefined) return 'absent'
   if (local === null || remote.digest === null) return 'unknown'
+  return local === remote.digest ? 'same' : 'diff'
+}
+
+/** 全局提示词（AGENTS.md）的远端事实；null = 读取失败（无法比对，同步侧保守推送）。 */
+export interface RemotePromptFact {
+  exists: boolean
+  /** 存在时的内容摘要；读不到（权限等）为 null。 */
+  digest: string | null
+}
+
+export function promptStatus(local: string, remote: RemotePromptFact | null): ItemStatus {
+  if (remote === null) return 'unknown'
+  if (!remote.exists) return 'absent'
+  if (remote.digest === null) return 'unknown'
   return local === remote.digest ? 'same' : 'diff'
 }
 
@@ -205,11 +220,20 @@ export interface LocalPluginRow {
   digest: string | null
 }
 
+/** 本机全局提示词行（用户级 AGENTS.md——dsh-prompts 插件管理的同一文件）。 */
+export interface LocalPromptRow {
+  /** 本机文件绝对路径。 */
+  path: string
+  /** 内容摘要；文件不存在为 null（无可同步）。 */
+  digest: string | null
+}
+
 /** GET /local-rows 的响应。 */
 export interface LocalRowsResponse {
   skillRows: LocalSkillRow[]
   mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
+  promptRow: LocalPromptRow
   /** profileContext 不可用（非 profile 启动）时为 false，清单为空。 */
   available: boolean
 }
@@ -224,6 +248,8 @@ export interface RemoteInventoryResponse {
   mcp: RemoteMcpFact[] | null
   /** 远端 bundles 激活清单及各自已装版本与包树内容指纹。 */
   plugins: RemotePluginFact[] | null
+  /** 远端全局提示词（AGENTS.md）事实；null = 读取失败。 */
+  prompts: RemotePromptFact | null
 }
 
 export interface SaveRequest {
@@ -250,14 +276,14 @@ export interface OpRequest {
   id: string
 }
 
-export type SyncKind = 'skills' | 'mcp' | 'plugins'
+export type SyncKind = 'skills' | 'mcp' | 'plugins' | 'prompts'
 
 /** POST /sync：勾选清单随请求直传（勾选 = 安装/覆盖，指纹一致项跳过；
  *  未勾选 = 不动——同步只往远端新增/覆盖，永不删除远端内容）。 */
 export interface SyncRequest {
   id: string
   kind: SyncKind
-  /** 勾选项（skills 技能名 / MCP serverName / 插件包名）。 */
+  /** 勾选项（skills 技能名 / MCP serverName / 插件包名 / prompts 恒为 AGENTS.md）。 */
   names: string[]
   /** 非本地插件安装方式（仅 plugins 类别；缺省 'remote'）。 */
   registryPluginInstall?: RegistryPluginInstall

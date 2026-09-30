@@ -69,7 +69,12 @@ describe('store 持久化', () => {
       version: 1,
       connections: [connection],
       manifest: {
-        'dev-box': { skills: { 'user-dsh': ['a'] }, mcp: ['mcp-a'], plugins: ['@weilence/dsh-mcp'] },
+        'dev-box': {
+          skills: { 'user-dsh': ['a'] },
+          mcp: ['mcp-a'],
+          plugins: ['@weilence/dsh-mcp'],
+          prompts: false,
+        },
       },
     })
     const store = await readStore(home)
@@ -78,6 +83,7 @@ describe('store 持久化', () => {
       skills: { 'user-dsh': ['a'] },
       mcp: ['mcp-a'],
       plugins: ['@weilence/dsh-mcp'],
+      prompts: false,
     })
   })
 
@@ -116,6 +122,31 @@ describe('store 持久化', () => {
       updatedAt: NOW,
       // 旧 sync 字段被剥离：勾选已随 POST /sync 直传，不在连接上持久化
     })
+  })
+
+  it('manifest 的 prompts 字段：旧库缺省读入归一 false，形状不对整条丢弃', async () => {
+    await writeFile(
+      join(home, 'dsh-remote.json'),
+      JSON.stringify({
+        connections: [],
+        manifest: {
+          good: { skills: {}, mcp: [], plugins: [], prompts: true },
+          legacy: { skills: { 'user-dsh': ['a'] }, mcp: [], plugins: [] },
+          broken: { skills: {}, mcp: [], plugins: [], prompts: 'yes' },
+        },
+      }),
+      'utf8',
+    )
+    const store = await readStore(home)
+    expect(store.manifest.good?.prompts).toBe(true)
+    // 提示词同步加入前的旧库：读入补默认（manifest 只是记录，不驱动判定）
+    expect(store.manifest.legacy).toEqual({
+      skills: { 'user-dsh': ['a'] },
+      mcp: [],
+      plugins: [],
+      prompts: false,
+    })
+    expect(store.manifest.broken).toBeUndefined()
   })
 
   it('落盘是 JSON + 结尾换行', async () => {

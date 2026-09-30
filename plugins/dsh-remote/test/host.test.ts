@@ -2,6 +2,7 @@
 // method）、state / local-rows 读取（临时目录两层 patch）、save 校验、
 // 操作触发的 404/409/400 语义。
 
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -143,6 +144,7 @@ async function makeHarness(): Promise<Harness> {
     localPluginVersion: '0.1.0',
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
     packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
+    readGlobalPrompt: async () => null,
     homeDir: root,
     now: () => '2027-01-01T00:00:00.000Z',
     delay: async () => {},
@@ -187,7 +189,9 @@ describe('dsh-remote 路由', () => {
     expect(response.body.connections).toEqual([])
   })
 
-  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位', async () => {
+  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位 + 全局提示词行', async () => {
+    const promptText = '# 全局指令\n'
+    await writeFile(join(harness.homeDir, 'AGENTS.md'), promptText, 'utf8')
     const response = await harness.request('GET', '/dsh-remote/local-rows')
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ available: true })
@@ -214,6 +218,13 @@ describe('dsh-remote 路由', () => {
     // bundles 补充行：无实体 → registry 形态、version 与指纹均 null
     expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null, digest: null })
     expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
+    // 全局提示词行：profileContext.home 下的 AGENTS.md，摘要为内容 sha256
+    expect(response.body).toMatchObject({
+      promptRow: {
+        path: join(harness.homeDir, 'AGENTS.md'),
+        digest: createHash('sha256').update(promptText).digest('hex'),
+      },
+    })
   })
 
   it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {
@@ -242,11 +253,12 @@ describe('dsh-remote 路由', () => {
     const inventory = await harness.request('POST', '/dsh-remote/remote-inventory', { id: 'dev-box' })
     expect(inventory.status).toBe(200)
     // 假 exec 恒回空输出：skills 两根空清单、patch 空 → mcp 空、profile package.json
-    // 读不到 → plugins null（无法比对降级，不阻断同步）
+    // 读不到 → plugins null、提示词摘要管线空输出 → prompts null（无法比对降级，不阻断同步）
     expect(inventory.body).toEqual({
       skills: { 'user-dsh': [], 'user-agents': [] },
       mcp: [],
       plugins: null,
+      prompts: null,
     })
     expect((await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'other' })).status).toBe(
       400,

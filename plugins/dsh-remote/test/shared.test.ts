@@ -9,8 +9,10 @@ import {
   mcpSignature,
   mcpStatus,
   pluginStatus,
+  promptStatus,
   skillStatus,
   type RemoteMcpFact,
+  type RemotePromptFact,
   type RemoteSkillFact,
 } from '../src/shared'
 
@@ -57,5 +59,15 @@ describe('pluginStatus', () => {
     expect(pluginStatus('1.0.0', '2.0.0')).toBe('diff')
     expect(pluginStatus(null, '1.0.0')).toBe('unknown')
     expect(pluginStatus('1.0.0', null)).toBe('unknown')
+  })
+})
+
+describe('promptStatus', () => {
+  it('四态：absent（远端无文件）/ same / diff / unknown（事实或摘要读不到）', () => {
+    expect(promptStatus('d', null)).toBe('unknown')
+    expect(promptStatus('d', { exists: false, digest: null } satisfies RemotePromptFact)).toBe('absent')
+    expect(promptStatus('d', { exists: true, digest: 'd' } satisfies RemotePromptFact)).toBe('same')
+    expect(promptStatus('d', { exists: true, digest: 'e' } satisfies RemotePromptFact)).toBe('diff')
+    expect(promptStatus('d', { exists: true, digest: null } satisfies RemotePromptFact)).toBe('unknown')
   })
 })

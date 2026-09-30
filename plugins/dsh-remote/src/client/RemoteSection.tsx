@@ -39,9 +39,10 @@ const OP_LABELS: Record<string, string> = {
   test: '测试连接',
   connect: '连接',
   disconnect: '断开',
-  'sync-skills': '同步 skills',
+  'sync-skills': '同步 Skills',
   'sync-mcp': '同步 MCP',
   'sync-plugins': '同步插件',
+  'sync-prompts': '同步提示词',
 }
 
 export function RemoteSection(props: RemotePanelEnv & SettingsSectionOwnerProps) {
@@ -82,7 +83,7 @@ function RemotePanel(props: SettingsSectionOwnerProps & { env: RemotePanelEnv })
       ) : null}
       {env !== undefined && env.ssh && !env.tar ? (
         <div className={styles.notice}>
-          本机未找到 tar：skills 同步不可用（Windows 10+ 自带 bsdtar，请确认其在 PATH 上）。
+          本机未找到 tar：Skills 同步不可用（Windows 10+ 自带 bsdtar，请确认其在 PATH 上）。
         </div>
       ) : null}
       {state.error !== null ? (
@@ -235,7 +236,7 @@ function connectionCard(
     <div>
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
-          上次 skills 同步：推送 {row.state.lastSync.skills.pushed}
+          上次 Skills 同步：推送 {row.state.lastSync.skills.pushed}
           {row.state.lastSync.skills.skipped > 0
             ? ` · 跳过 ${row.state.lastSync.skills.skipped}（已一致）`
             : ''}
@@ -258,6 +259,17 @@ function connectionCard(
             ? ` · 跳过 ${row.state.lastSync.plugins.skipped.length}（已一致）`
             : ''}
           （{new Date(row.state.lastSync.plugins.at).toLocaleString()}）
+        </p>
+      ) : null}
+      {row.state.lastSync.prompts !== null ? (
+        <p className={styles.rowWhen}>
+          上次提示词同步：
+          {row.state.lastSync.prompts.pushed
+            ? '已推送'
+            : row.state.lastSync.prompts.skipped
+              ? '内容一致（跳过）'
+              : '未勾选（未变更）'}
+          （{new Date(row.state.lastSync.prompts.at).toLocaleString()}）
         </p>
       ) : null}
       <RemoteForm
@@ -293,18 +305,19 @@ function connectionCard(
     actions: (
       <div className={local.actionCluster}>
         {actions}
-        {/* skills / MCP 同步仅需 ssh 可达，全阶段常驻；插件安装依赖连接部署出的
+        {/* skills / MCP / 提示词同步仅需 ssh 可达，全阶段常驻；插件安装依赖连接部署出的
             远端 dsh，未连接时引导先连接 */}
         <MenuButton
           label="同步 ▾"
           disabled={busy || opBusy}
           items={[
-            { id: 'skills', label: '同步 skills' },
+            { id: 'skills', label: '同步 Skills' },
             { id: 'mcp', label: '同步 MCP' },
             { id: 'plugins', label: '同步插件' },
+            { id: 'prompts', label: '同步提示词' },
           ]}
           onSelect={(id) => {
-            if (id === 'skills' || id === 'mcp' || id === 'plugins') {
+            if (id === 'skills' || id === 'mcp' || id === 'plugins' || id === 'prompts') {
               if (id === 'plugins' && row.state.running === null) store.askConnect(row)
               else store.askSync({ id: row.id, kind: id })
             }

@@ -5,6 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -55,6 +56,8 @@ interface FakeOptions {
     path: string
     rows: { name: string; digest: string | null }[]
   }[]
+  /** 本机全局提示词（AGENTS.md）内容；缺省 null（本机没有该文件）。 */
+  globalPrompt?: string | null
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
   localDshVersion?: string | null
@@ -110,6 +113,7 @@ function makeDeps(options: FakeOptions = {}) {
       return layers
     },
     scanSkills: async () => options.skills ?? [],
+    readGlobalPrompt: async () => options.globalPrompt ?? null,
     localDshVersion: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
     localPluginVersion: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
     async packPlugin() {
@@ -955,7 +959,58 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, skipped: 1 })
   })
 
-  it('remoteInventory：三类远端事实（skills 摘要 / MCP 签名 / 插件 bundles+版本）', async () => {
+  it('sync prompts：远端缺文件推送（tmp+mv）、内容一致跳过、未勾选零动作', async () => {
+    const content = '# 全局指令\n- 要点\n'
+    let remotePrompt = '__ABSENT__\n'
+    makeEngine({
+      globalPrompt: content,
+      respond: (command) => {
+        if (command.startsWith('f=~/.dsh/AGENTS.md')) {
+          return { code: 0, stdout: remotePrompt, stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+
+    // 远端无文件 → 推送（原子写：cat > tmp && mv）
+    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const write = fake.calls.find((call) => call.command.includes('cat > ~/.dsh/AGENTS.md.tmp-dsh-remote'))
+    expect(write).toBeDefined()
+    expect(write?.stdin).toBe(content)
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true, skipped: false })
+    expect((await readStore(home)).manifest['dev-box'].prompts).toBe(true)
+
+    // 内容一致（远端摘要 = 本机内容 sha256）→ 整次不写盘
+    remotePrompt = `${createHash('sha256').update(content, 'utf8').digest('hex')}  /home/u/.dsh/AGENTS.md\n`
+    fake.calls.length = 0
+    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/AGENTS.md'))).toBe(false)
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: false, skipped: true })
+
+    // 未勾选 = 不动：连远端事实都不取
+    fake.calls.length = 0
+    engine.startSync('dev-box', 'prompts', [])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(fake.calls.length).toBe(0)
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({
+      pushed: false,
+      skipped: false,
+    })
+  })
+
+  it('sync prompts：本机没有 AGENTS.md → 显式失败', async () => {
+    makeEngine({ globalPrompt: null })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box').phase).toBe('error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('本机没有全局提示词')
+  })
+
+  it('remoteInventory：四类远端事实（skills 摘要 / MCP 签名 / 插件 bundles+版本 / 提示词摘要）', async () => {
     makeEngine({
       respond: (command) => {
         if (command.startsWith('if cd ~/.dsh/skills'))
@@ -969,6 +1024,9 @@ describe('RemoteEngine', () => {
             stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-remote"]}}}\n',
             stderr: '',
           }
+        }
+        if (command.startsWith('f=~/.dsh/AGENTS.md')) {
+          return { code: 0, stdout: `${hex('d')}  /home/u/.dsh/AGENTS.md\n`, stderr: '' }
         }
         return undefined
       },
@@ -1000,6 +1058,7 @@ describe('RemoteEngine', () => {
         { name: '@deepseek-ai/dsh-base', version: null, digest: null },
         { name: '@weilence/dsh-remote', version: null, digest: null },
       ],
+      prompts: { exists: true, digest: hex('d') },
     })
   })
 

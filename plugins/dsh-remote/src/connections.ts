@@ -14,6 +14,8 @@ export interface SyncManifest {
   mcp: string[]
   /** 已在远端安装的插件包名。 */
   plugins: string[]
+  /** 最近一次提示词同步是否推送了 AGENTS.md。 */
+  prompts: boolean
 }
 
 export interface StoreFile {
@@ -53,7 +55,7 @@ export async function readStore(homeDir: string): Promise<StoreFile> {
     const manifest: Record<string, SyncManifest> = {}
     if (typeof record.manifest === 'object' && record.manifest !== null) {
       for (const [id, value] of Object.entries(record.manifest as Record<string, unknown>)) {
-        if (isManifest(value)) manifest[id] = value
+        if (isManifest(value)) manifest[id] = { ...value, prompts: value.prompts === true }
       }
     }
     return { version: 1, connections, manifest }
@@ -97,7 +99,9 @@ function isManifest(value: unknown): value is SyncManifest {
     Array.isArray(record.mcp) &&
     record.mcp.every((id) => typeof id === 'string') &&
     Array.isArray(record.plugins) &&
-    record.plugins.every((name) => typeof name === 'string')
+    record.plugins.every((name) => typeof name === 'string') &&
+    // 提示词同步加入前的旧库无此字段：读入按 false 归一（manifest 只是记录）
+    (record.prompts === undefined || typeof record.prompts === 'boolean')
   )
 }
 

@@ -11,6 +11,7 @@ import {
   mcpSignature,
   type LocalMcpRow,
   type LocalPluginRow,
+  type LocalPromptRow,
   type LocalSkillRow,
 } from './shared'
 import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type PatchInsert } from './patchDoc'
@@ -27,6 +28,23 @@ export function skillsRoots(env: Record<string, string | undefined> = process.en
     { key: 'user-dsh', path: dshHomePath('skills') },
     { key: 'user-agents', path: resolve(env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'), 'skills') },
   ]
+}
+
+/** 用户级全局提示词文件（AGENTS.md）——dsh-prompts 插件管理的同一文件。
+ *  home 取 profileContext.home（$DSH_HOME）；dsh-agent-instructions 单独覆写
+ *  dshHome 时无法读到（宿主无公开接口），与 dsh-prompts 同一限制。 */
+export function globalPromptFile(home: string): string {
+  return join(home, 'AGENTS.md')
+}
+
+/** 扫描本机全局提示词行（弹窗展示与判等用）；文件不存在 digest 为 null。 */
+export async function scanGlobalPrompt(home: string): Promise<LocalPromptRow> {
+  const path = globalPromptFile(home)
+  try {
+    return { path, digest: await fileHash(path) }
+  } catch {
+    return { path, digest: null }
+  }
 }
 
 /** 官方发现深度的根扫描：顶层 `<name>/SKILL.md` 目录包与 `<name>.md` 单文件。 */
