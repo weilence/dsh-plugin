@@ -1,12 +1,13 @@
 # dsh-remote
 
-设置页「远程开发」插件，包名 `@weilence/dsh-remote`（无 scope 的包名 `dsh-remote` 在 npm 已被第三方包占用——远端安装因此不走 registry，见部署约定）：经 OpenSSH 别名管理远端机上的完整 dsh web 实例（连接（内含远端部署，即原独立的「部署」操作）/ 断开），并提供全部跨机同步能力（skills / MCP / 插件 / 全局提示词）——dsh-skills / dsh-mcp / dsh-prompts 保持纯本地管理插件、不感知远端。
+设置页「远程开发」插件，包名 `@weilence/dsh-remote`（无 scope 的包名 `dsh-remote` 在 npm 已被第三方包占用——远端安装因此不走 registry，见部署约定）：经 OpenSSH 别名管理远端机上的完整 dsh web 实例（连接（内含远端部署，即原独立的「部署」操作）/ 断开），并提供环境同步能力（skills / MCP / 插件 / 全局提示词）及 dsh-sessions 使用的已连接远端传输通道——dsh-skills / dsh-mcp / dsh-prompts 保持纯本地管理插件、不感知远端。
 
 ## 结构
 
 - `src/index.ts`：host half，九个 HTTP 路由（state / local-rows / remote-inventory / save / delete / test / connect / disconnect / sync）；`applyWithEngine` 是测试注入口；部署在本机侧的准备动作也在此接线（`localDshVersion` / `localPluginVersion` / `packPlugin` / `packPackage` 在 staging 目录组装 npm tarball 布局 + 系统 tar，文件名内容寻址（name-version-指纹8，`payloadFileName` 派生）/ `pushFile` 把 tgz 二进制经 ssh stdin 落盘）。
 - `src/engine.ts`：连接状态机（阶段 + 进行中操作 + running 事实）与全部操作流程（连接 = 部署段各步骤 + 实例启动轮询；三类同步 = 远端事实读取 + 逐条一致性判定 + 只对差异项新增/覆盖）；`beginOp` 同步抢占互斥锁，长操作 fire-and-forget，面板轮询 GET /state 跟踪。
 - `src/ssh.ts`：ssh 执行器（node:child_process 直接 spawn + 错误分类）、`bash -lc` 登录 shell 包装（npm 全局 bin 进 PATH）、tar-over-ssh 单通道、`ssh -N -L` 转发句柄。
+- `src/transport.ts`：复用唯一引擎注册 `ctx.remoteTransport`，只公开连接清单及会话预览 / 导入两条 POST；共享契约在 `@dsh-plugins/shared/remote`。每次请求经已连接隧道的启动 token 换取 authority 绑定 Cookie，接收路由仍须宿主认证与 `x-dsh-sessions` 标记；不持久化 Cookie、不跟随跳转，连接变化或提交结果不明时要求重新预览。会话档案与面板由 dsh-sessions 管理。
 - `src/launch.ts`：远端启动行 `dsh web: <url>` 的宽松解析（端口 + token；格式无版本契约）。
 - `src/patchDoc.ts`：远端 patch 的注释保留合并（按行 id 整块 upsert / 移除；编辑能力比 dsh-mcp 的 patchFile 窄）。
 - `src/localenv.ts`：本机清单只读扫描（skills 两根扫描（含 `foldSkillDigest` 内容指纹折叠——远端 find|sha256 输出共用同一折叠）、两层 patch 的 MCP 行 fold（含配置签名）与插件行——插件行 = patch insert 行 ∪ 层 package.json `dsh.profile.bundles` 激活清单（link 安装的主要登记处，`@deepseek-ai/*` 平台包过滤）；行含安装形态与包定位：dependencies 的 link:/file: spec 为本地、spec 目标即包根；registry 行定位到层内 node_modules 实体；行还带包树内容指纹 `packageTreeDigest`（排除段 `PACKAGE_PACK_EXCLUDED` 与打包单一来源）与 `payloadFileName` 内容寻址命名；全局提示词行 `scanGlobalPrompt`（profileContext.home 下的 AGENTS.md，与 dsh-prompts 同一文件））——全部只读。

@@ -1,7 +1,7 @@
 {
-  "name": "@weilence/dsh-remote",
-  "version": "0.2.0",
-  "description": "Manage a remote DeepSeek Harness instance over OpenSSH and sync skills, MCP servers, plugins, and the global prompt.",
+  "name": "@weilence/dsh-sessions",
+  "version": "0.1.0",
+  "description": "Export, restore and transfer DeepSeek Harness session archives with attachments.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -20,7 +20,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-session-controller"
       ]
     }
   },
@@ -43,9 +44,9 @@
   "keywords": [
     "dsh",
     "dsh-plugin",
-    "remote-development",
-    "ssh",
-    "sync"
+    "sessions",
+    "backup",
+    "migration"
   ],
   "engines": {
     "node": ">=20",
@@ -58,42 +59,50 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/weilence/dsh-plugins.git",
-    "directory": "plugins/dsh-remote"
+    "directory": "plugins/dsh-sessions"
   },
   "bugs": {
     "url": "https://github.com/weilence/dsh-plugins/issues"
   },
-  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-remote#readme",
+  "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-sessions#readme",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-app-boot": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-host-webserver": ">=0.2.0-rc.2 <0.3.0"
+    "@deepseek-ai/dsh-session": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session-persistence": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session-log-export": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session-format-catalog": ">=0.2.0-rc.2 <0.3.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
-    "@deepseek-ai/dsh-app-boot": "catalog:",
+    "@deepseek-ai/dsh-attachment": "catalog:",
     "@deepseek-ai/dsh-client-connection": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
-    "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
+    "@deepseek-ai/dsh-session": "catalog:",
+    "@deepseek-ai/dsh-session-persistence": "catalog:",
+    "@deepseek-ai/dsh-session-format": "catalog:",
+    "@deepseek-ai/dsh-session-format-catalog": "catalog:",
+    "@deepseek-ai/dsh-session-log-export": "catalog:",
+    "@deepseek-ai/dsh-session-query": "catalog:",
+    "@deepseek-ai/dsh-workspace": "catalog:",
+    "@deepseek-ai/dsh-api-session-controller": "catalog:",
+    "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
     "@dsh-plugins/client-ui": "workspace:*",
     "@dsh-plugins/shared": "workspace:*",
     "@dsh-plugins/tsdown-config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "fflate": "^0.8.2",
     "lightningcss": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "yaml": "^2.9.0"
+    "vitest": "catalog:"
   }
 }

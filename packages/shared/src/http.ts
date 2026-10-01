@@ -52,12 +52,16 @@ export function writeJson(res: ServerResponse, status: number, body: Record<stri
   res.end(payload)
 }
 
-export async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+export async function readJsonBody(
+  req: IncomingMessage,
+  maxBytes = MAX_BODY_BYTES,
+): Promise<Record<string, unknown>> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('JSON 请求体限额必须是正整数')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > MAX_BODY_BYTES) throw new HttpError(413, '请求体过大')
+    if (size > maxBytes) throw new HttpError(413, '请求体过大')
     chunks.push(chunk as Buffer)
   }
   if (chunks.length === 0) throw new HttpError(400, '缺少 JSON 请求体')

@@ -7,7 +7,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ConnectionRequestRejection } from '@deepseek-ai/dsh-client-connection'
 import { applyWithEngine } from '../src/index'
 import { RemoteEngine } from '../src/engine'
 import { ForwardRegistry } from '../src/forwards'
@@ -50,6 +51,8 @@ interface Harness {
   home: string
   profileDir: string
   homeDir: string
+  engine: RemoteEngine
+  rejectRequests(rejection: ConnectionRequestRejection): void
   request(
     method: string,
     path: string,
@@ -113,7 +116,9 @@ async function makeHarness(): Promise<Harness> {
     'utf8',
   )
   const registrations = new Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>()
+  let rejection: ConnectionRequestRejection
   const ctx = {
+    connection: { requestRejection: () => rejection },
     effect: (register: () => unknown) => register(),
     webServer: {
       host: '127.0.0.1',
@@ -169,7 +174,16 @@ async function makeHarness(): Promise<Harness> {
     await handler(req, res)
     return done
   }
-  return { home: root, profileDir, homeDir, request }
+  return {
+    home: root,
+    profileDir,
+    homeDir,
+    engine,
+    rejectRequests: (value) => {
+      rejection = value
+    },
+    request,
+  }
 }
 
 describe('dsh-remote 路由', () => {
@@ -182,6 +196,7 @@ describe('dsh-remote 路由', () => {
   afterEach(async () => {
     // Windows 上句柄延迟释放会让目录删除报 ENOTEMPTY——以重试补偿
     await rm(harness.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    vi.restoreAllMocks()
   })
 
   it('GET /dsh-remote/state：空连接库 + 本机环境', async () => {
@@ -280,6 +295,76 @@ describe('dsh-remote 路由', () => {
     })
     expect(fired.status).toBe(200)
     expect(fired.body).toMatchObject({ started: true })
+  })
+
+  it.each([401, 403] as const)(
+    '宿主拒绝 %s 时所有路由均先认证，不泄露启动 token 或执行操作',
+    async (status) => {
+      await harness.engine.save({ label: '开发机', sshAlias: 'dev-box' })
+      const [connection] = harness.engine.rows()
+      const rows = vi.spyOn(harness.engine, 'rows').mockReturnValue([
+        {
+          ...connection,
+          state: {
+            ...connection.state,
+            phase: 'running',
+            running: {
+              url: 'http://127.0.0.1:19999/?token=private-launch-token',
+              localPort: 19999,
+              remotePort: 19387,
+              pid: 4242,
+              since: '2027-01-01',
+            },
+          },
+        },
+      ])
+      const actions = [
+        vi.spyOn(harness.engine, 'load'),
+        vi.spyOn(harness.engine, 'save'),
+        vi.spyOn(harness.engine, 'remove'),
+        vi.spyOn(harness.engine, 'test'),
+        vi.spyOn(harness.engine, 'remoteInventory'),
+        vi.spyOn(harness.engine, 'startConnect'),
+        vi.spyOn(harness.engine, 'startDisconnect'),
+        vi.spyOn(harness.engine, 'startSync'),
+      ]
+      harness.rejectRequests(status)
+      const routes = [
+        ['GET', '/dsh-remote/state'],
+        ['GET', '/dsh-remote/local-rows'],
+        ['POST', '/dsh-remote/save'],
+        ['POST', '/dsh-remote/delete'],
+        ['POST', '/dsh-remote/test'],
+        ['POST', '/dsh-remote/remote-inventory'],
+        ['POST', '/dsh-remote/connect'],
+        ['POST', '/dsh-remote/disconnect'],
+        ['POST', '/dsh-remote/sync'],
+      ]
+      for (const [method, path] of routes) {
+        const response = await harness.request(method, path, {
+          id: 'dev-box',
+          label: '未授权修改',
+          sshAlias: 'new-box',
+          kind: 'skills',
+          names: ['skill'],
+        })
+        expect(response.status).toBe(status)
+        expect(response.body).toEqual({
+          error: status === 401 ? '远端请求未通过宿主认证' : '请求来源不允许',
+        })
+        expect(JSON.stringify(response.body)).not.toContain('private-launch-token')
+      }
+      expect(rows).not.toHaveBeenCalled()
+      for (const action of actions) expect(action).not.toHaveBeenCalled()
+    },
+  )
+
+  it('宿主认证优先于旧 Host 与方法守卫', async () => {
+    harness.rejectRequests(401)
+    expect(
+      (await harness.request('GET', '/dsh-remote/state', undefined, { host: 'evil.example:1' })).status,
+    ).toBe(401)
+    expect((await harness.request('POST', '/dsh-remote/state', {})).status).toBe(401)
   })
 
   it('跨站 sec-fetch 与错误 Host 头拒绝 403', async () => {

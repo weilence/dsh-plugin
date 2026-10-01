@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Session migration",
+    "description": "Export full session ZIPs, restore offline, or transfer to a connected dsh-remote instance."
+  }
+}

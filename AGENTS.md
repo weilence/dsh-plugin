@@ -4,7 +4,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：七个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`、`dsh-remote`→`@weilence/dsh-remote`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
+- `plugins/<name>/`：八个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 请求校验 / errMsg / client 侧 HTTP 封装 / patch 文档编辑原语）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译配置。
 - 跨插件耦合的事实改动须双侧同步：智谱凭据的解析顺序（`ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`）同时实现于 dsh-zhipu-tools（搜索 provider）与 dsh-models（用量适配）。
@@ -47,7 +47,7 @@
 - `packages/*` 的 exports 直指 `./src/*.ts`：构建期经 workspace symlink 解析为仓库相对路径**直接内联**，不经过 `bundle` 白名单门禁，也永远不是运行时依赖——新共享包参照 `client-ui` / `shared` 的 manifest 形态即可。
 - `host.bundle` / `client.bundle` 名单（tsdown 的 `onlyBundle`）只是**构建期校验门禁，不是内联指令**：tsdown 默认外置 `dependencies` 与 `peerDependencies`，要内联进产物的第三方包必须声明在 `devDependencies` 并列入对应名单（如各插件 host half 内联 `yaml`）；生产依赖保持外置，运行期由已安装插件自带的 node_modules 解析。`@deepseek-ai/*` 平台包一律外置，运行期由宿主解析——client 产物的 `require` 只能命中宿主模块表，外置依赖混进 client 产物会启动即失败（实际发生过：dayjs 误声明为 dependencies）。
 - `tsdown.config.ts` 的 `id` 必须恒等于 package.json `name`：它是 client bundle 的 `ModuleLoader.load({ id })` 注册键，宿主按运行时包名组装 entry 图并取 `/plugins/<id>/` bundle，两者不一致则无法匹配注册。
-- 跨插件工具进 `@dsh-plugins/shared`（四面导出：`.` 同构 errMsg、`./http` host 请求校验、`./api` client 侧 HTTP 封装、`./patch` patch 文档编辑原语），在 `packages/shared/test/` 配单测；各插件内不再复制这些函数。
+- 跨插件工具进 `@dsh-plugins/shared`（导出面：`.` 同构 errMsg、`./http` host 请求校验、`./api` client 侧 HTTP 封装、`./patch` patch 文档编辑原语、`./remote` 跨插件远端传输契约），在 `packages/shared/test/` 配单测；各插件内不再复制这些函数。
 
 ## 版本与发布陷阱
 

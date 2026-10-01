@@ -132,6 +132,12 @@ describe('readJsonBody', () => {
     expect((await expectHttpError(readJsonBody(bodyReq([Buffer.from('not json')])))).status).toBe(400)
   })
 
+  it('独立端点可以显式选择限额，默认限额保持不变', async () => {
+    expect(await readJsonBody(bodyReq([Buffer.from('{"a":1}')]), 7)).toEqual({ a: 1 })
+    expect((await expectHttpError(readJsonBody(bodyReq([Buffer.from('{"a":1}')]), 6))).status).toBe(413)
+    await expect(readJsonBody(bodyReq([]), 0)).rejects.toThrow('限额必须是正整数')
+  })
+
   it('超过 MAX_BODY_BYTES 413', async () => {
     const error = await expectHttpError(readJsonBody(bodyReq([Buffer.alloc(MAX_BODY_BYTES + 1)])))
     expect(error.status).toBe(413)

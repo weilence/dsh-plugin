@@ -1,0 +1,90 @@
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-color, #4444);
+}
+
+.section h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.section label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section input:not([type='checkbox']),
+.section select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--border-color, #7776);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hint {
+  opacity: 0.75;
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.warning {
+  border-left: 3px solid #d99a28;
+  padding: 8px 12px;
+  line-height: 1.6;
+}
+
+.identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.preview {
+  padding: 12px;
+  border: 1px solid var(--border-color, #7776);
+  border-radius: 6px;
+  user-select: text;
+}
+
+.preview ul {
+  max-height: 260px;
+  overflow: auto;
+  padding-left: 20px;
+}
+
+.preview li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+
+.section .trust {
+  flex-direction: row;
+  align-items: flex-start;
+  line-height: 1.5;
+}
+
+.section p[role='status'],
+.section p[role='alert'] {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

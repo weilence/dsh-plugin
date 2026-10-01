@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-client-connection'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { errMsg } from '@dsh-plugins/shared'
 import {
@@ -26,6 +27,7 @@ import {
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { ForwardRegistry } from './forwards'
+import { RemoteTransportService } from './transport'
 import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
 import {
   CONNECT_PATH,
@@ -45,7 +47,7 @@ import {
   type SyncRequest,
 } from './shared'
 
-export const inject: string[] = ['webServer']
+export const inject: string[] = ['webServer', 'connection']
 
 /** 本机工具探针（结果缓存到进程生命周期）。 */
 async function probeTool(command: string, args: string[]): Promise<boolean> {
@@ -241,11 +243,13 @@ function statusOf(error: unknown): number {
   return 500
 }
 
-export function apply(ctx: Context): void {
+export async function apply(ctx: Context): Promise<void> {
   const engine = makeEngine(ctx)
   // 宿主卸载插件（含退出）时杀掉全部本地转发——spawn 的 ssh 子进程不随父进程
   // 退出而亡，不清理会留下无主转发（实测泄漏过）
   ctx.effect(() => () => engine.dispose())
+  await engine.load()
+  new RemoteTransportService(ctx, engine)
   applyWithEngine(ctx, engine)
 }
 
@@ -264,6 +268,13 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
   }
 
   const guard = (req: IncomingMessage, res: ServerResponse, method: 'GET' | 'POST'): boolean => {
+    const rejection = ctx.connection.requestRejection(req)
+    if (rejection !== undefined) {
+      writeJson(res, rejection, {
+        error: rejection === 401 ? '远端请求未通过宿主认证' : '请求来源不允许',
+      })
+      return false
+    }
     if (!isExpectedHost(req, ctx.webServer.host) || req.method !== method) {
       writeJson(res, 403, { error: 'forbidden' })
       return false
