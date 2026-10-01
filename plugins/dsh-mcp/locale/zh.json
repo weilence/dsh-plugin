@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP 管理",
+    "description": "浏览并管理当前 profile 的 MCP 服务器：运行状态、注册工具与两层用户 patch 配置。"
+  }
+}

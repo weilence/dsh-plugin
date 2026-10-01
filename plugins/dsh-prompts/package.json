@@ -1,12 +1,14 @@
 {
   "name": "@weilence/dsh-prompts",
   "version": "0.1.0",
-  "description": "DeepSeek Harness 全局提示词管理：在设置页编辑用户级 AGENTS.md。",
+  "description": "Edit the DeepSeek Harness user-level AGENTS.md global instructions from the settings page.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -26,7 +28,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "tsdown",

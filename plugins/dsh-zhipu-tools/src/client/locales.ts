@@ -7,7 +7,6 @@ export type ZhipuT = TranslateNS<typeof NS>
 
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
-  'section.label': '智谱搜索',
   title: '智谱搜索',
   subtitle:
     '把官方 web_search 工具的实际搜索后端切换为智谱联网搜索；工具名、参数与结果卡片保持官方原样。智谱搜索 / 网页阅读 MCP 工具不受此开关影响。',
@@ -44,7 +43,6 @@ export const zh = {
 export type ZhipuKey = keyof typeof zh
 
 export const en: { [Key in ZhipuKey]: string } = {
-  'section.label': 'Zhipu search',
   title: 'Zhipu search',
   subtitle:
     'Switches the actual search backend of the official web_search tool to Zhipu web search; the tool name, parameters, and result cards stay as shipped. The Zhipu search / web reader MCP tools are unaffected by this switch.',

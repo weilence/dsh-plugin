@@ -13,7 +13,7 @@ export interface SearchSwitchSectionInjected {
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
-export type SearchSwitchSectionProps = PropsRuntime<'settings.section'> &
+export type SearchSwitchSectionProps = PropsRuntime<'plugins.bundle.config'> &
   PropsLocale<typeof NS> &
   InjectFace<SearchSwitchSectionInjected>
 

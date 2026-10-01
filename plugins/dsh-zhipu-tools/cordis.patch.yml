@@ -4,5 +4,5 @@
 # 启动时 profile boot 会合并本 patch，把插件行插入 host composition。
 # 默认不替换官方 web_search：是否切换由设置面板写入用户 patch 层决定。
 - insert:
-    - id: zhipu-search
+    - id: dsh-zhipu-tools
       name: '@weilence/dsh-zhipu-tools'

@@ -1,0 +1,10 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g" x1="8" y1="6" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58BCC8"/>
+      <stop offset="1" stop-color="#658EFF"/>
+    </linearGradient>
+  </defs>
+  <path d="M18 5.5a8 8 0 0 1 8 8V18l2.6 4.6a1 1 0 0 1-.87 1.5H8.27a1 1 0 0 1-.87-1.5L10 18v-4.5a8 8 0 0 1 8-8Z" stroke="url(#g)" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M15 28.5a3 3 0 0 0 6 0" stroke="url(#g)" stroke-width="2" stroke-linecap="round"/>
+</svg>

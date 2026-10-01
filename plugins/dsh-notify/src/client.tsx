@@ -3,7 +3,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ToneChip } from '@dsh-plugins/client-ui/tone'
 // Type-only：ctx.remote / ctx.uiSession / ctx.sessions / ctx.uiWorkspace /
-// ctx.slots / ctx.locale 与 settings.section 槽位的 Context 声明合并。
+// ctx.slots / ctx.locale 与 plugins.bundle.config 槽位的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { interactionDetail } from './detail'
 import { NS, en, zh, type NotifyT } from './client/locales'
@@ -111,7 +111,7 @@ function notify(ctx: ClientContext, t: NotifyT, sessionId: string, kind: NotifyK
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat（本面板无注入面）。 */
-type NotifySectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
+type NotifySectionProps = PropsRuntime<'plugins.bundle.config'> & PropsLocale<typeof NS>
 
 function NotifySection({ t }: NotifySectionProps) {
   const [permission, setPermission] = useState<PermissionState>(readPermission)
@@ -220,13 +220,13 @@ export function apply(ctx: ClientContext) {
     }
   }, 'dsh-notify: remote event subscriptions')
 
-  ctx.slots.inject('settings.section', () => {
+  // 面板挂自家 bundle 详情页（keyed by 包名）：装了插件点开卡片即见面板，
+  // 不再占设置页一级导航。
+  ctx.slots.inject('plugins.bundle.config', () => {
     return ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'dsh-notify',
-        order: 50,
-        label: () => t('section.label'),
+        name: 'plugins.bundle.config',
+        key: '@weilence/dsh-notify',
         locale: NS,
       },
       NotifySection,

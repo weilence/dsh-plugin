@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Zhipu search",
+    "description": "Switch the web_search backend to Zhipu and mount Zhipu search / reader MCP tools."
+  }
+}

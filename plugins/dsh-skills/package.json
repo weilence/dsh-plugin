@@ -1,12 +1,14 @@
 {
   "name": "@weilence/dsh-skills",
   "version": "0.1.0",
-  "description": "DSH web 插件（Skills 管理）：设置页新增「Skills 管理」菜单——直接扫描四个标准技能根（项目 .dsh/skills、项目 .agents/skills、用户 ~/.dsh/skills、用户 ~/.agents/skills，与官方 provider 同一套发现规则）并集全局注册表只读来源，对可写根新建 / 编辑 / 删除（frontmatter 行级往返、未知字段原样保留），支持从 Git 仓库批量安装技能并跟踪更新。",
+  "description": "Manage agent skills in the standard DeepSeek Harness skill roots, with Git repository install and update tracking.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -27,7 +29,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "tsdown",

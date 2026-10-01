@@ -7,7 +7,6 @@ export type NotifyT = TranslateNS<typeof NS>
 
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
-  'section.label': '完成通知',
   'notify.turn': '模型处理已完成',
   'notify.question': '等待您的回答',
   'notify.approval': '等待您的批准',
@@ -36,7 +35,6 @@ export const zh = {
 export type NotifyKey = keyof typeof zh
 
 export const en: { [Key in NotifyKey]: string } = {
-  'section.label': 'Completion notifications',
   'notify.turn': 'The model finished processing',
   'notify.question': 'Waiting for your answer',
   'notify.approval': 'Waiting for your approval',

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "远程开发",
+    "description": "经 OpenSSH 管理远端 dsh 实例，并同步 skills、MCP、插件与全局提示词。"
+  }
+}

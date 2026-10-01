@@ -2,11 +2,13 @@
   "name": "@weilence/dsh-models",
   "version": "0.1.0",
   "description": "DeepSeek Harness web plugin for importing models.dev providers and models into llm-pi-ai, backed by a host-side ETag-aware catalog mirror.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -28,7 +30,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "tsdown",

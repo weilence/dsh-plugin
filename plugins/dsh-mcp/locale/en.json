@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "MCP Management",
+    "description": "Browse and manage the profile's MCP servers: live state, registered tools, and patch-layer configuration."
+  }
+}

@@ -1,12 +1,14 @@
 {
   "name": "@weilence/dsh-remote",
   "version": "0.1.0",
-  "description": "DSH web 插件（远程开发）：设置页新增「远程开发」菜单——经用户自备的 OpenSSH 别名管理远端机上的完整 dsh web 实例：连接（内含远端装配：探针环境、npm 装 dsh 对齐本机版本、tgz 推送安装本插件）+ SSH 端口转发与 token URL 直接打开、断开；勾选同步 skills / MCP / 插件（列表=本机清单、非一致项默认不勾选、勾选=安装/升级、未勾选不动，远端独有条目零接触；只新增/覆盖，永不删除远端内容）。",
+  "description": "Manage a remote DeepSeek Harness instance over OpenSSH and sync skills, MCP servers, plugins, and the global prompt.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -26,7 +28,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "tsdown",

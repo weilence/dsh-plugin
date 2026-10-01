@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Remote development",
+    "description": "Manage a remote dsh instance over OpenSSH and sync skills, MCP servers, plugins, and the global prompt."
+  }
+}

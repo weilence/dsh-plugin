@@ -1,12 +1,14 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
   "version": "0.2.0",
-  "description": "DSH 插件：设置页开关式把 web_search 切换为智谱搜索提供者（默认不替换，写入用户 patch 层），并挂载官方搜索 / 网页阅读 MCP 工具；用量由 dsh-models 展示。",
+  "description": "Switch the DeepSeek Harness web_search backend to Zhipu and mount Zhipu search / reader MCP tools.",
+  "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "dsh": {
@@ -18,7 +20,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
       ]
     }
   },
@@ -26,7 +28,9 @@
     "lib/index.js",
     "lib/client.js",
     "lib/client.js.map",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "icon.svg",
+    "locale/*.json"
   ],
   "scripts": {
     "build": "tsdown",
@@ -80,7 +84,7 @@
     "@deepseek-ai/dsh-client-locale": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
-    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
