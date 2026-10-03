@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Session migration",
-    "description": "Export full session ZIPs, restore offline, or transfer to a connected dsh-remote instance."
+    "title": "Sessions",
+    "description": "Import DSH ZIPs with session logs, child sessions and attachments, and search and restore archived sessions on the current instance from Sessions settings."
   }
 }

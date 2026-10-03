@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-sessions",
   "version": "0.1.0",
-  "description": "Export, restore and transfer DeepSeek Harness session archives with attachments.",
+  "description": "Import DeepSeek Harness session ZIPs and restore archived sessions from the Sessions settings page.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -21,7 +21,10 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-settings",
-        "@deepseek-ai/dsh-api-session-controller"
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-api-workspace-controller"
       ]
     }
   },
@@ -69,7 +72,6 @@
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session-persistence": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-session-log-export": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session-format-catalog": ">=0.2.0-rc.2 <0.3.0"
   },
   "devDependencies": {
@@ -90,17 +92,20 @@
     "@deepseek-ai/dsh-session-query": "catalog:",
     "@deepseek-ai/dsh-workspace": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",
+    "@deepseek-ai/dsh-api-workspace-controller": "catalog:",
     "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
-    "@dsh-plugins/client-ui": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
     "@dsh-plugins/shared": "workspace:*",
     "@dsh-plugins/tsdown-config": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@types/react-test-renderer": "^18.3.1",
     "fflate": "^0.8.2",
     "lightningcss": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-test-renderer": "^18.3.1",
     "tsdown": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

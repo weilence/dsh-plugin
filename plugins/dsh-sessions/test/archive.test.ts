@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, rm, symlink, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,8 +19,14 @@ import {
   sessionLogExportDeps,
   readSessionLogText,
 } from '@deepseek-ai/dsh-session-log-export'
-import { exportArchive, importArchive, previewArchive } from '../src/archive.js'
-import { MAX_ARCHIVE_BYTES, MAX_EXPANDED_BYTES, MAX_REQUEST_BYTES } from '../src/shared.js'
+import { importArchive, previewArchive } from '../src/archive.js'
+import {
+  MAX_ARCHIVE_BYTES,
+  MAX_ENTRY_BYTES,
+  MAX_EXPANDED_BYTES,
+  MAX_LOG_BYTES,
+  MAX_REQUEST_BYTES,
+} from '../src/shared.js'
 
 type Stored = { header: SessionHeader; events: SessionEvent[]; inheritedEventCount: SessionLogOffset }
 const sha = (data: Uint8Array): string => createHash('sha256').update(data).digest('hex')
@@ -29,7 +35,7 @@ const header = (id = 'root', extra: Record<string, unknown> = {}) => ({
   version: 4,
   id,
   createdAt: 1,
-  cwd: 'C:\\source',
+  cwd: join(tmpdir(), 'dsh-sessions-source'),
   isSeeded: false,
   delegationDepth: 0,
   ...extra,
@@ -154,7 +160,6 @@ function fixture() {
     binaries,
     persistence,
     attachments,
-    sessions: services.sessions,
     failCreate: (id: string) => {
       failCreate = id
     },
@@ -167,10 +172,33 @@ function fixture() {
   }
 }
 
+async function officialZip(ctx: Context, id = 'root'): Promise<Uint8Array> {
+  const deps = sessionLogExportDeps(ctx)
+  if (!deps.sessionQuery || !deps.sessionPersistence || !deps.attachments)
+    throw new Error('官方会话导出服务不可用')
+  const sessionId = SessionId(id)
+  const root = await readSessionLogText(deps.sessionPersistence, sessionId)
+  if (root === undefined) throw new Error(`会话「${id}」没有已存储的日志`)
+  const stream = streamSessionLogZip(
+    {
+      ...deps,
+      sessionQuery: deps.sessionQuery,
+      sessionPersistence: deps.sessionPersistence,
+      attachments: deps.attachments,
+    },
+    root,
+    sessionId,
+    true,
+    6,
+    new AbortController().signal,
+  )
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
 describe('official session archives', () => {
   let cwd: string
   beforeEach(async () => {
-    cwd = await mkdtemp(join(tmpdir(), 'dsh-sessions-'))
+    cwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sessions-')))
   })
   afterEach(async () => {
     await rm(cwd, { recursive: true, force: true })
@@ -180,7 +208,6 @@ describe('official session archives', () => {
     const source = fixture()
     const bytes = archive()
     const preview = await previewArchive(source.ctx, bytes, cwd)
-    expect(preview.sessions).toEqual([{ id: 'root', eventCount: 1, cwd: 'C:\\source', status: 'new' }])
     expect(preview.expected.sessions).toEqual({ root: null })
     expect(await importArchive(source.ctx, bytes, cwd, preview.expected)).toEqual({
       imported: ['root'],
@@ -189,7 +216,7 @@ describe('official session archives', () => {
     })
     expect(source.stored.get('root')!.header.cwd).toBe(cwd)
     expect(source.attached.has('root')).toBe(true)
-    const exported = await exportArchive(source.ctx, 'root')
+    const exported = await officialZip(source.ctx)
     expect(Object.keys(unzipSync(exported))).toEqual(['session.v4.jsonl'])
     const target = fixture()
     const again = await previewArchive(target.ctx, exported, cwd)
@@ -199,22 +226,6 @@ describe('official session archives', () => {
       incomplete: [],
     })
     expect(target.stored.get('root')).toEqual(source.stored.get('root'))
-  })
-
-  it('flushes live root and descendants before exporting valid committed prefixes', async () => {
-    const f = fixture()
-    const bytes = archive({
-      'subagents/child/session.v4.jsonl': jsonl('child', [], { origin: 'subagent', parentSession: 'root' }),
-    })
-    const expected = (await previewArchive(f.ctx, bytes, cwd)).expected
-    await importArchive(f.ctx, bytes, cwd, expected)
-    f.live.add('root')
-    f.live.add('child')
-    const exported = await exportArchive(f.ctx, 'root')
-    expect(f.sessions.flush).toHaveBeenCalledTimes(2)
-    expect(Object.keys(unzipSync(exported))).toEqual(['session.v4.jsonl', 'subagents/child/session.v4.jsonl'])
-    const target = fixture()
-    expect((await previewArchive(target.ctx, exported, cwd)).sessions).toHaveLength(2)
   })
 
   it.each([{ parentSession: 'unrelated' }, { parentSession: 'child' }])(
@@ -237,7 +248,6 @@ describe('official session archives', () => {
     const bytes = archive()
     await importArchive(f.ctx, bytes, cwd, (await previewArchive(f.ctx, bytes, cwd)).expected)
     const preview = await previewArchive(f.ctx, bytes, cwd)
-    expect(preview.sessions[0]!.status).toBe('same')
     expect(preview.expected.sessions.root).toMatch(/^[a-f0-9]{64}$/)
     f.attached.clear()
     expect(await importArchive(f.ctx, bytes, cwd, preview.expected)).toEqual({
@@ -258,7 +268,6 @@ describe('official session archives', () => {
       'subagents/new/session.v4.jsonl': jsonl('new', [], { origin: 'subagent', parentSession: 'root' }),
     })
     const preview = await previewArchive(f.ctx, changed, cwd)
-    expect(preview.sessions[0]!.status).toBe('conflict')
     await expect(importArchive(f.ctx, changed, cwd, preview.expected)).rejects.toThrow('冲突')
     expect(f.stored.has('new')).toBe(false)
   })
@@ -268,7 +277,7 @@ describe('official session archives', () => {
     const bytes = archive()
     const preview = await previewArchive(f.ctx, bytes, cwd)
     await importArchive(f.ctx, bytes, cwd, preview.expected)
-    await expect(importArchive(f.ctx, bytes, cwd, preview.expected)).rejects.toThrow('预览后已发生变化')
+    await expect(importArchive(f.ctx, bytes, cwd, preview.expected)).rejects.toThrow('校验后已发生变化')
   })
 
   it('binds confirmation to exact archive bytes, cwd and the entire session set', async () => {
@@ -277,13 +286,13 @@ describe('official session archives', () => {
     const expected = (await previewArchive(f.ctx, bytes, cwd)).expected
     await expect(
       importArchive(f.ctx, archive({ 'session.v4.jsonl': jsonl('other') }), cwd, expected),
-    ).rejects.toThrow('导入确认')
+    ).rejects.toThrow('导入校验')
     await expect(importArchive(f.ctx, bytes, cwd, { ...expected, cwd: 'elsewhere' })).rejects.toThrow(
-      '导入确认',
+      '导入校验',
     )
     await expect(
       importArchive(f.ctx, bytes, cwd, { ...expected, sessions: { extra: null } }),
-    ).rejects.toThrow('预览后已发生变化')
+    ).rejects.toThrow('校验后已发生变化')
     expect(f.persistence.create).not.toHaveBeenCalled()
   })
 
@@ -314,9 +323,13 @@ describe('official session archives', () => {
     expect(f.stored.get('child')!.inheritedEventCount).toBe(1)
     expect(f.stored.get('child')!.header.parentSession).toBe('root')
     expect([...f.attached]).toEqual(['root'])
-    expect(Object.keys(unzipSync(await exportArchive(f.ctx, 'root')))).toContain(
-      'subagents/child/session.v4.jsonl',
-    )
+    const exported = await officialZip(f.ctx)
+    expect(Object.keys(unzipSync(exported))).toContain('subagents/child/session.v4.jsonl')
+    const target = fixture()
+    const again = (await previewArchive(target.ctx, exported, cwd)).expected
+    expect((await importArchive(target.ctx, exported, cwd, again)).imported).toEqual(['root', 'child'])
+    expect(target.stored).toEqual(f.stored)
+    expect([...target.attached]).toEqual(['root'])
   })
 
   it('prevalidates and saves referenced image/file bytes through official attachment APIs', async () => {
@@ -351,22 +364,7 @@ describe('official session archives', () => {
     })
     expect(f.binaries.size).toBe(2)
     const target = fixture()
-    const deps = sessionLogExportDeps(f.ctx)
-    const root = await readSessionLogText(f.ctx.sessionPersistence, SessionId('root'))
-    const stream = streamSessionLogZip(
-      {
-        ...deps,
-        sessionQuery: deps.sessionQuery!,
-        sessionPersistence: deps.sessionPersistence!,
-        attachments: deps.attachments!,
-      },
-      root!,
-      SessionId('root'),
-      true,
-      6,
-      new AbortController().signal,
-    )
-    const exported = new Uint8Array(await new Response(stream).arrayBuffer())
+    const exported = await officialZip(f.ctx)
     expect(Object.keys(unzipSync(exported))).toContain(`media/${image.attachmentId}.png`)
     const expected = (await previewArchive(target.ctx, exported, cwd)).expected
     expect((await importArchive(target.ctx, exported, cwd, expected)).imported).toEqual(['root'])
@@ -584,21 +582,22 @@ describe('official session archives', () => {
     expect(f.persistence.create).not.toHaveBeenCalled()
   })
 
-  it('bounds official attachment streams during export even when compressed output stays tiny', async () => {
-    const f = fixture()
-    const data = strToU8('file')
-    const ref = { attachmentId: `sha256:${sha(data)}`, bytes: data.length, name: 'a' }
-    const bytes = archive({
-      'session.v4.jsonl': jsonl('root', [message([{ type: 'file', attachment: ref }])]),
-      [`files/${sha(data).slice(0, 2)}/${sha(data)}/a`]: data,
-    })
-    await importArchive(f.ctx, bytes, cwd, (await previewArchive(f.ctx, bytes, cwd)).expected)
-    f.attachments.readFileStream = async function* () {
-      const chunk = new Uint8Array(65536)
-      for (let index = 0; index < 1025; index++) yield chunk
-    }
-    await expect(exportArchive(f.ctx, 'root')).rejects.toThrow('解压大小')
-  })
+  it.each([
+    ['session.v4.jsonl', MAX_LOG_BYTES + 1, '会话日志超过'],
+    ['file', MAX_ENTRY_BYTES + 1, '解压大小'],
+  ] as const)(
+    'bounds expanded entry %s even when compressed output stays tiny',
+    async (path, size, reason) => {
+      const f = fixture()
+      const bytes = zipSync({ [path]: strToU8('small') })
+      const view = new DataView(bytes.buffer)
+      const central = view.getUint32(bytes.length - 6, true)
+      view.setUint32(central + 24, size, true)
+      await expect(previewArchive(f.ctx, bytes, cwd)).rejects.toThrow(reason)
+      expect(f.persistence.create).not.toHaveBeenCalled()
+      expect(f.attachments.saveFileStream).not.toHaveBeenCalled()
+    },
+  )
 
   it('binds cwd confirmation to the canonical directory rather than a retargetable junction', async () => {
     const f = fixture()
@@ -613,7 +612,7 @@ describe('official session archives', () => {
     expect(expected.cwd).toBe(first)
     await unlink(link)
     await symlink(second, link, 'junction')
-    await expect(importArchive(f.ctx, bytes, link, expected)).rejects.toThrow('导入确认')
+    await expect(importArchive(f.ctx, bytes, link, expected)).rejects.toThrow('导入校验')
     expect(f.persistence.create).not.toHaveBeenCalled()
   })
 
@@ -645,7 +644,7 @@ describe('official session archives', () => {
     expect((await importArchive(f.ctx, bytes, cwd, expected)).imported).toEqual(['root'])
   })
 
-  it('never inherits cwd and refuses live ids at preview/import/export boundaries', async () => {
+  it('never inherits cwd and refuses live ids at validation and import boundaries', async () => {
     const f = fixture()
     await expect(previewArchive(f.ctx, archive(), '')).rejects.toThrow('绝对目录')
     await expect(previewArchive(f.ctx, archive(), 'relative')).rejects.toThrow('绝对目录')

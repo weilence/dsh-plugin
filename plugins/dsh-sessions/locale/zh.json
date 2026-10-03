@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "会话迁移",
-    "description": "导出完整会话 ZIP，离线恢复或通过已连接的 dsh-remote 传输到远端。"
+    "title": "会话",
+    "description": "在会话设置页导入宿主 ZIP 中的会话、子会话及附件，搜索并恢复当前实例中的已归档会话。"
   }
 }

@@ -2,21 +2,13 @@ import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, parse } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
-import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { Session, SessionId, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
-import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
+import { Session, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
-import {
-  flushLiveSessionLog,
-  readSessionLogText,
-  sessionLogExportDeps,
-  sessionLogZipEntries,
-} from '@deepseek-ai/dsh-session-log-export'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { SessionPersistenceNotFoundError, validateStoredEvents } from '@deepseek-ai/dsh-session-persistence'
-import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-workspace'
 import {
   MAX_ARCHIVE_BYTES,
@@ -33,7 +25,6 @@ interface ArchiveSession {
   header: SessionHeader
   events: SessionEvent[]
   inheritedEventCount: SessionLogOffset
-  sourceCwd?: string
 }
 
 interface ArchiveAttachment {
@@ -64,7 +55,7 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value)
 }
 
-function contentDigest(session: Omit<ArchiveSession, 'sourceCwd'>): string {
+function contentDigest(session: ArchiveSession): string {
   return digest(stableJson([session.header, session.inheritedEventCount, session.events]))
 }
 
@@ -286,7 +277,7 @@ function attachmentIdentity(ref: ImageAttachmentRef | FileAttachmentRef): string
   )
 }
 
-async function parseArchive(ctx: Context, bytes: Uint8Array, cwd?: string): Promise<ParsedArchive> {
+async function parseArchive(ctx: Context, bytes: Uint8Array, cwd: string): Promise<ParsedArchive> {
   const files = readZip(bytes)
   if (!files.has('session.v4.jsonl'))
     throw new Error('归档必须包含官方 session.v4.jsonl 根日志；本版本只支持 V4')
@@ -321,7 +312,7 @@ async function parseArchive(ctx: Context, bytes: Uint8Array, cwd?: string): Prom
     ) {
       throw new Error(`后代会话条目与其会话 ID 不一致： ${path}`)
     }
-    const mappedHeader = cwd === undefined ? header : { ...header, cwd }
+    const mappedHeader = { ...header, cwd }
     const events = validateStoredEvents(mappedHeader, [...artifact.events] as unknown as SessionEvent[])
     const inheritedEventCount = SessionLogOffset(artifact.inheritedEventCount)
     Session.fromRestore(
@@ -332,7 +323,7 @@ async function parseArchive(ctx: Context, bytes: Uint8Array, cwd?: string): Prom
       'shared-frozen',
       ctx.sessions.messageProjections,
     )
-    sessions.push({ header: mappedHeader, events, inheritedEventCount, sourceCwd: header.cwd })
+    sessions.push({ header: mappedHeader, events, inheritedEventCount })
     used.add(path)
   }
   const byId = new Map(sessions.map((session) => [session.header.id, session]))
@@ -409,22 +400,10 @@ export async function previewArchive(ctx: Context, bytes: Uint8Array, cwd: strin
   const target = await targetCwd(cwd)
   const archive = await parseArchive(ctx, bytes, target)
   const facts: Array<[string, string | null]> = []
-  const sessions: ArchivePreview['sessions'] = []
   for (const session of archive.sessions) {
-    const present = await currentDigest(ctx, session.header.id)
-    facts.push([session.header.id, present])
-    sessions.push({
-      id: session.header.id,
-      eventCount: session.events.length,
-      cwd: session.sourceCwd,
-      status: present === null ? 'new' : present === contentDigest(session) ? 'same' : 'conflict',
-    })
+    facts.push([session.header.id, await currentDigest(ctx, session.header.id)])
   }
-  return {
-    expected: { archiveDigest: digest(bytes), cwd: target, sessions: Object.fromEntries(facts) },
-    sessions,
-    warnings: ['cwd-history-unchanged', 'cold-storage-only', 'non-atomic-tree-snapshot'],
-  }
+  return { expected: { archiveDigest: digest(bytes), cwd: target, sessions: Object.fromEntries(facts) } }
 }
 
 export async function importArchive(
@@ -446,12 +425,12 @@ export async function importArchive(
     Array.isArray(expected.sessions) ||
     Object.keys(expected.sessions).length !== archive.sessions.length
   )
-    throw new Error('导入确认与归档、工作目录或会话集合不一致，请重新预览')
+    throw new Error('导入校验与归档、工作目录或会话集合不一致，请重试导入')
   for (const session of archive.sessions) {
     const id = session.header.id
     const current = await currentDigest(ctx, id)
     if (!Object.hasOwn(expected.sessions, id) || current !== expected.sessions[id])
-      throw new Error(`会话「${id}」在预览后已发生变化，请重新预览`)
+      throw new Error(`会话「${id}」在校验后已发生变化，请重试导入`)
     if (current !== null && current !== contentDigest(session))
       throw new Error(`会话「${id}」与已存储内容冲突，本次没有导入任何会话`)
   }
@@ -522,87 +501,4 @@ export async function importArchive(
     }
   }
   return result
-}
-
-export async function exportArchive(ctx: Context, id: string): Promise<Uint8Array> {
-  const sessionId = SessionId(id)
-  const deps = sessionLogExportDeps(ctx)
-  if (!deps.sessionQuery || !deps.sessionPersistence || !deps.attachments || !deps.sessions)
-    throw new Error('官方会话导出服务不可用')
-  await flushLiveSessionLog(deps, sessionId)
-  const root = await readSessionLogText(deps.sessionPersistence, sessionId)
-  if (root === undefined) throw new Error(`会话「${id}」没有已存储的日志`)
-  if (root.length > MAX_LOG_BYTES) throw new Error('会话日志超过 16 MiB 上限')
-  const chunks: Uint8Array[] = []
-  let size = 0
-  let expanded = 0
-  let entryCount = 0
-  let sessionCount = 0
-  let failure: Error | undefined
-  const zip = new Zip((error, data) => {
-    if (error) {
-      failure = error
-      return
-    }
-    size += data.byteLength
-    if (size > MAX_ARCHIVE_BYTES) {
-      failure = new Error('导出归档超过 64 MiB 上限')
-      return
-    }
-    chunks.push(data)
-  })
-  try {
-    for await (const entry of sessionLogZipEntries(
-      {
-        ...deps,
-        sessionQuery: deps.sessionQuery,
-        sessionPersistence: deps.sessionPersistence,
-        attachments: deps.attachments,
-      },
-      root,
-      sessionId,
-      true,
-    )) {
-      if (++entryCount > MAX_ARCHIVE_ENTRIES) throw new Error('ZIP 条目数量超过上限')
-      safePath(entry.path)
-      const isLog = 'content' in entry
-      if (isLog && ++sessionCount > MAX_ARCHIVE_SESSIONS) throw new Error('归档会话数量超过上限')
-      const deflate = new ZipDeflate(entry.path, { level: 6 })
-      zip.add(deflate)
-      let entryBytes = 0
-      const push = (data: Uint8Array): void => {
-        entryBytes += data.byteLength
-        expanded += data.byteLength
-        if (entryBytes > (isLog ? MAX_LOG_BYTES : MAX_ENTRY_BYTES) || expanded > MAX_EXPANDED_BYTES)
-          throw new Error('ZIP 解压大小超过上限')
-        for (let offset = 0; offset < data.byteLength; offset += 65536) {
-          deflate.push(data.subarray(offset, offset + 65536), false)
-          if (failure) throw failure
-        }
-      }
-      if ('content' in entry) {
-        if (entry.content.length > MAX_LOG_BYTES) throw new Error(`会话日志超过 16 MiB 上限: ${entry.path}`)
-        push(new TextEncoder().encode(entry.content))
-      } else if ('data' in entry) {
-        push(entry.data)
-      } else {
-        for await (const data of entry.chunks) push(data)
-      }
-      deflate.push(new Uint8Array(), true)
-      if (failure) throw failure
-    }
-    zip.end()
-    if (failure) throw failure
-  } catch (error) {
-    zip.terminate()
-    throw error
-  }
-  const bytes = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset)
-    offset += chunk.length
-  }
-  await parseArchive(ctx, bytes)
-  return bytes
 }

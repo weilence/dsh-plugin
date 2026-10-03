@@ -1,137 +1,60 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import { errMsg } from '@dsh-plugins/shared'
-import { createBridgeClient } from '@dsh-plugins/shared/api'
-import type { RemoteTransportConnection } from '@dsh-plugins/shared/remote'
-import { NS, en, zh, type SessionsKey, type SessionsT } from './client/locales'
-import {
-  EXPORT_PATH,
-  IMPORT_PATH,
-  LIST_PATH,
-  MAX_ARCHIVE_BYTES,
-  PREVIEW_PATH,
-  REMOTES_PATH,
-  TRANSFER_PATH,
-  type ArchivePreview,
-  type ExportResponse,
-  type ImportResult,
-  type SessionListItem,
-} from './shared'
+import { importFiles, type FileResult } from './client/import'
+import { NS, en, zh, messageText, type Message } from './client/locales'
 import styles from './client.module.css'
 
-export const inject = ['slots', 'locale', 'sessions']
-const api = createBridgeClient('x-dsh-sessions')
-type Message = { key: SessionsKey; params?: Record<string, string | number> } | { text: string }
-type SessionSectionProps = PropsRuntime<'settings.section'> &
+export const inject = ['slots', 'locale', 'sessions', 'workspaces']
+type SessionsSectionProps = PropsRuntime<'settings.section'> &
   PropsLocale<typeof NS> &
-  InjectFace<{ onImported: () => Promise<void> }>
-
-function messageText(message: Message, t: SessionsT): string {
-  return 'text' in message ? message.text : t(message.key, message.params)
+  InjectFace<{ sessions: ISessions; workspaces: IWorkspaces; formatTime: (timestamp: number) => string }>
+type ImportDialogProps = Pick<SessionsSectionProps, 't' | 'useWorkspaces'> & {
+  onImported: () => Promise<void>
+  onClose: () => void
 }
 
-function base64(bytes: Uint8Array): string {
-  const parts: string[] = []
-  for (let offset = 0; offset < bytes.length; offset += 32_768) {
-    parts.push(String.fromCharCode(...bytes.subarray(offset, offset + 32_768)))
-  }
-  return btoa(parts.join(''))
-}
-
-function download(result: ExportResponse): void {
-  const raw = atob(result.archive)
-  const bytes = Uint8Array.from(raw, (character) => character.charCodeAt(0))
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = result.filename
-  document.body.append(link)
-  link.click()
-  link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 30_000)
-}
-
-export function Preview({ preview, t }: { preview: ArchivePreview; t: SessionsT }) {
-  return (
-    <div className={styles.preview}>
-      <strong>{t('preview.heading', { count: preview.sessions.length })}</strong>
-      <ul>
-        {preview.sessions.map((session) => (
-          <li key={session.id}>
-            <code>{session.id}</code>
-            <span>
-              {t(`status.${session.status}`)} · {t('events', { count: session.eventCount })}
-            </span>
-            {session.cwd !== undefined ? <code>{session.cwd}</code> : null}
-          </li>
-        ))}
-      </ul>
-      {preview.sessions.some((session) => session.status === 'conflict') ? (
-        <p role="alert">{t('preview.conflict')}</p>
-      ) : null}
-    </div>
-  )
-}
-
-export function SessionSection({ t, onImported }: SessionSectionProps) {
-  useWideSettingsDialog()
-  const [sessions, setSessions] = useState<SessionListItem[]>([])
-  const [remotes, setRemotes] = useState<RemoteTransportConnection[]>([])
-  const [remoteAvailable, setRemoteAvailable] = useState(false)
-  const [remoteError, setRemoteError] = useState<string | null>(null)
-  const [source, setSource] = useState('')
-  const [remoteId, setRemoteId] = useState('')
-  const [archive, setArchive] = useState<string | null>(null)
-  const [localCwd, setLocalCwd] = useState('')
-  const [remoteCwd, setRemoteCwd] = useState('')
-  const [localPreview, setLocalPreview] = useState<ArchivePreview | null>(null)
-  const [remotePreview, setRemotePreview] = useState<ArchivePreview | null>(null)
-  const [remoteArchive, setRemoteArchive] = useState<string | null>(null)
-  const [localTrust, setLocalTrust] = useState(false)
-  const [remoteTrust, setRemoteTrust] = useState(false)
+export function ImportDialog({ t, useWorkspaces, onImported, onClose }: ImportDialogProps) {
+  const snapshot = useWorkspaces((value) => value)
+  const [workspaceId, setWorkspaceId] = useState('')
+  const [files, setFiles] = useState<File[]>([])
+  const [results, setResults] = useState<FileResult[]>([])
+  const [message, setMessage] = useState<Message | null>(null)
   const [busy, setBusy] = useState(false)
   const working = useRef(false)
-  const [localMessage, setLocalMessage] = useState<Message | null>(null)
-  const [remoteMessage, setRemoteMessage] = useState<Message | null>(null)
-  const [exportMessage, setExportMessage] = useState<Message | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const target = snapshot.items.find((workspace) => workspace.workspaceId === workspaceId)
+  const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
 
-  const load = async () => {
-    const results = await Promise.allSettled([
-      api.request<{ sessions: SessionListItem[] }>(LIST_PATH),
-      api.request<{ available: boolean; connections: RemoteTransportConnection[] }>(REMOTES_PATH),
-    ])
-    const [local, remote] = results
-    if (local.status === 'fulfilled') {
-      setSessions(local.value.sessions)
-    } else {
-      setSessions([])
-      setExportMessage({ text: errMsg(local.reason) })
+  const submit = async () => {
+    if (working.current || files.length === 0) return
+    if (!ready || target === undefined) {
+      setMessage({ key: 'workspace.unavailable' })
+      return
     }
-    if (remote.status === 'fulfilled') {
-      setRemotes(remote.value.connections)
-      setRemoteAvailable(remote.value.available)
-      setRemoteError(null)
-    } else {
-      setRemotes([])
-      setRemoteAvailable(false)
-      setRemoteError(errMsg(remote.reason))
-    }
-  }
-
-  const run = async (setMessage: (message: Message | null) => void, operation: () => Promise<void>) => {
-    if (working.current) return
     working.current = true
     setBusy(true)
+    setResults([])
     setMessage(null)
     try {
-      await operation()
+      await importFiles(files, target.path, (result) => setResults((previous) => [...previous, result]))
+      setFiles([])
+      if (input.current !== null) input.current.value = ''
+      try {
+        await onImported()
+      } catch (error) {
+        setMessage({ key: 'result.refreshFailed', params: { detail: errMsg(error) } })
+      }
     } catch (error) {
       setMessage({ text: errMsg(error) })
     } finally {
@@ -140,329 +63,297 @@ export function SessionSection({ t, onImported }: SessionSectionProps) {
     }
   }
 
-  useEffect(() => {
-    void run(setExportMessage, load)
-  }, [])
+  return (
+    <Modal
+      open
+      title={t('import')}
+      closeLabel={t('close')}
+      onClose={() => {
+        if (!working.current) onClose()
+      }}
+      className={styles.dialog}
+      footer={
+        <div className={styles.footer}>
+          <div className={styles.feedback} aria-live="polite">
+            {results.map((entry, index) => (
+              <div key={index}>
+                <strong>{entry.filename}</strong>
+                <p>
+                  {'error' in entry
+                    ? messageText(entry.error, t)
+                    : entry.result.failure === undefined
+                      ? t('result.done', {
+                          imported: entry.result.imported.length,
+                          skipped: entry.result.skipped.length,
+                        })
+                      : t('result.failed', {
+                          detail: entry.result.failure.reason,
+                          imported: entry.result.imported.length,
+                          skipped: entry.result.skipped.length,
+                          incomplete: entry.result.incomplete.join(', ') || '—',
+                        })}
+                </p>
+              </div>
+            ))}
+            {message !== null ? <p role="alert">{messageText(message, t)}</p> : null}
+            {!busy && workspaceId !== '' && target === undefined ? (
+              <p role="alert">{t('workspace.unavailable')}</p>
+            ) : null}
+            {busy ? <p role="status">{t('working')}</p> : null}
+          </div>
+          <div className={styles.actions}>
+            <Button variant="outline" disabled={busy} onClick={onClose}>
+              {t('close')}
+            </Button>
+            <Button
+              variant="primary"
+              disabled={busy || !ready || target === undefined || files.length === 0}
+              onClick={() => void submit()}
+            >
+              {t('import')}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className={styles.fields}>
+        <label>
+          {t('workspace')}
+          <select
+            data-modal-autofocus
+            value={workspaceId}
+            disabled={busy || !ready}
+            onChange={(event) => {
+              setWorkspaceId(event.target.value)
+              setMessage(null)
+            }}
+          >
+            <option value="">{t('workspace.choose')}</option>
+            {snapshot.items.map((workspace) => (
+              <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                {workspace.title} — {workspace.path}
+              </option>
+            ))}
+          </select>
+        </label>
+        {snapshot.error !== null ? (
+          <p role="alert">
+            {snapshot.error.code}: {snapshot.error.message}
+          </p>
+        ) : snapshot.phase === 'pending' || snapshot.state === 'loading' ? (
+          <p role="status">{t('workspace.loading')}</p>
+        ) : snapshot.items.length === 0 ? (
+          <p>{t('workspace.empty')}</p>
+        ) : null}
+        {target !== undefined ? <code className={styles.path}>{target.path}</code> : null}
+        <label>
+          {t('files')}
+          <input
+            ref={input}
+            type="file"
+            accept=".zip,application/zip"
+            multiple
+            disabled={busy}
+            onChange={(event) => {
+              setFiles(Array.from(event.target.files ?? []))
+              setResults([])
+              setMessage(null)
+            }}
+          />
+        </label>
+        <p className={styles.warning}>{t('warning')}</p>
+      </div>
+    </Modal>
+  )
+}
 
-  const clearLocalPreview = () => {
-    setLocalPreview(null)
-    setLocalTrust(false)
-    setLocalMessage(null)
-  }
-  const clearRemotePreview = () => {
-    setRemotePreview(null)
-    setRemoteArchive(null)
-    setRemoteTrust(false)
-    setRemoteMessage(null)
-  }
-  const target = remotes.find((connection) => connection.id === remoteId)
-  const localReady =
-    localPreview !== null && !localPreview.sessions.some((session) => session.status === 'conflict')
-  const remoteReady =
-    remotePreview !== null && !remotePreview.sessions.some((session) => session.status === 'conflict')
-
-  const showResult = (result: ImportResult, setMessage: (message: Message) => void) => {
-    setMessage(
-      result.failure === undefined
-        ? { key: 'result.done', params: { imported: result.imported.length, skipped: result.skipped.length } }
-        : {
-            key: 'result.failed',
-            params: {
-              detail: result.failure.reason,
-              imported: result.imported.length,
-              incomplete: result.incomplete.join(', ') || '—',
-            },
-          },
-    )
-  }
-
-  const importLocal = async () => {
-    if (archive === null || localPreview === null) return
-    const expected = localPreview.expected
-    const trusted = localTrust
-    setLocalPreview(null)
-    setLocalTrust(false)
-    const result = await api.request<ImportResult>(IMPORT_PATH, {
-      method: 'POST',
-      body: JSON.stringify({ archive, cwd: localCwd, expected, trusted }),
+export function SessionsSection({
+  t,
+  useWorkspaces,
+  useSessions,
+  sessions,
+  workspaces,
+  formatTime,
+}: SessionsSectionProps) {
+  const snapshot = useWorkspaces((value) => value)
+  const list = useSessions((value) => value)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [restoring, setRestoring] = useState<SessionId | null>(null)
+  const [failure, setFailure] = useState<{ sessionId: SessionId; message: Message } | null>(null)
+  const [notice, setNotice] = useState<Message | null>(null)
+  const working = useRef(false)
+  const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
+  const keyword = query.trim().toLocaleLowerCase()
+  const listed = new Set(list.ids)
+  const workspaceBySession = new Map(
+    snapshot.items.flatMap((workspace) => workspace.sessionIds.map((id) => [id, workspace] as const)),
+  )
+  const rows = snapshot.archivedSessionIds
+    .map((id) => {
+      const summary = listed.has(id) ? list.byId[id] : undefined
+      const workspace = workspaceBySession.get(id)
+      return { id, summary, workspace }
     })
-    showResult(result, setLocalMessage)
+    .filter(({ id, summary, workspace }) =>
+      [id, summary?.displayTitle, summary?.cwd, workspace?.title, workspace?.path].some((value) =>
+        value?.toLocaleLowerCase().includes(keyword),
+      ),
+    )
+
+  const restore = async (id: SessionId, title: string) => {
+    if (working.current) return
+    setFailure(null)
+    setNotice(null)
+    const current = workspaces.list.getSnapshot()
+    if (current.phase !== 'ready' || current.state !== 'idle') {
+      setFailure({
+        sessionId: id,
+        message:
+          current.error === null
+            ? { key: 'archive.unavailable' }
+            : { text: `${current.error.code}: ${current.error.message}` },
+      })
+      return
+    }
+    if (!current.archivedSessionIds.includes(id)) {
+      setNotice({ key: 'archive.alreadyRestored', params: { title } })
+      return
+    }
+    // 官方归档命令共用请求序号；串行恢复避免不同条目的响应互相覆盖。
+    working.current = true
+    setRestoring(id)
     try {
-      await onImported()
-      await load()
+      await workspaces.unarchiveSession(id)
+      setNotice({ key: 'archive.restored', params: { title } })
     } catch (error) {
-      setLocalMessage({ key: 'result.refreshFailed', params: { detail: errMsg(error) } })
+      setFailure({ sessionId: id, message: { text: errMsg(error) } })
+    } finally {
+      working.current = false
+      setRestoring(null)
     }
   }
 
-  const previewRemote = async () => {
-    clearRemotePreview()
-    const exported = await api.request<ExportResponse>(EXPORT_PATH, {
-      method: 'POST',
-      body: JSON.stringify({ id: source }),
-    })
-    const preview = await api.request<ArchivePreview>(TRANSFER_PATH, {
-      method: 'POST',
-      body: JSON.stringify({ remoteId, action: 'preview', archive: exported.archive, cwd: remoteCwd }),
-    })
-    setRemoteArchive(exported.archive)
-    setRemotePreview(preview)
-  }
-
-  const importRemote = async () => {
-    if (remoteArchive === null || remotePreview === null) return
-    const snapshot = remoteArchive
-    const expected = remotePreview.expected
-    const trusted = remoteTrust
-    setRemotePreview(null)
-    setRemoteArchive(null)
-    setRemoteTrust(false)
-    const result = await api.request<ImportResult>(TRANSFER_PATH, {
-      method: 'POST',
-      body: JSON.stringify({
-        remoteId,
-        action: 'import',
-        archive: snapshot,
-        cwd: remoteCwd,
-        expected,
-        trusted,
-      }),
-    })
-    showResult(result, setRemoteMessage)
-  }
-
-  const trustCheckbox = (checked: boolean, onChange: (value: boolean) => void) => (
-    <label className={styles.trust}>
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={busy}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      {t('trust')}
-    </label>
-  )
-
   return (
-    <Panel title={t('title')} subtitle={t('subtitle')}>
-      <section className={styles.section}>
-        <label>
-          {t('source')}
-          <select
-            value={source}
-            disabled={busy}
-            onChange={(event) => {
-              setSource(event.target.value)
-              clearRemotePreview()
-              setExportMessage(null)
-            }}
-          >
-            <option value="">{t('choose')}</option>
-            {sessions.map((session) => (
-              <option key={session.id} value={session.id}>
-                {session.title ?? session.id}
-              </option>
-            ))}
-          </select>
-        </label>
-        {source ? (
-          <div className={styles.identity}>
-            <code>{source}</code>
-            <code>{sessions.find((session) => session.id === source)?.cwd}</code>
-          </div>
+    <div className={styles.section}>
+      <section className={styles.importSection}>
+        <Button variant="primary" onClick={() => setOpen(true)}>
+          {t('import')}
+        </Button>
+      </section>
+      <section className={styles.archiveSection}>
+        <h2>{t('archive.title')}</h2>
+        <p className={styles.description}>{t('archive.description')}</p>
+        <input
+          type="search"
+          aria-label={t('archive.search')}
+          placeholder={t('archive.search')}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {snapshot.error !== null ? (
+          <p role="alert" className={styles.detail}>
+            {snapshot.error.code}: {snapshot.error.message}
+          </p>
+        ) : !ready ? (
+          <p role="status">{t('archive.loading')}</p>
+        ) : snapshot.archivedSessionIds.length === 0 ? (
+          <p>{t('archive.empty')}</p>
+        ) : rows.length === 0 ? (
+          <p>{t('archive.noMatch')}</p>
         ) : null}
-        {sessions.find((session) => session.id === source)?.titleError !== undefined ? (
-          <p role="alert">
-            {t('title.failed', { detail: sessions.find((session) => session.id === source)!.titleError! })}
+        {snapshot.phase === 'ready' ? (
+          <ul className={styles.archives}>
+            {rows.map(({ id, summary, workspace }) => (
+              <li key={id} className={styles.archiveRow}>
+                <div className={styles.metadata}>
+                  <strong>{summary?.displayTitle ?? id}</strong>
+                  <code>{id}</code>
+                  {workspace !== undefined ? (
+                    <span>
+                      {workspace.title} — {workspace.path}
+                    </span>
+                  ) : (
+                    <span>{t('archive.ungrouped')}</span>
+                  )}
+                  {summary?.cwd !== undefined && summary.cwd !== workspace?.path ? (
+                    <code>{summary.cwd}</code>
+                  ) : null}
+                  {summary === undefined ? (
+                    <span>
+                      {t(
+                        list.phase === 'pending' ? 'archive.metadataLoading' : 'archive.metadataUnavailable',
+                      )}
+                    </span>
+                  ) : Number.isFinite(summary.updatedAt) &&
+                    !Number.isNaN(new Date(summary.updatedAt).getTime()) ? (
+                    <time dateTime={new Date(summary.updatedAt).toISOString()}>
+                      {t('archive.updated', { time: formatTime(summary.updatedAt) })}
+                    </time>
+                  ) : null}
+                </div>
+                <div className={styles.restoreAction}>
+                  {failure?.sessionId === id ? <p role="alert">{messageText(failure.message, t)}</p> : null}
+                  <Button
+                    variant="outline"
+                    disabled={!ready || restoring !== null}
+                    onClick={() => void restore(id, summary?.displayTitle ?? id)}
+                  >
+                    {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {failure !== null &&
+        (snapshot.phase !== 'ready' || !rows.some((row) => row.id === failure.sessionId)) ? (
+          <p role="alert" className={styles.detail}>
+            {messageText(failure.message, t)}
           </p>
         ) : null}
-        <p className={styles.hint}>{t('export.warning')}</p>
-        {exportMessage !== null ? <p role="status">{messageText(exportMessage, t)}</p> : null}
-        <div className={styles.actions}>
-          <Button
-            disabled={busy || !source}
-            onClick={() =>
-              void run(setExportMessage, async () => {
-                const result = await api.request<ExportResponse>(EXPORT_PATH, {
-                  method: 'POST',
-                  body: JSON.stringify({ id: source }),
-                })
-                download(result)
-                setExportMessage({ key: 'export.done' })
-              })
-            }
-          >
-            {t('export')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={busy}
-            onClick={() =>
-              void run(setExportMessage, async () => {
-                clearLocalPreview()
-                clearRemotePreview()
-                await load()
-              })
-            }
-          >
-            {t('refresh')}
-          </Button>
-        </div>
-      </section>
-      <p className={styles.hint}>{t('warning.environment')}</p>
-      <p className={styles.warning}>{t('warning.permissions')}</p>
-      <section className={styles.section}>
-        <h3>{t('local.title')}</h3>
-        <label>
-          {t('file')}
-          <input
-            type="file"
-            accept=".zip,application/zip"
-            disabled={busy}
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              setArchive(null)
-              clearLocalPreview()
-              if (file === undefined) return
-              if (file.size > MAX_ARCHIVE_BYTES) {
-                setLocalMessage({ key: 'file.tooLarge' })
-                return
-              }
-              void run(setLocalMessage, async () =>
-                setArchive(base64(new Uint8Array(await file.arrayBuffer()))),
-              )
-            }}
-          />
-        </label>
-        <label>
-          {t('cwd.local')}
-          <input
-            value={localCwd}
-            disabled={busy}
-            onChange={(event) => {
-              setLocalCwd(event.target.value)
-              clearLocalPreview()
-            }}
-            spellCheck={false}
-          />
-        </label>
-        {localPreview !== null ? <Preview preview={localPreview} t={t} /> : null}
-        {localPreview !== null ? trustCheckbox(localTrust, setLocalTrust) : null}
-        {localMessage !== null ? <p role="status">{messageText(localMessage, t)}</p> : null}
-        <div className={styles.actions}>
-          <Button
-            variant="outline"
-            disabled={busy || archive === null || !localCwd.trim()}
-            onClick={() =>
-              void run(setLocalMessage, async () => {
-                clearLocalPreview()
-                setLocalPreview(
-                  await api.request<ArchivePreview>(PREVIEW_PATH, {
-                    method: 'POST',
-                    body: JSON.stringify({ archive, cwd: localCwd }),
-                  }),
-                )
-              })
-            }
-          >
-            {t('preview')}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={busy || !localReady || !localTrust}
-            onClick={() => void run(setLocalMessage, importLocal)}
-          >
-            {t('import')}
-          </Button>
-        </div>
-      </section>
-      <section className={styles.section}>
-        <h3>{t('remote.title')}</h3>
-        <label>
-          {t('remote.target')}
-          <select
-            value={remoteId}
-            disabled={busy}
-            onChange={(event) => {
-              setRemoteId(event.target.value)
-              clearRemotePreview()
-            }}
-          >
-            <option value="">{t('choose')}</option>
-            {remotes.map((remote) => (
-              <option key={remote.id} value={remote.id}>
-                {remote.label}
-                {remote.reason === undefined ? '' : ` · ${t(`remote.${remote.reason}`)}`}
-              </option>
-            ))}
-          </select>
-        </label>
-        {target !== undefined ? (
-          <p className={styles.identity}>
-            <code>{target.id}</code>
-            {target.reason !== undefined ? <span>{t(`remote.${target.reason}`)}</span> : null}
-            {target.detail !== undefined ? <span>{target.detail}</span> : null}
+        {restoring !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === restoring)) ? (
+          <p role="status">{t('archive.restoring')}</p>
+        ) : null}
+        {notice !== null ? (
+          <p role="status" className={styles.detail}>
+            {messageText(notice, t)}
           </p>
         ) : null}
-        <label>
-          {t('cwd.remote')}
-          <input
-            value={remoteCwd}
-            disabled={busy}
-            onChange={(event) => {
-              setRemoteCwd(event.target.value)
-              clearRemotePreview()
-            }}
-            spellCheck={false}
-          />
-        </label>
-        {!remoteAvailable ? (
-          <p>{t('remote.missing')}</p>
-        ) : remotes.length === 0 ? (
-          <p>{t('remote.empty')}</p>
-        ) : null}
-        {remoteError !== null ? <p role="alert">{remoteError}</p> : null}
-        {remotePreview !== null ? <Preview preview={remotePreview} t={t} /> : null}
-        {remotePreview !== null ? trustCheckbox(remoteTrust, setRemoteTrust) : null}
-        {remoteMessage !== null ? <p role="status">{messageText(remoteMessage, t)}</p> : null}
-        <div className={styles.actions}>
-          <Button
-            variant="outline"
-            disabled={busy || !source || !target?.available || !remoteCwd.trim()}
-            onClick={() => void run(setRemoteMessage, previewRemote)}
-          >
-            {t('preview')}
-          </Button>
-          <Button
-            variant="primary"
-            disabled={busy || !target?.available || !remoteReady || !remoteTrust}
-            onClick={() => void run(setRemoteMessage, importRemote)}
-          >
-            {t('transfer')}
-          </Button>
-        </div>
       </section>
-      {busy ? <p role="status">{t('working')}</p> : null}
-    </Panel>
+      {open ? (
+        <ImportDialog
+          t={t}
+          useWorkspaces={useWorkspaces}
+          onImported={() => sessions.refresh()}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </div>
   )
 }
 
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-sessions: locale')
-  const t = ctx.locale.bind(NS)
   // 两个 half 的同名 sessions 在联合类型检查中相遇；浏览器入口只持有官方 ISessions。
   const sessions = ctx.sessions as unknown as ISessions
+  const t = ctx.locale.bind(NS)
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
         name: 'settings.section',
-        id: NS,
-        order: 46,
+        id: 'dsh-sessions',
+        order: 43,
         label: () => t('section.label'),
         locale: NS,
-        inject: () => ({ onImported: () => sessions.refresh() }),
+        inject: () => ({
+          sessions,
+          workspaces: ctx.workspaces,
+          formatTime: (timestamp: number) =>
+            new Date(timestamp).toLocaleString(ctx.locale.getSnapshot().active),
+        }),
       },
-      SessionSection,
+      SessionsSection,
     ),
   )
 }
