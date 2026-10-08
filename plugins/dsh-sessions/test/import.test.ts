@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { importFiles, type FileResult } from '../src/client/import'
+import { importFiles, type FileResult } from '../src/client/api'
 import { IMPORT_PATH, MAX_ARCHIVE_BYTES } from '../src/shared'
 import { messageText } from '../src/client/locales'
 import { makeT } from './i18n'

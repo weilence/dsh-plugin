@@ -1,4 +1,5 @@
 export const IMPORT_PATH = '/dsh-sessions/import'
+export const DELETE_PATH = '/dsh-sessions/delete'
 
 export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 export const MAX_EXPANDED_BYTES = 256 * 1024 * 1024
@@ -30,4 +31,14 @@ export interface ArchiveExpected {
 
 export interface ArchivePreview {
   expected: ArchiveExpected
+}
+
+export interface DeleteRequest {
+  sessionId: string
+}
+
+export interface DeleteResult {
+  filesRemoved: boolean
+  archiveCleared: boolean
+  archiveClearError?: string
 }

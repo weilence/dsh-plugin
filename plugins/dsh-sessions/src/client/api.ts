@@ -1,6 +1,14 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { createBridgeClient } from '@dsh-plugins/shared/api'
-import { IMPORT_PATH, MAX_ARCHIVE_BYTES, type ImportRequest, type ImportResult } from '../shared'
+import {
+  IMPORT_PATH,
+  DELETE_PATH,
+  MAX_ARCHIVE_BYTES,
+  type DeleteRequest,
+  type DeleteResult,
+  type ImportRequest,
+  type ImportResult,
+} from '../shared'
 import type { Message } from './locales'
 
 const api = createBridgeClient('x-dsh-sessions')
@@ -32,4 +40,9 @@ export async function importFiles(
       onResult({ filename: file.name, error: { text: errMsg(error) } })
     }
   }
+}
+
+export async function deleteArchivedSession(sessionId: string): Promise<DeleteResult> {
+  const body: DeleteRequest = { sessionId }
+  return api.request<DeleteResult>(DELETE_PATH, { method: 'POST', body: JSON.stringify(body) })
 }

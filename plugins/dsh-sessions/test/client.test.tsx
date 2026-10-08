@@ -9,7 +9,7 @@ import type {
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { ImportDialog, SessionsSection, apply } from '../src/client'
-import { importFiles } from '../src/client/import'
+import { deleteArchivedSession, importFiles } from '../src/client/api'
 import { en, zh } from '../src/client/locales'
 import { makeT } from './i18n'
 
@@ -21,6 +21,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Modal: ({
     open,
     title,
+    description,
     children,
     footer,
     closeLabel,
@@ -29,6 +30,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     open ? (
       <section role="dialog">
         <h1>{title}</h1>
+        <p>{description}</p>
         <button aria-label={closeLabel} onClick={onClose}>
           {closeLabel}
         </button>
@@ -37,7 +39,10 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
       </section>
     ) : null,
 }))
-vi.mock('../src/client/import', () => ({ importFiles: vi.fn(async () => {}) }))
+vi.mock('../src/client/api', () => ({
+  importFiles: vi.fn(async () => {}),
+  deleteArchivedSession: vi.fn(async () => ({ filesRemoved: true, archiveCleared: true })),
+}))
 
 type SectionProps = ComponentProps<typeof SessionsSection>
 const alpha = 'archive-alpha' as SessionId
@@ -462,6 +467,160 @@ describe('官方归档列表与恢复', () => {
     act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [] })))
     expect(text(renderer.root)).toContain(zh['archive.empty'])
     expect(text(renderer.root)).not.toContain(zh['archive.noMatch'])
+  })
+})
+
+describe('归档会话删除', () => {
+  function confirmDialog(renderer: ReactTestRenderer) {
+    return renderer.root.findByProps({ role: 'dialog' })
+  }
+
+  it('点击删除先确认，取消不请求，确认后才提交并提示成功', async () => {
+    const { renderer, workspaceSource } = section()
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    expect(text(confirmDialog(renderer))).toContain('将永久删除会话「Alpha investigation」的日志文件')
+    expect(deleteArchivedSession).not.toHaveBeenCalled()
+    act(() => button(confirmDialog(renderer), '取消').props.onClick())
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(alpha)
+    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
+    expect(rowIds(renderer)).toEqual([alpha, beta])
+    act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] })))
+    expect(rowIds(renderer)).toEqual([beta])
+  })
+
+  it('删除成功后刷新官方会话列表，过期摘要否则让会话重新出现在侧栏', async () => {
+    const { renderer, refresh } = section()
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(alpha)
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('删除失败或归档条目未清除时不刷新列表；刷新失败单独提示且不掩盖删除成功', async () => {
+    vi.mocked(deleteArchivedSession).mockRejectedValueOnce(new Error('会话仍有进行中的活动，已拒绝删除'))
+    const failed = section()
+    act(() => button(rows(failed.renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(failed.renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(failed.refresh).not.toHaveBeenCalled()
+    vi.mocked(deleteArchivedSession).mockResolvedValueOnce({
+      filesRemoved: true,
+      archiveCleared: false,
+      archiveClearError: 'registry unavailable',
+    })
+    const gated = section()
+    act(() => button(rows(gated.renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(gated.renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(gated.refresh).not.toHaveBeenCalled()
+    const refreshed = section()
+    refreshed.refresh.mockRejectedValueOnce(new Error('refresh carrier: connection reset'))
+    act(() => button(rows(refreshed.renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(refreshed.renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(refreshed.refresh).toHaveBeenCalledOnce()
+    expect(text(refreshed.renderer.root)).toContain('已删除：Alpha investigation')
+    expect(text(refreshed.renderer.root)).toContain('刷新会话列表失败：refresh carrier: connection reset')
+  })
+
+  it('删除与恢复共用互斥，进行中双向禁用', async () => {
+    const { renderer, unarchiveSession } = section()
+    const gate = deferred()
+    unarchiveSession.mockReturnValueOnce(gate.promise)
+    act(() => button(rows(renderer)[0]!, zh['archive.restore']).props.onClick())
+    expect(button(rows(renderer)[1]!, zh['archive.delete']).props.disabled).toBe(true)
+    await act(async () => {
+      gate.resolve()
+      await gate.promise
+    })
+    let releaseDelete!: (value: { filesRemoved: boolean; archiveCleared: boolean }) => void
+    const deleteGate = new Promise<{ filesRemoved: boolean; archiveCleared: boolean }>((resolve) => {
+      releaseDelete = resolve
+    })
+    vi.mocked(deleteArchivedSession).mockReturnValueOnce(deleteGate)
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    act(() => button(confirmDialog(renderer), zh['archive.delete']).props.onClick())
+    expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(true)
+    expect(button(rows(renderer)[1]!, zh['archive.restore']).props.disabled).toBe(true)
+    expect(unarchiveSession).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      releaseDelete({ filesRemoved: true, archiveCleared: true })
+      await deleteGate
+    })
+    expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(false)
+    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
+  })
+
+  it('删除失败保留条目与真实原因，可重试', async () => {
+    vi.mocked(deleteArchivedSession).mockRejectedValueOnce(new Error('目录不含官方 v4 会话日志，拒绝删除'))
+    const { renderer } = section()
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(text(rows(renderer)[0]!)).toContain('目录不含官方 v4 会话日志，拒绝删除')
+    expect(rowIds(renderer)).toEqual([alpha, beta])
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(deleteArchivedSession).toHaveBeenCalledTimes(2)
+    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
+  })
+
+  it('官方服务报告无文件或归档清理失败时分别提示', async () => {
+    vi.mocked(deleteArchivedSession).mockResolvedValueOnce({ filesRemoved: false, archiveCleared: true })
+    const { renderer } = section()
+    act(() => button(rows(renderer)[1]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(text(renderer.root)).toContain('未找到日志文件，仅清除了归档条目：Beta notes')
+    vi.mocked(deleteArchivedSession).mockResolvedValueOnce({
+      filesRemoved: true,
+      archiveCleared: false,
+      archiveClearError: 'registry unavailable',
+    })
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    await act(async () => {
+      button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
+    })
+    expect(text(renderer.root)).toContain('日志已删除，但清除归档条目失败：registry unavailable')
+  })
+
+  it('归档快照已变更的旧确认点击跳过请求并提示', async () => {
+    const { renderer, workspaceSource } = section()
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
+    const staleConfirm = button(confirmDialog(renderer), zh['archive.delete']).props.onClick
+    workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] }), false)
+    await act(async () => {
+      staleConfirm()
+    })
+    expect(deleteArchivedSession).not.toHaveBeenCalled()
+    expect(text(renderer.root)).toContain('此会话已不在归档列表中：Alpha investigation')
+  })
+
+  it('删除入口跟随宿主语言', async () => {
+    const { renderer } = section(workspaceSnapshot(), sessionSnapshot(), 'en')
+    expect(text(renderer.root)).toContain(en['archive.delete'])
+    act(() => button(rows(renderer)[0]!, en['archive.delete']).props.onClick())
+    expect(text(confirmDialog(renderer))).toContain(
+      'permanently deletes the log files of "Alpha investigation"',
+    )
+    await act(async () => {
+      button(confirmDialog(renderer), en['archive.delete']).props.onClick()
+    })
+    expect(text(renderer.root)).toContain('Deleted: Alpha investigation')
   })
 })
 

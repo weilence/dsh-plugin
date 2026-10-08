@@ -8,7 +8,7 @@ export const zh = {
   import: '导入会话',
   'archive.title': '已归档会话',
   'archive.description':
-    '归档不会删除数据。恢复仅取消归档，不自动打开会话；此处只显示当前连接的 DSH 实例中的归档。',
+    '归档不会删除数据，恢复仅取消归档；删除则永久移除日志文件。此处只显示当前连接的 DSH 实例中的归档。',
   'archive.search': '搜索标题、路径或会话 ID',
   'archive.loading': '正在加载归档列表…',
   'archive.unavailable': '归档列表尚不可用，请等待连接恢复后再试。',
@@ -22,6 +22,15 @@ export const zh = {
   'archive.restoring': '正在恢复…',
   'archive.restored': '已取消归档：{title}',
   'archive.alreadyRestored': '此会话已不在归档列表中：{title}',
+  'archive.delete': '删除',
+  'archive.deleting': '正在删除…',
+  'archive.deleteConfirmTitle': '删除归档会话',
+  'archive.deleteConfirm':
+    '将永久删除会话「{title}」的日志文件，不可恢复。不影响附件存储和其他会话；其子会话条目仍会保留。',
+  'archive.deleted': '已删除：{title}',
+  'archive.deletedNoFiles': '未找到日志文件，仅清除了归档条目：{title}',
+  'archive.archiveClearFailed': '日志已删除，但清除归档条目失败：{detail}。可再次点击删除以清除条目。',
+  'archive.refreshFailed': '已删除，但刷新会话列表失败：{detail}。刷新页面前侧栏可能仍显示该会话。',
   workspace: '目标工作区',
   'workspace.choose': '请选择工作区',
   'workspace.loading': '正在加载工作区…',
@@ -44,7 +53,7 @@ export const en: { [Key in SessionsKey]: string } = {
   import: 'Import sessions',
   'archive.title': 'Archived sessions',
   'archive.description':
-    'Archiving does not delete data. Restoring only unarchives a session without opening it. Only archives on the currently connected DSH instance are shown.',
+    'Archiving keeps data; restoring only unarchives, while deleting permanently removes log files. Only archives on the currently connected DSH instance are shown.',
   'archive.search': 'Search titles, paths or session IDs',
   'archive.loading': 'Loading archived sessions…',
   'archive.unavailable':
@@ -60,6 +69,17 @@ export const en: { [Key in SessionsKey]: string } = {
   'archive.restoring': 'Restoring…',
   'archive.restored': 'Unarchived: {title}',
   'archive.alreadyRestored': 'This session is no longer archived: {title}',
+  'archive.delete': 'Delete',
+  'archive.deleting': 'Deleting…',
+  'archive.deleteConfirmTitle': 'Delete archived session',
+  'archive.deleteConfirm':
+    'This permanently deletes the log files of "{title}" and cannot be undone. Attachment storage and other sessions are not affected; its child session entries remain.',
+  'archive.deleted': 'Deleted: {title}',
+  'archive.deletedNoFiles': 'No log files found; only the archive entry was cleared: {title}',
+  'archive.archiveClearFailed':
+    'Logs deleted, but clearing the archive entry failed: {detail}. Click delete again to clear the entry.',
+  'archive.refreshFailed':
+    'Deleted, but refreshing the session list failed: {detail}. The sidebar may still list the session until the page is refreshed.',
   workspace: 'Target workspace',
   'workspace.choose': 'Select a workspace',
   'workspace.loading': 'Loading workspaces…',

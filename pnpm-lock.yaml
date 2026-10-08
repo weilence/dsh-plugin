@@ -655,6 +655,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-workspace':
         specifier: 'catalog:'
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
+      '@deepseek-ai/dsh-home-paths':
+        specifier: 'catalog:'
+        version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
       '@deepseek-ai/dsh-host-webserver':
         specifier: 'catalog:'
         version: 0.2.0-rc.2(@deepseek-ai/cordis@4.0.4)
@@ -679,6 +682,9 @@ importers:
       '@deepseek-ai/dsh-workspace':
         specifier: 'catalog:'
         version: 0.2.0-rc.2(0af55daf1da1f010142729c9967a6080)
+      '@dsh-plugins/client-ui':
+        specifier: workspace:*
+        version: link:../../packages/client-ui
       '@dsh-plugins/shared':
         specifier: workspace:*
         version: link:../../packages/shared

@@ -1,8 +1,18 @@
 import { Buffer } from 'node:buffer'
+import { access, chmod, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import { apply } from '../src/index'
-import { IMPORT_PATH, MAX_ARCHIVE_BYTES, MAX_REQUEST_BYTES, type ImportRequest } from '../src/shared'
+import {
+  DELETE_PATH,
+  IMPORT_PATH,
+  MAX_ARCHIVE_BYTES,
+  MAX_REQUEST_BYTES,
+  type ImportRequest,
+} from '../src/shared'
 
 const operations = vi.hoisted(() => ({
   previewArchive: vi.fn(),
@@ -28,6 +38,7 @@ describe('会话导入宿主路由', () => {
     headers: Record<string, string | undefined> = {},
     method = 'POST',
     chunks?: readonly Buffer[],
+    path = IMPORT_PATH,
   ) {
     const result: { status: number; body: Record<string, unknown> } = { status: 0, body: {} }
     const req = {
@@ -46,8 +57,8 @@ describe('会话导入宿主路由', () => {
         result.body = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
       },
     } as unknown as ServerResponse
-    const handler = handlers.get(IMPORT_PATH)
-    if (handler === undefined) throw new Error(`未注册 ${IMPORT_PATH}`)
+    const handler = handlers.get(path)
+    if (handler === undefined) throw new Error(`未注册 ${path}`)
     await handler(req, res)
     return result
   }
@@ -75,8 +86,8 @@ describe('会话导入宿主路由', () => {
     } as never)
   })
 
-  it('仅注册导入路由，自动校验并使用内部版本提交，无需客户端预览', async () => {
-    expect([...handlers.keys()]).toEqual([IMPORT_PATH])
+  it('注册导入与删除路由，导入自动校验并使用内部版本提交，无需客户端预览', async () => {
+    expect([...handlers.keys()]).toEqual([IMPORT_PATH, DELETE_PATH])
     expect(await request()).toEqual({ status: 200, body: imported })
     expect(operations.previewArchive).toHaveBeenCalledWith(
       expect.anything(),
@@ -98,7 +109,7 @@ describe('会话导入宿主路由', () => {
     rejection = status
     expect(await request()).toEqual({
       status,
-      body: { error: status === 401 ? '会话导入请求未通过宿主认证' : '请求来源不允许' },
+      body: { error: status === 401 ? '会话管理请求未通过宿主认证' : '请求来源不允许' },
     })
     expect(operations.previewArchive).not.toHaveBeenCalled()
     expect(operations.importArchive).not.toHaveBeenCalled()
@@ -232,5 +243,262 @@ describe('会话导入宿主路由', () => {
     }
     operations.importArchive.mockResolvedValueOnce(partial)
     expect(await request()).toEqual({ status: 200, body: partial })
+  })
+})
+
+describe('归档会话删除宿主路由', () => {
+  const sessionId = 'session-0a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d'
+  let rejection: 401 | 403 | undefined
+  let handlers: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>
+  let root: string
+  let sessionDir: string
+  let unarchiveSession: ReturnType<typeof vi.fn>
+  let registry: { archivedSessionIds: string[]; unarchiveSession: ReturnType<typeof vi.fn> }
+  let stat: ReturnType<typeof vi.fn>
+  let waterfall: ReturnType<typeof vi.fn>
+  let open: ReturnType<typeof vi.fn>
+  let close: ReturnType<typeof vi.fn>
+
+  async function request(
+    data: unknown = { sessionId },
+    headers: Record<string, string | undefined> = {},
+    method = 'POST',
+  ) {
+    const result: { status: number; body: Record<string, unknown> } = { status: 0, body: {} }
+    const req = {
+      method,
+      headers: { host: '127.0.0.1:19387', 'x-dsh-sessions': '1', ...headers },
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(JSON.stringify(data))
+      },
+    } as unknown as IncomingMessage
+    const res = {
+      writeHead(status: number) {
+        result.status = status
+      },
+      end(bytes: Buffer) {
+        result.body = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
+      },
+    } as unknown as ServerResponse
+    const handler = handlers.get(DELETE_PATH)
+    if (handler === undefined) throw new Error(`未注册 ${DELETE_PATH}`)
+    await handler(req, res)
+    return result
+  }
+
+  beforeEach(async () => {
+    vi.resetAllMocks()
+    rejection = undefined
+    handlers = new Map()
+    root = await mkdtemp(join(tmpdir(), 'dsh-sessions-delete-'))
+    sessionDir = join(root, '--Users-luowei-code-dsh-plugin--', sessionId)
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'session.v4.jsonl.zstd'), 'log')
+    unarchiveSession = vi.fn(async () => {})
+    registry = { archivedSessionIds: [sessionId], unarchiveSession }
+    close = vi.fn(async () => {})
+    stat = vi.fn(async () => ({ header: { id: sessionId } }))
+    open = vi.fn(async () => ({ close }))
+    waterfall = vi.fn(async (_name: string, _payload: unknown, next: () => Promise<unknown>) => next())
+    apply(
+      {
+        effect(callback: () => unknown) {
+          callback()
+        },
+        webServer: {
+          register(route: {
+            path: string
+            handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+          }) {
+            handlers.set(route.path, route.handler)
+            return () => handlers.delete(route.path)
+          },
+        },
+        connection: { requestRejection: () => rejection },
+        workspaceRegistry: registry,
+        sessionPersistence: { stat, open },
+        waterfall,
+      } as never,
+      { sessionsRoot: root },
+    )
+  })
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('认证、协议标记与方法拦截与导入路由一致', async () => {
+    rejection = 401
+    expect(await request()).toEqual({ status: 401, body: { error: '会话管理请求未通过宿主认证' } })
+    rejection = 403
+    expect(await request()).toEqual({ status: 403, body: { error: '请求来源不允许' } })
+    rejection = undefined
+    expect(await request({ sessionId }, { 'x-dsh-sessions': '0' })).toEqual({
+      status: 403,
+      body: { error: '请求来源、方法或协议标记不允许' },
+    })
+    expect(await request({ sessionId }, {}, 'GET')).toEqual({
+      status: 403,
+      body: { error: '请求来源、方法或协议标记不允许' },
+    })
+    expect(stat).not.toHaveBeenCalled()
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it.each([{ sessionId: '' }, { sessionId: 42 }, {}, { other: 1 }])(
+    '拒绝缺失或无效的会话 ID（%j）',
+    async (data) => {
+      expect(await request(data)).toEqual({ status: 400, body: { error: '缺少有效的 sessionId' } })
+      expect(stat).not.toHaveBeenCalled()
+    },
+  )
+
+  it('仅允许删除归档集中的会话', async () => {
+    registry.archivedSessionIds = []
+    expect(await request()).toEqual({ status: 409, body: { error: '仅允许删除已归档的会话' } })
+    expect(stat).not.toHaveBeenCalled()
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('删除时刻复查官方活动 waterfall，仍有活动即拒绝', async () => {
+    waterfall.mockResolvedValueOnce([
+      { kind: 'turn' },
+      { kind: 'job', items: [{ id: 'job-1', label: '后台下载' }] },
+    ])
+    const outcome = await request()
+    expect(outcome.status).toBe(409)
+    expect(outcome.body.error).toContain('会话仍有进行中的活动')
+    expect(outcome.body.error).toContain('turn')
+    expect(outcome.body.error).toContain('job：后台下载')
+    expect(stat).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('抢到官方写锁后删除目录并清理归档条目，关闭句柄', async () => {
+    expect(await request()).toEqual({ status: 200, body: { filesRemoved: true, archiveCleared: true } })
+    expect(open).toHaveBeenCalledWith(sessionId, 'write')
+    await expect(access(sessionDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(close).toHaveBeenCalledOnce()
+    expect(unarchiveSession).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('官方 stat 不存在时不动文件，仅清除归档条目', async () => {
+    stat.mockResolvedValueOnce(undefined)
+    expect(await request()).toEqual({ status: 200, body: { filesRemoved: false, archiveCleared: true } })
+    expect(open).not.toHaveBeenCalled()
+    await expect(access(sessionDir)).resolves.toBeUndefined()
+    expect(unarchiveSession).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('宿主自身持有写句柄时继续删除，不误报占用', async () => {
+    open.mockRejectedValueOnce(new SessionAlreadyOwnedError(sessionId as never))
+    expect(await request()).toEqual({ status: 200, body: { filesRemoved: true, archiveCleared: true } })
+    expect(open).toHaveBeenCalledWith(sessionId, 'write')
+    await expect(access(sessionDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(close).not.toHaveBeenCalled()
+    expect(unarchiveSession).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('写锁的其他错误拒绝删除，保留目录与归档条目', async () => {
+    open.mockRejectedValueOnce(new Error('backend offline'))
+    const outcome = await request()
+    expect(outcome.status).toBe(500)
+    expect(outcome.body.error).toBe('backend offline')
+    await expect(access(sessionDir)).resolves.toBeUndefined()
+    expect(close).not.toHaveBeenCalled()
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('无法定位会话目录时拒绝删除并提示配置存储根', async () => {
+    await rename(sessionDir, `${sessionDir}-moved-away`)
+    const outcome = await request()
+    expect(outcome.status).toBe(409)
+    expect(outcome.body.error).toContain('未能在会话存储根目录')
+    expect(outcome.body.error).toContain('sessionsRoot')
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('目录缺少官方 v4 日志时拒绝删除', async () => {
+    await rm(join(sessionDir, 'session.v4.jsonl.zstd'))
+    const outcome = await request()
+    expect(outcome.status).toBe(409)
+    expect(outcome.body.error).toContain('不含官方 v4 会话日志')
+    expect(unarchiveSession).not.toHaveBeenCalled()
+  })
+
+  it('删除失败保留目录，仍尝试关闭句柄并返回实际原因', async () => {
+    await chmod(sessionDir, 0o555)
+    try {
+      const outcome = await request()
+      expect(outcome.status).toBe(500)
+      expect(String(outcome.body.error)).toContain('EACCES')
+      expect(close).toHaveBeenCalledOnce()
+      expect(unarchiveSession).not.toHaveBeenCalled()
+    } finally {
+      await chmod(sessionDir, 0o755)
+    }
+  })
+
+  it('文件删除成功但归档清理失败时，原样返回清理错误', async () => {
+    unarchiveSession.mockRejectedValueOnce(new Error('registry unavailable'))
+    expect(await request()).toEqual({
+      status: 200,
+      body: { filesRemoved: true, archiveCleared: false, archiveClearError: 'registry unavailable' },
+    })
+  })
+
+  it('删除与导入共用存储互斥，进行中请求一律 409', async () => {
+    let release!: () => void
+    open.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ close })
+        }),
+    )
+    const first = request()
+    await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+    expect((await request()).status).toBe(409)
+    release()
+    expect(await first).toEqual({ status: 200, body: { filesRemoved: true, archiveCleared: true } })
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'session.v4.jsonl.zstd'), 'log')
+    expect((await request()).status).toBe(200)
+  })
+
+  it('缺省配置按官方 home 约定解析存储根', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-sessions-home-'))
+    const previous = process.env.DSH_HOME
+    process.env.DSH_HOME = home
+    try {
+      const defaultDir = join(home, 'sessions', '--project--', sessionId)
+      await mkdir(defaultDir, { recursive: true })
+      await writeFile(join(defaultDir, 'session.v4.jsonl.zstd'), 'log')
+      handlers = new Map()
+      apply({
+        effect(callback: () => unknown) {
+          callback()
+        },
+        webServer: {
+          register(route: {
+            path: string
+            handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+          }) {
+            handlers.set(route.path, route.handler)
+            return () => handlers.delete(route.path)
+          },
+        },
+        connection: { requestRejection: () => undefined },
+        workspaceRegistry: { archivedSessionIds: [sessionId], unarchiveSession },
+        sessionPersistence: { stat, open },
+        waterfall,
+      } as never)
+      expect(await request()).toEqual({ status: 200, body: { filesRemoved: true, archiveCleared: true } })
+      await expect(access(defaultDir)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      if (previous === undefined) delete process.env.DSH_HOME
+      else process.env.DSH_HOME = previous
+      await rm(home, { recursive: true, force: true })
+    }
   })
 })

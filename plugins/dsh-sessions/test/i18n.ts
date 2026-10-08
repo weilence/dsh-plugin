@@ -4,6 +4,7 @@ import { en, zh, type SessionsKey } from '../src/client/locales'
 export function makeT(language: 'zh' | 'en' = 'zh') {
   const dictionary: Record<string, string> = {
     close: language === 'zh' ? '关闭' : 'Close',
+    cancel: language === 'zh' ? '取消' : 'Cancel',
     ...(language === 'zh' ? zh : en),
   }
   return (key: SessionsKey | CommonKey, params?: Record<string, unknown>): string => {

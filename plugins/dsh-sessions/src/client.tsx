@@ -11,9 +11,13 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { errMsg } from '@dsh-plugins/shared'
-import { importFiles, type FileResult } from './client/import'
+import { ConfirmDialog } from '@dsh-plugins/client-ui'
+import sharedStyles from '@dsh-plugins/client-ui/styles'
+import { deleteArchivedSession, importFiles, type FileResult } from './client/api'
 import { NS, en, zh, messageText, type Message } from './client/locales'
-import styles from './client.module.css'
+import localStyles from './client.module.css'
+
+const styles = { ...sharedStyles, ...localStyles }
 
 export const inject = ['slots', 'locale', 'sessions', 'workspaces']
 type SessionsSectionProps = PropsRuntime<'settings.section'> &
@@ -180,6 +184,8 @@ export function SessionsSection({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [restoring, setRestoring] = useState<SessionId | null>(null)
+  const [deleting, setDeleting] = useState<SessionId | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ id: SessionId; title: string } | null>(null)
   const [failure, setFailure] = useState<{ sessionId: SessionId; message: Message } | null>(null)
   const [notice, setNotice] = useState<Message | null>(null)
   const working = useRef(false)
@@ -231,6 +237,61 @@ export function SessionsSection({
     } finally {
       working.current = false
       setRestoring(null)
+    }
+  }
+
+  // 删除与恢复共用互斥：宿主侧两者都要占用存储操作锁，客户端先挡掉并发点击。
+  const remove = async (id: SessionId, title: string) => {
+    if (working.current) return
+    setPendingDelete(null)
+    setFailure(null)
+    setNotice(null)
+    const current = workspaces.list.getSnapshot()
+    if (current.phase !== 'ready' || current.state !== 'idle') {
+      setFailure({
+        sessionId: id,
+        message:
+          current.error === null
+            ? { key: 'archive.unavailable' }
+            : { text: `${current.error.code}: ${current.error.message}` },
+      })
+      return
+    }
+    if (!current.archivedSessionIds.includes(id)) {
+      setNotice({ key: 'archive.alreadyRestored', params: { title } })
+      return
+    }
+    working.current = true
+    setDeleting(id)
+    try {
+      const result = await deleteArchivedSession(id)
+      if (result.archiveClearError !== undefined) {
+        setFailure({
+          sessionId: id,
+          message: { key: 'archive.archiveClearFailed', params: { detail: result.archiveClearError } },
+        })
+        return
+      }
+      // 宿主没有删除契约，也不广播会话移除；归档条目清除后侧栏立即解除隐藏，
+      // 官方会话列表里的过期摘要会让会话看似复活到重启为止，必须主动全量刷新。
+      try {
+        await sessions.refresh()
+      } catch (error) {
+        setFailure({
+          sessionId: id,
+          message: { key: 'archive.refreshFailed', params: { detail: errMsg(error) } },
+        })
+      }
+      setNotice(
+        result.filesRemoved
+          ? { key: 'archive.deleted', params: { title } }
+          : { key: 'archive.deletedNoFiles', params: { title } },
+      )
+    } catch (error) {
+      setFailure({ sessionId: id, message: { text: errMsg(error) } })
+    } finally {
+      working.current = false
+      setDeleting(null)
     }
   }
 
@@ -294,13 +355,25 @@ export function SessionsSection({
                 </div>
                 <div className={styles.restoreAction}>
                   {failure?.sessionId === id ? <p role="alert">{messageText(failure.message, t)}</p> : null}
-                  <Button
-                    variant="outline"
-                    disabled={!ready || restoring !== null}
-                    onClick={() => void restore(id, summary?.displayTitle ?? id)}
-                  >
-                    {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
-                  </Button>
+                  <div className={styles.rowActions}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!ready || restoring !== null || deleting !== null}
+                      onClick={() => void restore(id, summary?.displayTitle ?? id)}
+                    >
+                      {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className={styles.dangerGhost}
+                      disabled={!ready || restoring !== null || deleting !== null}
+                      onClick={() => setPendingDelete({ id, title: summary?.displayTitle ?? id })}
+                    >
+                      {t(deleting === id ? 'archive.deleting' : 'archive.delete')}
+                    </Button>
+                  </div>
                 </div>
               </li>
             ))}
@@ -315,12 +388,29 @@ export function SessionsSection({
         {restoring !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === restoring)) ? (
           <p role="status">{t('archive.restoring')}</p>
         ) : null}
+        {deleting !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === deleting)) ? (
+          <p role="status">{t('archive.deleting')}</p>
+        ) : null}
         {notice !== null ? (
           <p role="status" className={styles.detail}>
             {messageText(notice, t)}
           </p>
         ) : null}
       </section>
+      {pendingDelete !== null ? (
+        <ConfirmDialog
+          title={t('archive.deleteConfirmTitle')}
+          body={t('archive.deleteConfirm', { title: pendingDelete.title })}
+          confirmLabel={t('archive.delete')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
+          busy={deleting !== null}
+          onCancel={() => {
+            if (deleting === null) setPendingDelete(null)
+          }}
+          onConfirm={() => void remove(pendingDelete.id, pendingDelete.title)}
+        />
+      ) : null}
       {open ? (
         <ImportDialog
           t={t}
