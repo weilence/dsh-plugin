@@ -11,7 +11,7 @@
 - `src/live.ts`：Loader / 工具注册表运行态内省（官方 `Loader` / `ToolRuntime` 类型，服务不可用时降级）。
 - `src/shared.ts`：双端 wire 类型与常量。
 - `src/client/locales.ts`：本插件词典（命名空间 `dsh-mcp`，zh 为键集事实源、en 编译期查全），client `apply` 经 `ctx.locale.register` 注册；slot 注册声明 `locale: NS`，组件的 `t` 由框架标准 seat 合成进 props（apply 域 `bind` 只服务导航 label thunk）；`PanelMessage`（`{key, params}` 或 `{text}`）是 store / 解析层的消息描述子，渲染期经 `messageText` 取词。单测取词用 `test/i18n.ts` 的 `makeT`（含 common 词条快照）。
-- `src/client/`：settings.section 面板（导航 label 为 thunk `t('section.label')`，`t` 经框架 seat 进面板根后 props 下传全部组件；公共词取消 / 关闭 / 删除 / 保存走 common 词条）；服务器为可展开卡片——点击行即可在行内新建 / 编辑 / 查看（McpServerForm / McpServerView，编辑弹窗已移除）；JSON 粘贴无解析/导入步骤，「保存」一次完成解析、连接检查与整批落盘。HTTP 封装自定义头 `x-dsh-mcp`。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。
+- `src/client/`：settings.section 面板（导航 label 为 thunk `t('section.label')`，`t` 经框架 seat 进面板根后 props 下传全部组件；公共词取消 / 关闭 / 删除 / 保存走 common 词条）；服务器为可展开卡片——点击行即可在行内新建 / 编辑 / 查看（McpServerForm / McpServerView，编辑弹窗已移除）；JSON 粘贴无解析/导入步骤，「保存」一次完成解析、连接检查与整批落盘。HTTP 封装自定义头 `x-dsh-mcp`。面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。`src/client/store.ts` 的快照存在过渡态行（fiber pending/loading/unloading 的「连接中…」、HMR 在场时未挂出的「待生效」）时自动轮询刷新，落定即停、面板关闭（无订阅者）即停——宿主侧 fiber 转变没有任何推送通道（Loader 不发状态变化事件），轮询是唯一的自动跟进手段。
 
 ## 改动约定
 
@@ -29,4 +29,4 @@
 
 ## 测试
 
-`pnpm --filter @weilence/dsh-mcp test`：patchFile / mcpConfig / mcpImport / probe 纯函数与探测单测；host.test.ts 用假 ctx + 两层临时目录文件 + node -e 桩服务器做五个路由的完整请求-响应集成测试。
+`pnpm --filter @weilence/dsh-mcp test`：patchFile / mcpConfig / mcpImport / probe 纯函数与探测单测；store.test.ts 用 fake timers + mock list 应答验证过渡态轮询的起停；host.test.ts 用假 ctx + 两层临时目录文件 + node -e 桩服务器做五个路由的完整请求-响应集成测试。

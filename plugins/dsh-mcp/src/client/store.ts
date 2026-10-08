@@ -24,6 +24,24 @@ const INITIAL: McpState = {
 /** 写入后等待 HMR 生效的补偿刷新延迟。 */
 const SETTLE_DELAYS_MS = [1200, 4000] as const
 
+/** 快照里有过渡态行时的轮询间隔：连接握手与 npx 下载都以秒计，2s 粒度足够。 */
+const TRANSIENT_POLL_MS = 2000
+
+/**
+ * 过渡态 = 面板展示「连接中…」（fiber pending/loading/unloading）或
+ * 「待生效」（HMR 在场但条目未挂出）。这些状态会自行变化，值得轮询；
+ * HMR 缺席时的「待生效」只能靠重启，轮询没有意义。
+ */
+function hasTransientRow(state: McpState): boolean {
+  const list = state.list
+  if (list === null) return false
+  return list.servers.some((row) => {
+    if (row.disabled) return false
+    if (row.live === null) return list.hotApply
+    return row.live.status === 'pending' || row.live.status === 'loading' || row.live.status === 'unloading'
+  })
+}
+
 export class McpStore {
   private snapshot: McpState = INITIAL
   private readonly listeners = new Set<() => void>()
@@ -32,13 +50,18 @@ export class McpStore {
   private refreshLoading = false
   private refreshDirty = false
   private refreshGeneration = 0
+  private pollTimer: ReturnType<typeof setTimeout> | null = null
 
   getSnapshot = (): McpState => this.snapshot
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
+    // 面板重新挂载时快照可能仍带过渡态行（上次挂载期间留下的），恢复轮询。
+    this.scheduleTransientPoll()
     return () => {
       this.listeners.delete(listener)
+      // 面板关闭后快照无人消费，继续轮询只是空转。
+      if (this.listeners.size === 0) this.stopTransientPoll()
     }
   }
 
@@ -83,10 +106,27 @@ export class McpStore {
       // 卸载或过期响应：丢弃。
       if (generation !== this.refreshGeneration) return
       this.set({ status: 'ready', error: null, list: response })
+      this.scheduleTransientPoll()
     } catch (error) {
       if (generation !== this.refreshGeneration) return
       this.set({ status: 'error', error: { text: errMsg(error) } })
     }
+  }
+
+  /** 过渡态行存在时安排下一轮刷新；已在计时 / 无人订阅 / 全部落定则不动。 */
+  private scheduleTransientPoll(): void {
+    if (this.pollTimer !== null || this.listeners.size === 0) return
+    if (!hasTransientRow(this.snapshot)) return
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = null
+      void this.refresh()
+    }, TRANSIENT_POLL_MS)
+  }
+
+  private stopTransientPoll(): void {
+    if (this.pollTimer === null) return
+    clearTimeout(this.pollTimer)
+    this.pollTimer = null
   }
 
   /** 写操作成功后的刷新：立即一次，再按延迟补偿 HMR 生效窗口。 */
@@ -95,7 +135,7 @@ export class McpStore {
     await this.refresh()
     for (const delay of SETTLE_DELAYS_MS) {
       const generation = this.refreshGeneration
-      window.setTimeout(() => {
+      setTimeout(() => {
         if (generation <= this.refreshGeneration) void this.refresh()
       }, delay)
     }
