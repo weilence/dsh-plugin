@@ -1,18 +1,21 @@
 import { Buffer } from 'node:buffer'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { SessionAlreadyOwnedError, type SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
-import { importArchive, previewArchive } from './archive'
-import { locateSessionDir } from './storage'
-import { DELETE_PATH, IMPORT_PATH, MAX_ARCHIVE_BYTES, MAX_REQUEST_BYTES } from './shared'
+import {
+  deleteSessionFiles,
+  describeActivity,
+  importArchive,
+  migrateSession,
+  previewArchive,
+} from './archive'
+import { DELETE_PATH, IMPORT_PATH, MAX_ARCHIVE_BYTES, MAX_REQUEST_BYTES, MIGRATE_PATH } from './shared'
 
 export const inject = [
   'webServer',
@@ -125,41 +128,9 @@ export function apply(ctx: Context, config: Config = {}): void {
         Promise.resolve([]),
       )
       if (activity.length > 0) {
-        const names = activity
-          .map((entry) =>
-            entry.items?.length
-              ? `${entry.kind}：${entry.items.map((item) => item.label ?? item.id).join('、')}`
-              : entry.kind,
-          )
-          .join('、')
-        throw new HttpError(409, `会话仍有进行中的活动，已拒绝删除：${names}`)
+        throw new HttpError(409, `会话仍有进行中的活动，已拒绝删除：${describeActivity(activity)}`)
       }
-      let filesRemoved = false
-      if ((await ctx.sessionPersistence.stat(id)) !== undefined) {
-        const dir = await locateSessionDir(sessionsRoot, sessionId)
-        // 写锁尽力闸门：抢到锁则持锁删除（防其他进程并发写）。宿主进程对已加载
-        // 会话长期持有写句柄且归档不释放它，占用错误只可能是宿主自身的空闲句柄
-        // ——归档集成员已保证无活动，继续删除；其余错误拒绝。
-        let handle: SessionHandle | undefined
-        try {
-          handle = await ctx.sessionPersistence.open(id, 'write')
-        } catch (error) {
-          if (!(error instanceof SessionAlreadyOwnedError)) throw error
-        }
-        try {
-          await rm(dir, { recursive: true, force: false })
-          filesRemoved = true
-        } finally {
-          // 删除结果已定，关闭句柄失败不回滚也不阻断归档条目清理。
-          if (handle !== undefined) {
-            try {
-              await handle.close()
-            } catch {
-              // 忽略：数据已删除，后续 unarchive 才是用户可见状态。
-            }
-          }
-        }
-      }
+      const filesRemoved = await deleteSessionFiles(ctx, sessionsRoot, id)
       let archiveCleared = false
       let archiveClearError: string | undefined
       try {
@@ -169,6 +140,19 @@ export function apply(ctx: Context, config: Config = {}): void {
         archiveClearError = errMsg(error)
       }
       writeJson(res, 200, { filesRemoved, archiveCleared, ...(archiveClearError && { archiveClearError }) })
+    } finally {
+      busy = false
+    }
+  })
+
+  route(MIGRATE_PATH, async (req, res) => {
+    const body = await readJsonBody(req)
+    const sessionId = requiredText(body.sessionId, 'sessionId')
+    const workspaceId = requiredText(body.workspaceId, 'workspaceId')
+    if (busy) throw new HttpError(409, '另一个会话存储操作正在进行，请稍后重试')
+    busy = true
+    try {
+      writeJson(res, 200, await migrateSession(ctx, sessionsRoot, { sessionId, workspaceId }))
     } finally {
       busy = false
     }

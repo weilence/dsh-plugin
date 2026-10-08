@@ -1,6 +1,6 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Switch the DeepSeek Harness web_search backend to Zhipu and mount Zhipu search / reader MCP tools.",
   "icon": "./icon.svg",
   "type": "module",

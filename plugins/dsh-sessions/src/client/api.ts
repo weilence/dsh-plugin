@@ -3,11 +3,14 @@ import { createBridgeClient } from '@dsh-plugins/shared/api'
 import {
   IMPORT_PATH,
   DELETE_PATH,
+  MIGRATE_PATH,
   MAX_ARCHIVE_BYTES,
   type DeleteRequest,
   type DeleteResult,
   type ImportRequest,
   type ImportResult,
+  type MigrateRequest,
+  type MigrateResult,
 } from '../shared'
 import type { Message } from './locales'
 
@@ -45,4 +48,12 @@ export async function importFiles(
 export async function deleteArchivedSession(sessionId: string): Promise<DeleteResult> {
   const body: DeleteRequest = { sessionId }
   return api.request<DeleteResult>(DELETE_PATH, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function migrateSessionToWorkspace(
+  sessionId: string,
+  workspaceId: string,
+): Promise<MigrateResult> {
+  const body: MigrateRequest = { sessionId, workspaceId }
+  return api.request<MigrateResult>(MIGRATE_PATH, { method: 'POST', body: JSON.stringify(body) })
 }

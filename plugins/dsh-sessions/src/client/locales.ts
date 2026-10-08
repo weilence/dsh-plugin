@@ -45,6 +45,27 @@ export const zh = {
     '导入未完成：{detail}。已导入 {imported} 个，跳过 {skipped} 个；未确认完整的会话：{incomplete}。请保留 ZIP 和错误详情，检查后再重试。',
   'result.refreshFailed': '刷新会话列表失败：{detail}。请刷新页面查看已保存的会话。',
   'file.tooLarge': 'ZIP 超过 64 MiB，无法导入。',
+  migrate: '迁移到工作区…',
+  'migrate.title': '迁移会话到工作区',
+  'migrate.description':
+    '迁移会把该会话及其子会话导出为官方 ZIP，删除本机原日志，再导入到目标工作区；日志头的工作目录会改写为目标路径，历史文本中的旧路径保持原样。会话必须空闲且未在宿主中加载，仍有回合、子代理、后台任务或定时活动时会被拒绝。迁移不是原子操作，中途失败时按提示用导出档案恢复。',
+  'migrate.confirm': '迁移',
+  'migrate.working': '正在迁移…',
+  'migrate.done': '已迁移到「{workspace}」：{title}。若列表未更新，请刷新页面。',
+  'migrate.attached': '工作目录与「{workspace}」一致，已直接归入：{title}。若列表未更新，请刷新页面。',
+  'migrate.current': '当前所在工作区',
+  'migrate.noTarget': '没有其他工作区可作为迁移目标；请先在左侧列表添加工作区。',
+  'migrate.refreshFailed': '迁移完成，但刷新会话列表失败：{detail}。请刷新页面查看新工作区。',
+  'migrate.archiveClearFailed': '已迁移，但会话仍留在归档集中：{detail}。可在下方「已归档会话」点击恢复。',
+  'migrate.loadedFailed': '会话仍加载在宿主内存中，未做任何改动。请重启宿主或确认已关闭该会话后重试。',
+  'migrate.activityFailed': '会话仍有进行中的活动，已拒绝迁移：{detail}',
+  'migrate.attachFailed': '归入工作区失败，未做任何改动：{detail}',
+  'migrate.exportFailed': '导出会话日志失败，未做任何改动：{detail}',
+  'migrate.archiveFailed': '归档会话失败，未做任何改动：{detail}',
+  'migrate.deleteFailed': '日志删除失败，目标工作区未导入：{detail}',
+  'migrate.importFailed': '日志已删除，但导入目标工作区失败：{detail}',
+  'migrate.recoverHint': '已保留导出档案，可用「设置 → 会话」的导入功能恢复到目标目录 {cwd}。',
+  'migrate.recover': '下载导出档案',
 } as const
 
 export type SessionsKey = keyof typeof zh
@@ -96,6 +117,32 @@ export const en: { [Key in SessionsKey]: string } = {
   'result.refreshFailed':
     'Refreshing the session list failed: {detail}. Refresh the page to see saved sessions.',
   'file.tooLarge': 'The ZIP exceeds the 64 MiB limit.',
+  migrate: 'Migrate to workspace…',
+  'migrate.title': 'Migrate session to workspace',
+  'migrate.description':
+    'Migration exports the session and its sub-sessions as an official ZIP, deletes the local logs, then imports them into the target workspace; the working directory in the log header is rewritten to the target path, while old paths in historical text stay unchanged. The session must be idle and not loaded in the host; migration is refused while turns, subagents, background jobs, or scheduled activity are running. Migration is not atomic; if it fails midway, recover with the exported archive as instructed.',
+  'migrate.confirm': 'Migrate',
+  'migrate.working': 'Migrating…',
+  'migrate.done': 'Migrated to "{workspace}": {title}. Refresh the page if the list has not updated.',
+  'migrate.attached':
+    'The working directory already matches "{workspace}"; the session was attached directly: {title}. Refresh the page if the list has not updated.',
+  'migrate.current': 'Current workspace',
+  'migrate.noTarget': 'No other workspace can be a migration target; add a workspace in the sidebar first.',
+  'migrate.refreshFailed':
+    'Migrated, but refreshing the session list failed: {detail}. Refresh the page to see the new workspace.',
+  'migrate.archiveClearFailed':
+    'Migrated, but the session remains in the archive set: {detail}. Click restore under "Archived sessions" below.',
+  'migrate.loadedFailed':
+    'The session is still loaded in the host memory; nothing was changed. Restart the host or make sure the session is closed, then retry.',
+  'migrate.activityFailed': 'The session still has running activity; migration was refused: {detail}',
+  'migrate.attachFailed': 'Attaching to the workspace failed; nothing was changed: {detail}',
+  'migrate.exportFailed': 'Exporting the session log failed; nothing was changed: {detail}',
+  'migrate.archiveFailed': 'Archiving the session failed; nothing was changed: {detail}',
+  'migrate.deleteFailed': 'Deleting the logs failed; the target workspace was not imported: {detail}',
+  'migrate.importFailed': 'The logs were deleted, but importing into the target workspace failed: {detail}',
+  'migrate.recoverHint':
+    'The exported archive is preserved; restore it into the target directory {cwd} via "Settings → Sessions" import.',
+  'migrate.recover': 'Download exported archive',
 }
 
 export type Message = { key: SessionsKey; params?: Record<string, string | number> } | { text: string }

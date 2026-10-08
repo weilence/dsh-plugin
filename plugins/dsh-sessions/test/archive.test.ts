@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, realpath, rm, symlink, unlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, stat as statFs, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -19,7 +19,8 @@ import {
   sessionLogExportDeps,
   readSessionLogText,
 } from '@deepseek-ai/dsh-session-log-export'
-import { importArchive, previewArchive } from '../src/archive.js'
+import { encodeIdSegment } from '../src/storage.js'
+import { importArchive, migrateSession, previewArchive } from '../src/archive.js'
 import {
   MAX_ARCHIVE_BYTES,
   MAX_ENTRY_BYTES,
@@ -154,6 +155,7 @@ function fixture() {
   const ctx = { ...services, get: (key: keyof typeof services) => services[key] } as unknown as Context
   return {
     ctx,
+    services,
     stored,
     live,
     attached,
@@ -654,5 +656,254 @@ describe('official session archives', () => {
     f.live.add('root')
     await expect(previewArchive(f.ctx, bytes, cwd)).rejects.toThrow('已加载')
     await expect(importArchive(f.ctx, bytes, cwd, expected)).rejects.toThrow('已加载')
+  })
+})
+
+describe('migrateSession', () => {
+  let root: string
+  let source: string
+  let target: string
+  const sessionId = 'root'
+  const exists = async (path: string): Promise<boolean> =>
+    statFs(path).then(
+      () => true,
+      () => false,
+    )
+
+  beforeEach(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sessions-migrate-')))
+    source = join(root, 'source')
+    target = join(root, 'target')
+    await mkdir(source)
+    await mkdir(target)
+  })
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  /** 在假持久化之上补齐迁移闸门要读的宿主事实：stat/读取按磁盘存在性裁剪。 */
+  function migrateFixture() {
+    const base = fixture()
+    const archived: string[] = []
+    const activity: unknown[] = []
+    const workspaces = new Map<string, { path: string; attachSession: (id: string) => Promise<void> }>()
+    const sessionDir = (id: string) => join(root, 'proj', encodeIdSegment(id))
+    const stat = vi.fn(async (id: string) => {
+      const entry = base.stored.get(id)
+      return entry !== undefined && (await exists(sessionDir(id))) ? { header: entry.header } : undefined
+    })
+    const open = vi.fn(async (id: string, access: 'read' | 'write') => {
+      if (access === 'read' && base.stored.has(id) && !(await exists(sessionDir(id)))) {
+        throw new SessionPersistenceNotFoundError(SessionId(id))
+      }
+      return base.persistence.open(id, access)
+    })
+    const registry = {
+      archivedSessionIds: archived,
+      get: (id: string) => workspaces.get(id),
+      // importArchive 经 create 按路径解析工作区；已有同路径实体时复用，模拟官方去重。
+      create: vi.fn(async (path: string) => {
+        const existing = [...workspaces.values()].find((workspace) => workspace.path === path)
+        if (existing !== undefined) return existing
+        const created = {
+          path,
+          attachSession: async (id: string) => {
+            base.attached.add(id)
+          },
+        }
+        workspaces.set(`auto-${workspaces.size}`, created)
+        return created
+      }),
+      archiveSession: vi.fn(async (id: string) => {
+        if (!archived.includes(id)) archived.push(id)
+      }),
+      unarchiveSession: vi.fn(async (id: string) => {
+        const at = archived.indexOf(id)
+        if (at >= 0) archived.splice(at, 1)
+      }),
+    }
+    const waterfall = vi.fn(async () => [...activity])
+    // 真实后端以磁盘为事实源：目录已删则同 ID 不再存在，create 必须放行重建。
+    const create = vi.fn(
+      async (meta: { id: string }, options?: { inheritedEventCount?: SessionLogOffset }) => {
+        if (base.stored.has(meta.id) && !(await exists(sessionDir(meta.id)))) base.stored.delete(meta.id)
+        return base.persistence.create(meta, options)
+      },
+    )
+    workspaces.set('target', {
+      path: target,
+      attachSession: async (id) => {
+        base.attached.add(id)
+      },
+    })
+    const ctx = {
+      ...base.ctx,
+      sessionPersistence: { ...base.persistence, stat, open, create },
+      workspaceRegistry: registry,
+      waterfall,
+    } as unknown as Context
+    return {
+      ...base,
+      ctx,
+      registry,
+      archived,
+      activity,
+      workspaces,
+      waterfall,
+      sessionDir,
+      seedOnDisk: async (id = sessionId) => {
+        await mkdir(sessionDir(id), { recursive: true })
+        await writeFile(join(sessionDir(id), 'session.v4.jsonl'), 'log')
+      },
+    }
+  }
+
+  async function seedStored(f: ReturnType<typeof migrateFixture>): Promise<void> {
+    const bytes = archive()
+    await importArchive(f.ctx, bytes, source, (await previewArchive(f.ctx, bytes, source)).expected)
+    await f.seedOnDisk()
+  }
+
+  it('happy path：导出后归档、删除、导入目标目录，并挂载到目标工作区', async () => {
+    const f = migrateFixture()
+    await seedStored(f)
+    const before = f.stored.get(sessionId)!
+    expect(await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).toEqual({
+      ok: true,
+      filesRemoved: true,
+    })
+    expect(f.registry.archiveSession).toHaveBeenCalledWith(sessionId, {})
+    expect(f.archived).toEqual([])
+    expect(await exists(f.sessionDir(sessionId))).toBe(false)
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(target)
+    expect(f.stored.get(sessionId)!.events).toEqual(before.events)
+    expect([...f.attached]).toEqual([sessionId])
+  })
+
+  it('未知工作区、缺失日志与子会话在协议层拒绝，不做任何改动', async () => {
+    const f = migrateFixture()
+    await expect(migrateSession(f.ctx, root, { sessionId, workspaceId: 'absent' })).rejects.toThrow(
+      '目标工作区不存在',
+    )
+    await expect(migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).rejects.toThrow(
+      '没有已存储的日志',
+    )
+    f.stored.set(sessionId, {
+      header: header(sessionId, { origin: 'subagent' }) as unknown as SessionHeader,
+      events: [],
+      inheritedEventCount: SessionLogOffset(0),
+    })
+    await f.seedOnDisk()
+    await expect(migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).rejects.toThrow(
+      '子会话不提供迁移',
+    )
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+  })
+
+  it('cwd 已等于目标路径时走快路径：仅补挂账本，不导出不删除', async () => {
+    const f = migrateFixture()
+    const bytes = archive()
+    await importArchive(f.ctx, bytes, target, (await previewArchive(f.ctx, bytes, target)).expected)
+    await f.seedOnDisk()
+    f.attached.delete(sessionId)
+    expect(await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).toEqual({
+      ok: true,
+      filesRemoved: false,
+      attached: true,
+    })
+    expect([...f.attached]).toEqual([sessionId])
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+    expect(await exists(f.sessionDir(sessionId))).toBe(true)
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(target)
+  })
+
+  it('快路径 attach 失败时按 attach 阶段返回，日志保持原样', async () => {
+    const f = migrateFixture()
+    const bytes = archive()
+    await importArchive(f.ctx, bytes, target, (await previewArchive(f.ctx, bytes, target)).expected)
+    await f.seedOnDisk()
+    f.attached.delete(sessionId)
+    f.workspaces.get('target')!.attachSession = async () => {
+      throw new Error('boom')
+    }
+    expect(await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).toEqual({
+      ok: false,
+      stage: 'attach',
+      error: 'boom',
+    })
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+    expect(await exists(f.sessionDir(sessionId))).toBe(true)
+  })
+
+  it('会话仍在宿主内存或仍有活动时在破坏性步骤前拒绝', async () => {
+    const f = migrateFixture()
+    await seedStored(f)
+    f.live.add(sessionId)
+    expect(await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })).toMatchObject({
+      ok: false,
+      stage: 'loaded',
+    })
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+    f.live.delete(sessionId)
+    f.activity.push({ kind: 'turn' }, { kind: 'job', items: [{ id: 'job-1', label: '后台下载' }] })
+    const gated = await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })
+    expect(gated).toMatchObject({ ok: false, stage: 'activity' })
+    if (!gated.ok) expect(gated.error).toContain('job：后台下载')
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(source)
+  })
+
+  it('归档与删除之间复查活动，拒绝时保留归档条目且未删除文件', async () => {
+    const f = migrateFixture()
+    await seedStored(f)
+    f.waterfall
+      .mockImplementationOnce(async () => [])
+      .mockImplementationOnce(async () => [{ kind: 'schedule', items: [{ id: 's1', label: '定时任务' }] }])
+    const gated = await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })
+    expect(gated).toMatchObject({ ok: false, stage: 'activity' })
+    if (!gated.ok) expect(gated.error).toContain('归档')
+    expect(f.archived).toEqual([sessionId])
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(source)
+    expect(await exists(f.sessionDir(sessionId))).toBe(true)
+  })
+
+  it('导出失败时保留原状', async () => {
+    const f = migrateFixture()
+    await seedStored(f)
+    // 官方导出依赖的附件服务缺席时，导出闸门显式拒绝且不动任何数据。
+    ;(f.services as { attachments: unknown }).attachments = undefined
+    const failed = await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })
+    expect(failed).toMatchObject({ ok: false, stage: 'export' })
+    expect(f.registry.archiveSession).not.toHaveBeenCalled()
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(source)
+  })
+
+  it('删除失败时明确报告，文件与归档条目保持原状', async () => {
+    const f = migrateFixture()
+    await importArchive(f.ctx, archive(), source, (await previewArchive(f.ctx, archive(), source)).expected)
+    await mkdir(f.sessionDir(sessionId), { recursive: true })
+    const failed = await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })
+    expect(failed).toMatchObject({ ok: false, stage: 'delete' })
+    if (!failed.ok) expect(failed.error).toContain('不含官方 v4 会话日志')
+    expect(f.archived).toEqual([sessionId])
+    expect(f.stored.get(sessionId)!.header.cwd).toBe(source)
+  })
+
+  it('日志已删除而导入未完成时，返回导出档案与目标目录供手动恢复', async () => {
+    const f = migrateFixture()
+    await seedStored(f)
+    f.failCreate(sessionId)
+    const failed = await migrateSession(f.ctx, root, { sessionId, workspaceId: 'target' })
+    expect(failed).toMatchObject({ ok: false, stage: 'import' })
+    if (!failed.ok) {
+      expect(failed.recoverable).toBeDefined()
+      if (failed.recoverable === undefined) throw new Error('缺少恢复档案')
+      expect(failed.recoverable.cwd).toBe(target)
+      expect(Object.keys(unzipSync(Buffer.from(failed.recoverable.archive, 'base64')))).toEqual([
+        'session.v4.jsonl',
+      ])
+    }
+    expect(f.archived).toEqual([])
+    expect(await exists(f.sessionDir(sessionId))).toBe(false)
   })
 })

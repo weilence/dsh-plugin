@@ -11,14 +11,22 @@ import {
   IMPORT_PATH,
   MAX_ARCHIVE_BYTES,
   MAX_REQUEST_BYTES,
+  MIGRATE_PATH,
   type ImportRequest,
 } from '../src/shared'
 
 const operations = vi.hoisted(() => ({
   previewArchive: vi.fn(),
   importArchive: vi.fn(),
+  migrateSession: vi.fn(),
 }))
-vi.mock('../src/archive', () => operations)
+// 只替换导入编排两步；删除与迁移闸门的文件语义走真实实现，由各自用例覆盖。
+vi.mock('../src/archive', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  previewArchive: operations.previewArchive,
+  importArchive: operations.importArchive,
+  migrateSession: operations.migrateSession,
+}))
 
 const expected = { archiveDigest: 'a'.repeat(64), cwd: '/target', sessions: { example: null } }
 const payload: ImportRequest = {
@@ -86,8 +94,8 @@ describe('会话导入宿主路由', () => {
     } as never)
   })
 
-  it('注册导入与删除路由，导入自动校验并使用内部版本提交，无需客户端预览', async () => {
-    expect([...handlers.keys()]).toEqual([IMPORT_PATH, DELETE_PATH])
+  it('注册导入、删除与迁移路由，导入自动校验并使用内部版本提交，无需客户端预览', async () => {
+    expect([...handlers.keys()]).toEqual([IMPORT_PATH, DELETE_PATH, MIGRATE_PATH])
     expect(await request()).toEqual({ status: 200, body: imported })
     expect(operations.previewArchive).toHaveBeenCalledWith(
       expect.anything(),
@@ -500,5 +508,118 @@ describe('归档会话删除宿主路由', () => {
       else process.env.DSH_HOME = previous
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('会话迁移宿主路由', () => {
+  const migrated = { ok: true, filesRemoved: true } as const
+  let rejection: 401 | 403 | undefined
+  let handlers: Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>
+
+  async function request(
+    data: unknown = { sessionId: 'session-1', workspaceId: 'ws-1' },
+    headers: Record<string, string | undefined> = {},
+    method = 'POST',
+  ) {
+    const result: { status: number; body: Record<string, unknown> } = { status: 0, body: {} }
+    const req = {
+      method,
+      headers: { host: '127.0.0.1:19387', 'x-dsh-sessions': '1', ...headers },
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(JSON.stringify(data))
+      },
+    } as unknown as IncomingMessage
+    const res = {
+      writeHead(status: number) {
+        result.status = status
+      },
+      end(bytes: Buffer) {
+        result.body = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
+      },
+    } as unknown as ServerResponse
+    const handler = handlers.get(MIGRATE_PATH)
+    if (handler === undefined) throw new Error(`未注册 ${MIGRATE_PATH}`)
+    await handler(req, res)
+    return result
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks()
+    rejection = undefined
+    handlers = new Map()
+    operations.migrateSession.mockResolvedValue(migrated)
+    apply({
+      effect(callback: () => unknown) {
+        callback()
+      },
+      webServer: {
+        register(route: {
+          path: string
+          handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+        }) {
+          handlers.set(route.path, route.handler)
+          return () => handlers.delete(route.path)
+        },
+      },
+      connection: { requestRejection: () => rejection },
+    } as never)
+  })
+
+  it('认证、协议标记与方法拦截与导入路由一致', async () => {
+    rejection = 401
+    expect(await request()).toEqual({ status: 401, body: { error: '会话管理请求未通过宿主认证' } })
+    rejection = 403
+    expect(await request()).toEqual({ status: 403, body: { error: '请求来源不允许' } })
+    rejection = undefined
+    expect(await request({ sessionId: 's', workspaceId: 'w' }, {}, 'GET')).toEqual({
+      status: 403,
+      body: { error: '请求来源、方法或协议标记不允许' },
+    })
+    expect(operations.migrateSession).not.toHaveBeenCalled()
+  })
+
+  it('拒绝缺失的会话或工作区 ID', async () => {
+    expect(await request({ sessionId: '', workspaceId: 'ws' })).toEqual({
+      status: 400,
+      body: { error: '缺少有效的 sessionId' },
+    })
+    expect(await request({ sessionId: 's', workspaceId: undefined })).toEqual({
+      status: 400,
+      body: { error: '缺少有效的 workspaceId' },
+    })
+    expect(operations.migrateSession).not.toHaveBeenCalled()
+  })
+
+  it('编排结果原样返回，受控失败也走 200 由客户端按步骤呈现', async () => {
+    expect(await request()).toEqual({ status: 200, body: migrated })
+    expect(operations.migrateSession).toHaveBeenCalledExactlyOnceWith(expect.anything(), expect.any(String), {
+      sessionId: 'session-1',
+      workspaceId: 'ws-1',
+    })
+    const gated = { ok: false, stage: 'loaded', error: '会话仍加载在宿主内存中' } as const
+    operations.migrateSession.mockResolvedValueOnce(gated)
+    expect(await request()).toEqual({ status: 200, body: gated })
+  })
+
+  it('编排抛出的协议错误保留状态码与实际原因，失败后互斥释放', async () => {
+    operations.migrateSession.mockRejectedValueOnce(new Error('目标工作区不存在，请重新选择'))
+    expect(await request()).toEqual({ status: 500, body: { error: '目标工作区不存在，请重新选择' } })
+    expect((await request()).status).toBe(200)
+  })
+
+  it('迁移与删除共用存储互斥，进行中请求一律 409', async () => {
+    let release!: () => void
+    operations.migrateSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(migrated)
+        }),
+    )
+    const first = request()
+    await vi.waitFor(() => expect(operations.migrateSession).toHaveBeenCalledTimes(1))
+    expect((await request()).status).toBe(409)
+    expect(operations.migrateSession).toHaveBeenCalledTimes(1)
+    release()
+    expect(await first).toEqual({ status: 200, body: migrated })
   })
 })

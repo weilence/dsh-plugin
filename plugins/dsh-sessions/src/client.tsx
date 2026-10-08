@@ -1,20 +1,28 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { errMsg } from '@dsh-plugins/shared'
 import { ConfirmDialog } from '@dsh-plugins/client-ui'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
-import { deleteArchivedSession, importFiles, type FileResult } from './client/api'
+import { importFiles, type FileResult } from './client/api'
+import {
+  createMigrateBridge,
+  MigrateDialogEntry,
+  MigrateMenuItem,
+  type MigrateDialogInjected,
+  type MigrateMenuItemInjected,
+  workspaceSnapshotHook,
+} from './client/migrate'
 import { NS, en, zh, messageText, type Message } from './client/locales'
+import { SessionsStore } from './client/store'
 import localStyles from './client.module.css'
 
 const styles = { ...sharedStyles, ...localStyles }
@@ -22,7 +30,7 @@ const styles = { ...sharedStyles, ...localStyles }
 export const inject = ['slots', 'locale', 'sessions', 'workspaces']
 type SessionsSectionProps = PropsRuntime<'settings.section'> &
   PropsLocale<typeof NS> &
-  InjectFace<{ sessions: ISessions; workspaces: IWorkspaces; formatTime: (timestamp: number) => string }>
+  InjectFace<{ sessions: ISessions; store: SessionsStore; formatTime: (timestamp: number) => string }>
 type ImportDialogProps = Pick<SessionsSectionProps, 't' | 'useWorkspaces'> & {
   onImported: () => Promise<void>
   onClose: () => void
@@ -176,19 +184,20 @@ export function SessionsSection({
   useWorkspaces,
   useSessions,
   sessions,
-  workspaces,
+  store,
   formatTime,
 }: SessionsSectionProps) {
   const snapshot = useWorkspaces((value) => value)
   const list = useSessions((value) => value)
+  const { restoring, deleting, pendingDelete, failure, notice } = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getSnapshot,
+  )
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const [restoring, setRestoring] = useState<SessionId | null>(null)
-  const [deleting, setDeleting] = useState<SessionId | null>(null)
-  const [pendingDelete, setPendingDelete] = useState<{ id: SessionId; title: string } | null>(null)
-  const [failure, setFailure] = useState<{ sessionId: SessionId; message: Message } | null>(null)
-  const [notice, setNotice] = useState<Message | null>(null)
-  const working = useRef(false)
+  // 面板卸载即清空一次性反馈；store 跨挂载存活，不清会在下次打开时重放旧提示。
+  useEffect(() => () => store.dismissFeedback(), [store])
   const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
   const keyword = query.trim().toLocaleLowerCase()
   const listed = new Set(list.ids)
@@ -206,94 +215,7 @@ export function SessionsSection({
         value?.toLocaleLowerCase().includes(keyword),
       ),
     )
-
-  const restore = async (id: SessionId, title: string) => {
-    if (working.current) return
-    setFailure(null)
-    setNotice(null)
-    const current = workspaces.list.getSnapshot()
-    if (current.phase !== 'ready' || current.state !== 'idle') {
-      setFailure({
-        sessionId: id,
-        message:
-          current.error === null
-            ? { key: 'archive.unavailable' }
-            : { text: `${current.error.code}: ${current.error.message}` },
-      })
-      return
-    }
-    if (!current.archivedSessionIds.includes(id)) {
-      setNotice({ key: 'archive.alreadyRestored', params: { title } })
-      return
-    }
-    // 官方归档命令共用请求序号；串行恢复避免不同条目的响应互相覆盖。
-    working.current = true
-    setRestoring(id)
-    try {
-      await workspaces.unarchiveSession(id)
-      setNotice({ key: 'archive.restored', params: { title } })
-    } catch (error) {
-      setFailure({ sessionId: id, message: { text: errMsg(error) } })
-    } finally {
-      working.current = false
-      setRestoring(null)
-    }
-  }
-
-  // 删除与恢复共用互斥：宿主侧两者都要占用存储操作锁，客户端先挡掉并发点击。
-  const remove = async (id: SessionId, title: string) => {
-    if (working.current) return
-    setPendingDelete(null)
-    setFailure(null)
-    setNotice(null)
-    const current = workspaces.list.getSnapshot()
-    if (current.phase !== 'ready' || current.state !== 'idle') {
-      setFailure({
-        sessionId: id,
-        message:
-          current.error === null
-            ? { key: 'archive.unavailable' }
-            : { text: `${current.error.code}: ${current.error.message}` },
-      })
-      return
-    }
-    if (!current.archivedSessionIds.includes(id)) {
-      setNotice({ key: 'archive.alreadyRestored', params: { title } })
-      return
-    }
-    working.current = true
-    setDeleting(id)
-    try {
-      const result = await deleteArchivedSession(id)
-      if (result.archiveClearError !== undefined) {
-        setFailure({
-          sessionId: id,
-          message: { key: 'archive.archiveClearFailed', params: { detail: result.archiveClearError } },
-        })
-        return
-      }
-      // 宿主没有删除契约，也不广播会话移除；归档条目清除后侧栏立即解除隐藏，
-      // 官方会话列表里的过期摘要会让会话看似复活到重启为止，必须主动全量刷新。
-      try {
-        await sessions.refresh()
-      } catch (error) {
-        setFailure({
-          sessionId: id,
-          message: { key: 'archive.refreshFailed', params: { detail: errMsg(error) } },
-        })
-      }
-      setNotice(
-        result.filesRemoved
-          ? { key: 'archive.deleted', params: { title } }
-          : { key: 'archive.deletedNoFiles', params: { title } },
-      )
-    } catch (error) {
-      setFailure({ sessionId: id, message: { text: errMsg(error) } })
-    } finally {
-      working.current = false
-      setDeleting(null)
-    }
-  }
+    .reverse()
 
   return (
     <div className={styles.section}>
@@ -360,7 +282,7 @@ export function SessionsSection({
                       size="sm"
                       variant="outline"
                       disabled={!ready || restoring !== null || deleting !== null}
-                      onClick={() => void restore(id, summary?.displayTitle ?? id)}
+                      onClick={() => void store.restore(id, summary?.displayTitle ?? id)}
                     >
                       {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
                     </Button>
@@ -369,7 +291,7 @@ export function SessionsSection({
                       variant="ghost"
                       className={styles.dangerGhost}
                       disabled={!ready || restoring !== null || deleting !== null}
-                      onClick={() => setPendingDelete({ id, title: summary?.displayTitle ?? id })}
+                      onClick={() => store.askDelete({ id, title: summary?.displayTitle ?? id })}
                     >
                       {t(deleting === id ? 'archive.deleting' : 'archive.delete')}
                     </Button>
@@ -392,9 +314,13 @@ export function SessionsSection({
           <p role="status">{t('archive.deleting')}</p>
         ) : null}
         {notice !== null ? (
-          <p role="status" className={styles.detail}>
-            {messageText(notice, t)}
-          </p>
+          // 一次性提示走官方 Toast：淡出后清空，下次操作即替换；文本相同也换 key 重开计时。
+          <Toast
+            key={messageText(notice, t)}
+            text={messageText(notice, t)}
+            holdMs={5000}
+            onDone={() => store.dismissNotice()}
+          />
         ) : null}
       </section>
       {pendingDelete !== null ? (
@@ -405,10 +331,8 @@ export function SessionsSection({
           cancelLabel={t('cancel')}
           closeLabel={t('close')}
           busy={deleting !== null}
-          onCancel={() => {
-            if (deleting === null) setPendingDelete(null)
-          }}
-          onConfirm={() => void remove(pendingDelete.id, pendingDelete.title)}
+          onCancel={() => store.askDelete(null)}
+          onConfirm={() => void store.remove(pendingDelete.id, pendingDelete.title)}
         />
       ) : null}
       {open ? (
@@ -428,6 +352,7 @@ export function apply(ctx: Context): void {
   // 两个 half 的同名 sessions 在联合类型检查中相遇；浏览器入口只持有官方 ISessions。
   const sessions = ctx.sessions as unknown as ISessions
   const t = ctx.locale.bind(NS)
+  const store = new SessionsStore(ctx.workspaces, () => sessions.refresh())
   ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
@@ -438,12 +363,45 @@ export function apply(ctx: Context): void {
         locale: NS,
         inject: () => ({
           sessions,
-          workspaces: ctx.workspaces,
+          store,
           formatTime: (timestamp: number) =>
             new Date(timestamp).toLocaleString(ctx.locale.getSnapshot().active),
         }),
       },
       SessionsSection,
+    ),
+  )
+  // 会话行菜单与常驻弹窗经同一桥传递迁移请求；行随菜单关闭卸载，弹窗必须挂在行外。
+  const bridge = createMigrateBridge()
+  ctx.slots.inject('sidebar.workspaces.session.menu.item', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.workspaces.session.menu.item',
+        id: 'dsh-sessions.migrate-session',
+        order: 500,
+        locale: NS,
+        inject: (): MigrateMenuItemInjected => ({
+          requestMigrate: (target) => {
+            bridge.open(target)
+          },
+        }),
+      },
+      MigrateMenuItem,
+    ),
+  )
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-sessions.migrate-dialog',
+        locale: NS,
+        inject: (): MigrateDialogInjected => ({
+          bridge,
+          useWorkspaceList: workspaceSnapshotHook(ctx.workspaces),
+          refreshSessions: () => sessions.refresh(),
+        }),
+      },
+      MigrateDialogEntry,
     ),
   )
 }

@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-sessions",
-  "version": "0.1.0",
-  "description": "Import DeepSeek Harness session ZIPs and restore or permanently delete archived sessions from the Sessions settings page.",
+  "version": "0.2.0",
+  "description": "Import DeepSeek Harness session ZIPs, restore or permanently delete archived sessions, and migrate sessions between workspaces from the Sessions settings page and the sidebar session menu.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -72,6 +72,7 @@
     "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session": ">=0.2.0-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-session-log-export": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session-persistence": ">=0.2.0-rc.2 <0.3.0",
     "@deepseek-ai/dsh-session-format-catalog": ">=0.2.0-rc.2 <0.3.0"
   },
@@ -84,6 +85,7 @@
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/dsh-client-ui-layout": "catalog:",
     "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-session": "catalog:",

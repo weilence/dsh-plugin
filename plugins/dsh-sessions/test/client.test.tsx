@@ -9,15 +9,27 @@ import type {
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { ImportDialog, SessionsSection, apply } from '../src/client'
-import { deleteArchivedSession, importFiles } from '../src/client/api'
+import { createMigrateBridge, MigrateDialogEntry, MigrateMenuItem } from '../src/client/migrate'
+import { deleteArchivedSession, importFiles, migrateSessionToWorkspace } from '../src/client/api'
 import { en, zh } from '../src/client/locales'
+import { SessionsStore } from '../src/client/store'
 import { makeT } from './i18n'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({
     variant: _variant,
+    size: _size,
     ...props
   }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').Button>) => <button {...props} />,
+  MenuItemButton: ({
+    onSelect,
+    separatorBefore: _separator,
+    children,
+  }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').MenuItemButton>) => (
+    <button role="menuitem" onClick={onSelect}>
+      {children}
+    </button>
+  ),
   Modal: ({
     open,
     title,
@@ -38,10 +50,12 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
         {footer}
       </section>
     ) : null,
+  Toast: ({ text }: { text: string }) => <div>{text}</div>,
 }))
 vi.mock('../src/client/api', () => ({
   importFiles: vi.fn(async () => {}),
   deleteArchivedSession: vi.fn(async () => ({ filesRemoved: true, archiveCleared: true })),
+  migrateSessionToWorkspace: vi.fn(async () => ({ ok: true, filesRemoved: true })),
 }))
 
 type SectionProps = ComponentProps<typeof SessionsSection>
@@ -131,6 +145,10 @@ function section(workspace = workspaceSnapshot(), list = sessionSnapshot(), lang
   const retain = vi.fn<ISessions['retain']>()
   const using = vi.fn<ISessions['using']>()
   const close = vi.fn()
+  const store = new SessionsStore(
+    { list: workspaceSource, unarchiveSession } as unknown as IWorkspaces,
+    refresh,
+  )
   const useWorkspaces: SectionProps['useWorkspaces'] = (selector) =>
     selector(useSyncExternalStore(workspaceSource.subscribe, workspaceSource.getSnapshot))
   const useSessions: SectionProps['useSessions'] = (selector) =>
@@ -142,10 +160,21 @@ function section(workspace = workspaceSnapshot(), list = sessionSnapshot(), lang
     useWorkspaces,
     useSessions,
     sessions: { list: sessionSource, refresh, retain, using } as unknown as ISessions,
-    workspaces: { list: workspaceSource, unarchiveSession } as unknown as IWorkspaces,
+    store,
   } as SectionProps
   const renderer = mount(<SessionsSection {...props} />)
-  return { renderer, props, workspaceSource, sessionSource, unarchiveSession, refresh, retain, using, close }
+  return {
+    renderer,
+    props,
+    store,
+    workspaceSource,
+    sessionSource,
+    unarchiveSession,
+    refresh,
+    retain,
+    using,
+    close,
+  }
 }
 
 function text(node: ReactTestInstance): string {
@@ -286,12 +315,12 @@ describe('官方归档列表与恢复', () => {
       workspaceSnapshot({ archivedSessionIds: [alpha, missing, retained] }),
       list,
     )
-    expect(rowIds(renderer)).toEqual([alpha, missing, retained])
+    expect(rowIds(renderer)).toEqual([retained, missing, alpha])
     expect(text(renderer.root)).not.toContain('Active session')
     expect(text(renderer.root)).not.toContain('Retained fallback must not appear')
     expect(text(renderer.root)).not.toContain('/retained-only')
+    expect(text(rows(renderer)[0]!)).toContain(zh['archive.metadataUnavailable'])
     expect(text(rows(renderer)[1]!)).toContain(zh['archive.metadataUnavailable'])
-    expect(text(rows(renderer)[2]!)).toContain(zh['archive.metadataUnavailable'])
     expect(button(rows(renderer)[1]!, zh['archive.restore']).props.disabled).toBe(false)
     await act(async () => {
       button(rows(renderer)[1]!, zh['archive.restore']).props.onClick()
@@ -304,7 +333,7 @@ describe('官方归档列表与恢复', () => {
       workspaceSnapshot(),
       sessionSnapshot({ phase: 'pending', ids: [], byId: {} }),
     )
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     expect(text(renderer.root)).toContain(zh['archive.metadataLoading'])
     expect(text(renderer.root)).not.toContain(zh['archive.empty'])
     expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(false)
@@ -324,14 +353,14 @@ describe('官方归档列表与恢复', () => {
       firstClick()
       otherClick()
     })
-    expect(unarchiveSession).toHaveBeenCalledExactlyOnceWith(alpha)
+    expect(unarchiveSession).toHaveBeenCalledExactlyOnceWith(beta)
     expect(button(rows(renderer)[0]!, zh['archive.restoring']).props.disabled).toBe(true)
     expect(button(rows(renderer)[1]!, zh['archive.restore']).props.disabled).toBe(true)
     await act(async () => {
       request.resolve()
       await request.promise
     })
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(false)
     expect(refresh).not.toHaveBeenCalled()
     expect(retain).not.toHaveBeenCalled()
@@ -347,7 +376,7 @@ describe('官方归档列表与恢复', () => {
     await act(async () => {
       button(rows(renderer)[0]!, zh['archive.restore']).props.onClick()
     })
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     expect(text(rows(renderer)[0]!)).toContain('unarchive carrier: connection reset')
     expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(false)
     act(() => renderer.update(<SessionsSection {...props} t={makeT('en')} />))
@@ -356,9 +385,9 @@ describe('官方归档列表与恢复', () => {
       button(rows(renderer)[0]!, en['archive.restore']).props.onClick()
     })
     expect(unarchiveSession).toHaveBeenCalledTimes(2)
-    expect(unarchiveSession).toHaveBeenNthCalledWith(2, alpha)
+    expect(unarchiveSession).toHaveBeenNthCalledWith(2, beta)
     expect(text(renderer.root)).not.toContain('unarchive carrier: connection reset')
-    expect(text(renderer.root)).toContain('Unarchived: Alpha investigation')
+    expect(text(renderer.root)).toContain('Unarchived: Beta notes')
   })
 
   it('follow 先移除恢复中的条目时，稍后失败仍展示真实原因', async () => {
@@ -366,8 +395,8 @@ describe('官方归档列表与恢复', () => {
     const request = deferred()
     unarchiveSession.mockReturnValueOnce(request.promise)
     act(() => button(rows(renderer)[0]!, zh['archive.restore']).props.onClick())
-    act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] })))
-    expect(rowIds(renderer)).toEqual([beta])
+    act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [alpha] })))
+    expect(rowIds(renderer)).toEqual([alpha])
     expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(true)
     await act(async () => {
       request.reject(new Error('unarchive reply lost after follow'))
@@ -396,7 +425,7 @@ describe('官方归档列表与恢复', () => {
 
   it('旧点击读取最新归档成员关系，已经恢复时跳过官方命令并提示', async () => {
     const { renderer, workspaceSource, unarchiveSession } = section()
-    const staleClick = button(rows(renderer)[0]!, zh['archive.restore']).props.onClick
+    const staleClick = button(rows(renderer)[1]!, zh['archive.restore']).props.onClick
     workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] }), false)
     await act(async () => {
       staleClick()
@@ -463,7 +492,7 @@ describe('官方归档列表与恢复', () => {
     expect(text(renderer.root)).toContain(zh['archive.noMatch'])
     expect(text(renderer.root)).not.toContain(zh['archive.empty'])
     act(() => search.props.onChange({ target: { value: '' } }))
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [] })))
     expect(text(renderer.root)).toContain(zh['archive.empty'])
     expect(text(renderer.root)).not.toContain(zh['archive.noMatch'])
@@ -478,7 +507,7 @@ describe('归档会话删除', () => {
   it('点击删除先确认，取消不请求，确认后才提交并提示成功', async () => {
     const { renderer, workspaceSource } = section()
     act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
-    expect(text(confirmDialog(renderer))).toContain('将永久删除会话「Alpha investigation」的日志文件')
+    expect(text(confirmDialog(renderer))).toContain('将永久删除会话「Beta notes」的日志文件')
     expect(deleteArchivedSession).not.toHaveBeenCalled()
     act(() => button(confirmDialog(renderer), '取消').props.onClick())
     expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
@@ -486,9 +515,9 @@ describe('归档会话删除', () => {
     await act(async () => {
       button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
     })
-    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(alpha)
-    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(beta)
+    expect(text(renderer.root)).toContain('已删除：Beta notes')
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     act(() => workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] })))
     expect(rowIds(renderer)).toEqual([beta])
   })
@@ -499,7 +528,7 @@ describe('归档会话删除', () => {
     await act(async () => {
       button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
     })
-    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(alpha)
+    expect(deleteArchivedSession).toHaveBeenCalledExactlyOnceWith(beta)
     expect(refresh).toHaveBeenCalledOnce()
   })
 
@@ -529,7 +558,7 @@ describe('归档会话删除', () => {
       button(confirmDialog(refreshed.renderer), zh['archive.delete']).props.onClick()
     })
     expect(refreshed.refresh).toHaveBeenCalledOnce()
-    expect(text(refreshed.renderer.root)).toContain('已删除：Alpha investigation')
+    expect(text(refreshed.renderer.root)).toContain('已删除：Beta notes')
     expect(text(refreshed.renderer.root)).toContain('刷新会话列表失败：refresh carrier: connection reset')
   })
 
@@ -558,7 +587,7 @@ describe('归档会话删除', () => {
       await deleteGate
     })
     expect(button(rows(renderer)[0]!, zh['archive.restore']).props.disabled).toBe(false)
-    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
+    expect(text(renderer.root)).toContain('已删除：Beta notes')
   })
 
   it('删除失败保留条目与真实原因，可重试', async () => {
@@ -569,19 +598,19 @@ describe('归档会话删除', () => {
       button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
     })
     expect(text(rows(renderer)[0]!)).toContain('目录不含官方 v4 会话日志，拒绝删除')
-    expect(rowIds(renderer)).toEqual([alpha, beta])
+    expect(rowIds(renderer)).toEqual([beta, alpha])
     act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
     await act(async () => {
       button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
     })
     expect(deleteArchivedSession).toHaveBeenCalledTimes(2)
-    expect(text(renderer.root)).toContain('已删除：Alpha investigation')
+    expect(text(renderer.root)).toContain('已删除：Beta notes')
   })
 
   it('官方服务报告无文件或归档清理失败时分别提示', async () => {
     vi.mocked(deleteArchivedSession).mockResolvedValueOnce({ filesRemoved: false, archiveCleared: true })
     const { renderer } = section()
-    act(() => button(rows(renderer)[1]!, zh['archive.delete']).props.onClick())
+    act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
     await act(async () => {
       button(confirmDialog(renderer), zh['archive.delete']).props.onClick()
     })
@@ -602,29 +631,27 @@ describe('归档会话删除', () => {
     const { renderer, workspaceSource } = section()
     act(() => button(rows(renderer)[0]!, zh['archive.delete']).props.onClick())
     const staleConfirm = button(confirmDialog(renderer), zh['archive.delete']).props.onClick
-    workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [beta] }), false)
+    workspaceSource.set(workspaceSnapshot({ archivedSessionIds: [alpha] }), false)
     await act(async () => {
       staleConfirm()
     })
     expect(deleteArchivedSession).not.toHaveBeenCalled()
-    expect(text(renderer.root)).toContain('此会话已不在归档列表中：Alpha investigation')
+    expect(text(renderer.root)).toContain('此会话已不在归档列表中：Beta notes')
   })
 
   it('删除入口跟随宿主语言', async () => {
     const { renderer } = section(workspaceSnapshot(), sessionSnapshot(), 'en')
     expect(text(renderer.root)).toContain(en['archive.delete'])
     act(() => button(rows(renderer)[0]!, en['archive.delete']).props.onClick())
-    expect(text(confirmDialog(renderer))).toContain(
-      'permanently deletes the log files of "Alpha investigation"',
-    )
+    expect(text(confirmDialog(renderer))).toContain('permanently deletes the log files of "Beta notes"')
     await act(async () => {
       button(confirmDialog(renderer), en['archive.delete']).props.onClick()
     })
-    expect(text(renderer.root)).toContain('Deleted: Alpha investigation')
+    expect(text(renderer.root)).toContain('Deleted: Beta notes')
   })
 })
 
-it('只注册 settings.section，注入官方服务，导航 label thunk 随宿主语言变化', () => {
+it('注册设置分区、会话行迁移条目与常驻迁移弹窗，注入官方服务，label thunk 随宿主语言变化', () => {
   let language: 'zh' | 'en' = 'zh'
   const sessions = {} as ISessions
   const workspaces = {} as IWorkspaces
@@ -644,21 +671,214 @@ it('只注册 settings.section，注入官方服务，导航 label thunk 随宿�
   apply(context)
   expect(registerLocale).toHaveBeenCalledWith('dsh-sessions', { zh, en })
   expect(bind).toHaveBeenCalledWith('dsh-sessions')
-  expect(inject).toHaveBeenCalledExactlyOnceWith('settings.section', expect.any(Function))
-  expect(register).toHaveBeenCalledOnce()
-  const [meta, component] = register.mock.calls[0]!
-  expect(meta).toMatchObject({ name: 'settings.section', id: 'dsh-sessions', locale: 'dsh-sessions' })
-  expect(meta).not.toHaveProperty('key')
-  expect(component).toBe(SessionsSection)
-  const injected = meta.inject()
-  expect(injected).toEqual({ sessions, workspaces, formatTime: expect.any(Function) })
-  expect(injected.sessions).toBe(sessions)
-  expect(injected.workspaces).toBe(workspaces)
+  expect(inject).toHaveBeenNthCalledWith(1, 'settings.section', expect.any(Function))
+  expect(inject).toHaveBeenNthCalledWith(2, 'sidebar.workspaces.session.menu.item', expect.any(Function))
+  expect(inject).toHaveBeenNthCalledWith(3, 'shell.overlay', expect.any(Function))
+  expect(register).toHaveBeenCalledTimes(3)
+  const [section] = register.mock.calls.map(([meta]) => meta as Record<string, unknown>)
+  const [menuItem] = register.mock.calls.find(
+    ([meta]) => (meta as { name: string }).name === 'sidebar.workspaces.session.menu.item',
+  )!
+  const [overlay] = register.mock.calls.find(([meta]) => (meta as { name: string }).name === 'shell.overlay')!
+  expect(section).toMatchObject({ name: 'settings.section', id: 'dsh-sessions', locale: 'dsh-sessions' })
+  expect(section).not.toHaveProperty('key')
+  expect(menuItem).toMatchObject({
+    name: 'sidebar.workspaces.session.menu.item',
+    id: 'dsh-sessions.migrate-session',
+    order: 500,
+    locale: 'dsh-sessions',
+  })
+  expect(overlay).toMatchObject({
+    name: 'shell.overlay',
+    id: 'dsh-sessions.migrate-dialog',
+    locale: 'dsh-sessions',
+  })
+  const sectionInjected = (section.inject as () => Record<string, unknown>)()
+  expect(sectionInjected).toEqual({
+    sessions,
+    store: expect.any(SessionsStore),
+    formatTime: expect.any(Function),
+  })
+  expect(sectionInjected.sessions).toBe(sessions)
   const timestamp = 1_800_000_000_000
-  expect(injected.formatTime(timestamp)).toBe(new Date(timestamp).toLocaleString('zh'))
-  expect(meta.label).toBeTypeOf('function')
-  expect(meta.label()).toBe(zh['section.label'])
+  expect((sectionInjected.formatTime as (value: number) => string)(timestamp)).toBe(
+    new Date(timestamp).toLocaleString('zh'),
+  )
+  expect(section.label).toBeTypeOf('function')
+  expect((section.label as () => string)()).toBe(zh['section.label'])
   language = 'en'
-  expect(meta.label()).toBe(en['section.label'])
-  expect(injected.formatTime(timestamp)).toBe(new Date(timestamp).toLocaleString('en'))
+  expect((section.label as () => string)()).toBe(en['section.label'])
+  expect((sectionInjected.formatTime as (value: number) => string)(timestamp)).toBe(
+    new Date(timestamp).toLocaleString('en'),
+  )
+  // 菜单条目与弹窗经同一座桥共享请求：条目发起后桥上立即出现目标。
+  const bridge = (overlay.inject as () => { bridge: ReturnType<typeof createMigrateBridge> })().bridge
+  const requestMigrate = (
+    menuItem as { inject: () => { requestMigrate: (target: unknown) => void } }
+  ).inject().requestMigrate
+  expect(bridge.get()).toBeNull()
+  requestMigrate({ sessionId: 'root', title: 'Root' })
+  expect(bridge.get()).toEqual({ sessionId: 'root', title: 'Root' })
+})
+
+describe('会话行迁移条目', () => {
+  // 与 section() 同款：只提供条目消费的份额，全局标准席位经断言补足。
+  type MenuItemProps = ComponentProps<typeof MigrateMenuItem>
+
+  it('点击后关闭菜单并携带行身份发起迁移请求', () => {
+    const setMenuOpen = vi.fn()
+    const requestMigrate = vi.fn()
+    const props = {
+      t: makeT(),
+      sessionId: 'root' as SessionId,
+      displayTitle: 'Root',
+      useMenuOpenState: () => [false, setMenuOpen] as const,
+      requestMigrate,
+    } as MenuItemProps
+    const renderer = mount(<MigrateMenuItem {...props} />)
+    expect(text(renderer.root)).toContain(zh.migrate)
+    act(() => renderer.root.findByProps({ role: 'menuitem' }).props.onClick())
+    expect(setMenuOpen).toHaveBeenCalledWith(false)
+    expect(requestMigrate).toHaveBeenCalledWith({ sessionId: 'root', title: 'Root' })
+  })
+
+  it('条目文案跟随宿主语言', () => {
+    const props = {
+      t: makeT('en'),
+      sessionId: 'root' as SessionId,
+      displayTitle: 'Root',
+      useMenuOpenState: () => [false, vi.fn()] as const,
+      requestMigrate: vi.fn(),
+    } as MenuItemProps
+    const renderer = mount(<MigrateMenuItem {...props} />)
+    expect(text(renderer.root)).toContain(en.migrate)
+  })
+})
+
+describe('迁移弹窗', () => {
+  const alpha = 'alpha-session' as SessionId
+  const migrateDialog = (renderer: ReactTestRenderer) => renderer.root.findByProps({ role: 'dialog' })
+
+  function bridgeRenderer(overrides: Partial<WorkspaceSnapshot> = {}, language: 'zh' | 'en' = 'zh') {
+    const bridge = createMigrateBridge()
+    const workspaceSource = source(workspaceSnapshot(overrides))
+    const refresh = vi.fn(async () => {})
+    const props = {
+      t: makeT(language),
+      bridge,
+      useWorkspaceList: () => useSyncExternalStore(workspaceSource.subscribe, workspaceSource.getSnapshot),
+      refreshSessions: refresh,
+    } as ComponentProps<typeof MigrateDialogEntry>
+    const renderer = mount(<MigrateDialogEntry {...props} />)
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
+    act(() => bridge.open({ sessionId: alpha, title: 'Alpha' }))
+    return { renderer, bridge, workspaceSource, refresh }
+  }
+
+  function options(dialog: ReactTestInstance): ReactTestInstance[] {
+    return dialog.findAll((node) => node.type === 'option')
+  }
+
+  function optionLabels(dialog: ReactTestInstance): string[] {
+    return options(dialog).map((option) => text(option))
+  }
+
+  it('菜单发起请求后弹窗展示，当前工作区不作为可选目标', () => {
+    const { renderer, bridge } = bridgeRenderer({
+      items: [
+        {
+          workspaceId: 'project' as never,
+          title: 'Project',
+          path: '/project',
+          sessionIds: [alpha],
+          createdAt: '2027-01-01',
+          updatedAt: '2027-01-01',
+        },
+        {
+          workspaceId: 'other' as never,
+          title: 'Other',
+          path: '/other',
+          sessionIds: [],
+          createdAt: '2027-01-01',
+          updatedAt: '2027-01-01',
+        },
+      ],
+    })
+    const dialog = migrateDialog(renderer)
+    expect(text(dialog)).toContain(zh['migrate.title'])
+    expect(text(dialog)).toContain(zh['migrate.description'])
+    const labels = optionLabels(dialog)
+    expect(labels).toContainEqual(expect.stringContaining('Other'))
+    expect(labels).not.toContainEqual(expect.stringContaining('Project'))
+    act(() => bridge.close())
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
+  })
+
+  it('未选择目标时迁移按钮禁用，选择后提交并刷新会话列表', async () => {
+    const { renderer, refresh } = bridgeRenderer()
+    const dialog = migrateDialog(renderer)
+    const submit = () => button(dialog, zh['migrate.confirm'])
+    expect(submit().props.disabled).toBe(true)
+    act(() => {
+      dialog.findByType('select').props.onChange({ target: { value: 'project' } })
+    })
+    expect(submit().props.disabled).toBe(false)
+    await act(async () => {
+      submit().props.onClick()
+    })
+    expect(migrateSessionToWorkspace).toHaveBeenCalledWith(alpha, 'project')
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(text(dialog)).toContain('已迁移到「Example workspace」：Alpha')
+  })
+
+  it('受控失败按步骤呈现原因，不刷新列表', async () => {
+    vi.mocked(migrateSessionToWorkspace).mockResolvedValueOnce({
+      ok: false,
+      stage: 'loaded',
+      error: '会话仍加载在宿主内存中',
+    })
+    const { renderer, refresh } = bridgeRenderer()
+    const dialog = migrateDialog(renderer)
+    act(() => {
+      dialog.findByType('select').props.onChange({ target: { value: 'project' } })
+    })
+    await act(async () => {
+      button(dialog, zh['migrate.confirm']).props.onClick()
+    })
+    expect(refresh).not.toHaveBeenCalled()
+    expect(text(dialog)).toContain('会话仍加载在宿主内存中，未做任何改动')
+  })
+
+  it('导入失败返回恢复档案时给出下载按钮与目标目录', async () => {
+    vi.mocked(migrateSessionToWorkspace).mockResolvedValueOnce({
+      ok: false,
+      stage: 'import',
+      error: 'session "alpha" already exists',
+      recoverable: { archive: 'emlw', cwd: '/target' },
+    })
+    const { renderer } = bridgeRenderer()
+    const dialog = migrateDialog(renderer)
+    act(() => {
+      dialog.findByType('select').props.onChange({ target: { value: 'project' } })
+    })
+    await act(async () => {
+      button(dialog, zh['migrate.confirm']).props.onClick()
+    })
+    expect(text(dialog)).toContain('日志已删除，但导入目标工作区失败：session "alpha" already exists')
+    expect(text(dialog)).toContain('恢复到目标目录 /target')
+    expect(button(dialog, zh['migrate.recover'])).toBeDefined()
+  })
+
+  it('弹窗文案跟随宿主语言', async () => {
+    const { renderer } = bridgeRenderer({}, 'en')
+    const dialog = migrateDialog(renderer)
+    expect(text(dialog)).toContain(en['migrate.title'])
+    act(() => {
+      dialog.findByType('select').props.onChange({ target: { value: 'project' } })
+    })
+    await act(async () => {
+      button(dialog, en['migrate.confirm']).props.onClick()
+    })
+    expect(text(dialog)).toContain('Migrated to "Example workspace": Alpha')
+  })
 })

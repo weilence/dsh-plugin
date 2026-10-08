@@ -42,7 +42,7 @@ export function isTrustedFetch(req: IncomingMessage): boolean {
   return site === undefined || site === 'same-origin' || site === 'none'
 }
 
-export function writeJson(res: ServerResponse, status: number, body: Record<string, unknown>) {
+export function writeJson(res: ServerResponse, status: number, body: object) {
   const payload = Buffer.from(JSON.stringify(body))
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',

@@ -1,15 +1,29 @@
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
+import { rm, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, parse } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import {
+  DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+  flushLiveSessionLog,
+  readSessionLogText,
+  sessionLogExportDeps,
+  streamSessionLogZip,
+} from '@deepseek-ai/dsh-session-log-export'
 import { Session, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
-import { SessionPersistenceNotFoundError, validateStoredEvents } from '@deepseek-ai/dsh-session-persistence'
-import type {} from '@deepseek-ai/dsh-workspace'
+import {
+  SessionAlreadyOwnedError,
+  SessionPersistenceNotFoundError,
+  validateStoredEvents,
+} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionActivity, WorkspaceId } from '@deepseek-ai/dsh-workspace'
+import { errMsg } from '@dsh-plugins/shared'
+import { HttpError } from '@dsh-plugins/shared/http'
 import {
   MAX_ARCHIVE_BYTES,
   MAX_ARCHIVE_ENTRIES,
@@ -19,7 +33,8 @@ import {
   MAX_LOG_BYTES,
   MAX_SESSION_EVENTS,
 } from './shared.js'
-import type { ArchiveExpected, ArchivePreview, ImportResult } from './shared.js'
+import type { ArchiveExpected, ArchivePreview, ImportResult, MigrateResult } from './shared.js'
+import { locateSessionDir } from './storage.js'
 
 interface ArchiveSession {
   header: SessionHeader
@@ -501,4 +516,202 @@ export async function importArchive(
     }
   }
   return result
+}
+
+export function describeActivity(activity: readonly SessionActivity[]): string {
+  return activity
+    .map((entry) =>
+      entry.items?.length
+        ? `${entry.kind}：${entry.items.map((item) => item.label ?? item.id).join('、')}`
+        : entry.kind,
+    )
+    .join('、')
+}
+
+/** 官方删除契约外的受控文件删除：stat 确认后按官方布局定位，写锁尽力互斥；返回是否移除了文件。 */
+export async function deleteSessionFiles(
+  ctx: Context,
+  sessionsRoot: string,
+  id: SessionId,
+): Promise<boolean> {
+  if ((await ctx.sessionPersistence.stat(id)) === undefined) return false
+  const dir = await locateSessionDir(sessionsRoot, id)
+  // 写锁尽力闸门：抢到锁则持锁删除（防其他进程并发写）。宿主进程对已加载
+  // 会话长期持有写句柄且归档不释放它，占用错误只可能是宿主自身的空闲句柄
+  // ——归档集成员已保证无活动，继续删除；其余错误拒绝。
+  let handle: SessionHandle | undefined
+  try {
+    handle = await ctx.sessionPersistence.open(id, 'write')
+  } catch (error) {
+    if (!(error instanceof SessionAlreadyOwnedError)) throw error
+  }
+  try {
+    await rm(dir, { recursive: true, force: false })
+    return true
+  } finally {
+    // 删除结果已定，关闭句柄失败不回滚也不阻断归档条目清理。
+    if (handle !== undefined) {
+      try {
+        await handle.close()
+      } catch {
+        // 忽略：数据已删除，后续 unarchive 才是用户可见状态。
+      }
+    }
+  }
+}
+
+/** 用官方导出库产出整棵会话树（含子会话）的官方 ZIP 字节，累计不超过导入同款 64 MiB 上限。 */
+export async function exportSessionArchive(ctx: Context, id: SessionId): Promise<Uint8Array> {
+  const deps = sessionLogExportDeps(ctx)
+  if (
+    deps.sessionQuery === undefined ||
+    deps.sessionPersistence === undefined ||
+    deps.attachments === undefined
+  ) {
+    throw new Error('官方会话导出服务不可用：缺少 session-query、session-persistence 或附件服务')
+  }
+  await flushLiveSessionLog(deps, id)
+  const root = await readSessionLogText(deps.sessionPersistence, id)
+  if (root === undefined) throw new Error(`会话「${id}」没有已存储的日志，无法导出`)
+  const signal = new AbortController()
+  const stream = streamSessionLogZip(
+    {
+      sessionQuery: deps.sessionQuery,
+      sessionPersistence: deps.sessionPersistence,
+      attachments: deps.attachments,
+      sessions: deps.sessions,
+    },
+    root,
+    id,
+    true,
+    DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
+    signal.signal,
+  )
+  const chunks: Uint8Array[] = []
+  let total = 0
+  let overflow = false
+  for await (const chunk of stream) {
+    total += chunk.byteLength
+    if (total > MAX_ARCHIVE_BYTES) {
+      overflow = true
+      break
+    }
+    chunks.push(chunk)
+  }
+  if (overflow) {
+    signal.abort()
+    throw new Error('导出归档超过 64 MiB 上限，无法迁移')
+  }
+  const archive = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    archive.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return archive
+}
+
+export interface MigrateInput {
+  sessionId: string
+  workspaceId: string
+}
+
+/**
+ * 受控迁移：官方工作区成员资格按会话日志头 cwd 派生，attach 到不同路径的工作区被官方
+ * 拒绝，契约内没有跨工作区移动。这里把迁移编排为「官方导出 → 归档 → 受控删除 → 导入到
+ * 目标工作区」，逐道闸门显式拒绝；日志已删除而导入未完成时把导出 ZIP 随失败结果返回，
+ * 由用户在导入页手动恢复。目标只接受工作区注册表中的工作区，不接受裸路径。
+ */
+export async function migrateSession(
+  ctx: Context,
+  sessionsRoot: string,
+  input: MigrateInput,
+): Promise<MigrateResult> {
+  const id = input.sessionId as SessionId
+  const workspace = ctx.workspaceRegistry.get(input.workspaceId as WorkspaceId)
+  if (workspace === undefined) throw new HttpError(400, '目标工作区不存在，请重新选择')
+  const target = await targetCwd(workspace.path)
+  const stored = await ctx.sessionPersistence.stat(id)
+  if (stored === undefined) throw new HttpError(409, '会话没有已存储的日志，无法迁移')
+  if (stored.header.origin === 'subagent') throw new HttpError(409, '子会话不提供迁移，请迁移其主会话')
+  if (stored.header.cwd !== undefined) {
+    let current: string | undefined
+    try {
+      current = await realpath(stored.header.cwd)
+    } catch {
+      // 原目录已不存在或不可解析时匹配不到任何工作区，继续迁移。
+    }
+    if (current === target) {
+      // 快路径：规范 cwd 已等于目标路径，官方 attach 的强校验必过——只补账本成员资格，
+      // 不走导出-删除-导入；这正是「cwd 正确却停留在未分组」会话的修复入口。
+      try {
+        await workspace.attachSession(id)
+      } catch (error) {
+        return { ok: false, stage: 'attach', error: errMsg(error) }
+      }
+      return { ok: true, filesRemoved: false, attached: true }
+    }
+  }
+  // 导入要在删除后重建同 ID 会话；宿主仍加载该会话时官方持久化拒绝 create，
+  // 只会在删除后才失败，因此加载检查必须放在任何破坏性步骤之前。
+  if (ctx.sessions.get(id) !== undefined) {
+    return { ok: false, stage: 'loaded', error: '会话仍加载在宿主内存中' }
+  }
+  const activity = await ctx.waterfall('workspace/session-activity', { sessionId: id }, () =>
+    Promise.resolve([]),
+  )
+  if (activity.length > 0) return { ok: false, stage: 'activity', error: describeActivity(activity) }
+
+  let archive: Uint8Array
+  try {
+    archive = await exportSessionArchive(ctx, id)
+  } catch (error) {
+    return { ok: false, stage: 'export', error: errMsg(error) }
+  }
+  try {
+    // 不带 stopActivity：闸门间隙出现活动时显式拒绝，而不是替用户停止工作。
+    await ctx.workspaceRegistry.archiveSession(id, {})
+  } catch (error) {
+    return { ok: false, stage: 'archive', error: errMsg(error) }
+  }
+  // 「归档时无活动」只是归档那一刻的检查；删除前用官方同一 waterfall 复查，
+  // 把删除窗口内本实例的回合、子代理、后台任务与定时任务挡在门外。
+  const repeat = await ctx.waterfall('workspace/session-activity', { sessionId: id }, () =>
+    Promise.resolve([]),
+  )
+  if (repeat.length > 0) {
+    return {
+      ok: false,
+      stage: 'activity',
+      error: `${describeActivity(repeat)}；会话已进入归档集，可在「设置 → 会话」恢复`,
+    }
+  }
+
+  let filesRemoved: boolean
+  try {
+    filesRemoved = await deleteSessionFiles(ctx, sessionsRoot, id)
+  } catch (error) {
+    return { ok: false, stage: 'delete', error: errMsg(error) }
+  }
+  let archiveClearError: string | undefined
+  try {
+    await ctx.workspaceRegistry.unarchiveSession(id)
+  } catch (error) {
+    archiveClearError = errMsg(error)
+  }
+
+  try {
+    // 删除后再预览：全部会话的当前摘要必须为空，导出字节就是唯一事实。
+    const preview = await previewArchive(ctx, archive, target)
+    const result = await importArchive(ctx, archive, target, preview.expected)
+    if (result.failure !== undefined) throw new Error(result.failure.reason)
+  } catch (error) {
+    return {
+      ok: false,
+      stage: 'import',
+      error: errMsg(error),
+      recoverable: { archive: Buffer.from(archive).toString('base64'), cwd: target },
+    }
+  }
+  return { ok: true, filesRemoved, ...(archiveClearError !== undefined && { archiveClearError }) }
 }

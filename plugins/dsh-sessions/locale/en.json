@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Sessions",
-    "description": "Import DSH ZIPs with session logs, child sessions and attachments, and search, restore or permanently delete archived sessions on the current instance from Sessions settings."
+    "description": "Import DSH ZIPs with session logs, child sessions and attachments, search, restore or permanently delete archived sessions on the current instance from Sessions settings, and migrate sessions between workspaces from the sidebar session menu."
   }
 }
