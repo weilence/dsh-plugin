@@ -4,7 +4,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：八个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
+- `plugins/<name>/`：九个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-smart-permission`→`@weilence/dsh-smart-permission`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 请求校验 / errMsg / client 侧 HTTP 封装 / patch 文档编辑原语）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译配置。
 - 跨插件耦合的事实改动须双侧同步：智谱凭据的解析顺序（`ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`）同时实现于 dsh-zhipu-tools（搜索 provider）与 dsh-models（用量适配）。
@@ -14,7 +14,7 @@
 每个插件是一个 npm 包，在 loader 树里占**一条以包名为 name 的插件行**（`cordis.patch.yml` 的 insert）：
 
 - **host half**：`src/index.ts`，node 侧 `apply(ctx)`，经 `ctx.webServer.register` 注册同源 HTTP 路由。
-- **client half**：`src/client.tsx`（dsh-models 为 `src/client/index.ts`），浏览器侧经 `ctx.slots` 注入设置页面板。
+- **client half**：`src/client.tsx`（dsh-models 为 `src/client/index.ts`），浏览器侧经 `ctx.slots` 注入设置页面板；host-only 插件（dsh-smart-permission）可以没有 client half，构建工厂以缺省 `client` 项识别。
 - `package.json` 的 `dsh.client` 声明浏览器名录（platform / inject），`dsh.bundle.patch` 指向组合包 patch。
 - 一个包只能占一条以包名为 name 的行：子路径行（`pkg/sub`）永远不承载 client bundle，再出现第二条同名行会让宿主 client-modules 组合直接失败。
 - client bundle 进 boot 的前提是宿主 Loader 已激活该包的插件行：浏览器插件名录由 dsh-client-modules 扫描已激活条目的 `dsh.client` 声明生成——host half 即使功能上 no-op 也不得删行（dsh-notify 即此形态）。

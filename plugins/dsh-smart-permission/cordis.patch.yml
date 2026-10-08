@@ -1,0 +1,31 @@
+# @weilence/dsh-smart-permission bundle patch
+#
+# 1) permission 行的 presets 表按官方 patch 语义整体替换：完整复刻基础层三个内置预设，
+#    追加 guarded-full-access（danger-full-access 沙箱 + ask 审批）；
+#    基础层后续新增默认预设时此处须同步。
+# 2) 插入本插件行；whitelist 等行为配置的默认值在 src/index.ts，覆盖方式见 README。
+- id: permission
+  name: '@deepseek-ai/dsh-permission-presets'
+  config:
+    presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+      guarded-full-access:
+        sandbox: danger-full-access
+        approval: ask
+        name: 白名单完全权限
+        description: 白名单工具直接以完全权限执行，其余工具逐次询问；同一工具批准一次后本会话内不再询问。
+
+- insert:
+    - id: dsh-smart-permission
+      name: '@weilence/dsh-smart-permission'
+      config:
+        preset: guarded-full-access
+        rememberApprovedForSession: true

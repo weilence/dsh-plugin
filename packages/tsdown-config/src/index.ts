@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { dirname, relative, resolve as resolvePath } from 'node:path'
 import { transform } from 'lightningcss'
-import { defineConfig, type TsdownPlugin } from 'tsdown'
+import { defineConfig, type TsdownPlugin, type UserConfig } from 'tsdown'
 
 export interface DshPluginHalfOptions {
   entry?: string
@@ -11,7 +11,8 @@ export interface DshPluginHalfOptions {
 
 export interface DshPluginBuildOptions {
   id: string
-  client: DshPluginHalfOptions
+  /** 缺省表示 host-only 插件：不产出 client bundle，package.json 也不声明 dsh.client */
+  client?: DshPluginHalfOptions
   host?: DshPluginHalfOptions
 }
 
@@ -76,57 +77,62 @@ const PLATFORM_CLIENT_EXTERNALS = [
 export function defineDshPluginConfig(options: DshPluginBuildOptions) {
   const { id, client, host } = options
 
-  const clientExternalsSet = new Set([...PLATFORM_CLIENT_EXTERNALS, ...(client.external ?? [])])
   const hostExternalSet = new Set(host?.external ?? [])
 
-  return defineConfig([
-    {
-      name: id,
-      entry: { index: host?.entry ?? 'src/index.ts' },
-      outDir: 'lib',
-      format: 'esm',
-      platform: 'node',
-      target: 'es2024',
-      fixedExtension: false,
-      dts: false,
-      sourcemap: false,
-      clean: false,
-      deps: {
-        neverBundle: (specifier: string) => hostExternalSet.has(specifier),
-        onlyBundle: host?.bundle,
+  const hostConfig: UserConfig = {
+    name: id,
+    entry: { index: host?.entry ?? 'src/index.ts' },
+    outDir: 'lib',
+    format: 'esm',
+    platform: 'node',
+    target: 'es2024',
+    fixedExtension: false,
+    dts: false,
+    sourcemap: false,
+    clean: false,
+    deps: {
+      neverBundle: (specifier: string) => hostExternalSet.has(specifier),
+      onlyBundle: host?.bundle,
+    },
+  }
+
+  // client 缺省即 host-only 插件，不产出第二段构建
+  if (client === undefined) return defineConfig(hostConfig)
+
+  const clientExternalsSet = new Set([...PLATFORM_CLIENT_EXTERNALS, ...(client.external ?? [])])
+
+  const clientConfig: UserConfig = {
+    name: `${id}/client`,
+    entry: { client: client.entry ?? 'src/client.tsx' },
+    outDir: 'lib',
+    format: 'cjs',
+    platform: 'browser',
+    target: 'es2024',
+    dts: false,
+    sourcemap: true,
+    clean: false,
+    deps: {
+      neverBundle: (specifier: string) => clientExternalsSet.has(specifier),
+      onlyBundle: client.bundle,
+    },
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+      'import.meta.env.MODE': JSON.stringify('production'),
+      'import.meta.env': JSON.stringify({ MODE: 'production' }),
+    },
+    inputOptions: {
+      resolve: {
+        conditionNames: ['production', 'browser', 'import', 'module', 'default'],
       },
     },
-    {
-      name: `${id}/client`,
-      entry: { client: client.entry ?? 'src/client.tsx' },
-      outDir: 'lib',
-      format: 'cjs',
-      platform: 'browser',
-      target: 'es2024',
-      dts: false,
-      sourcemap: true,
-      clean: false,
-      deps: {
-        neverBundle: (specifier: string) => clientExternalsSet.has(specifier),
-        onlyBundle: client.bundle,
-      },
-      define: {
-        'process.env.NODE_ENV': JSON.stringify('production'),
-        'import.meta.env.MODE': JSON.stringify('production'),
-        'import.meta.env': JSON.stringify({ MODE: 'production' }),
-      },
-      inputOptions: {
-        resolve: {
-          conditionNames: ['production', 'browser', 'import', 'module', 'default'],
-        },
-      },
-      plugins: [cssModulesInline(id)],
-      outputOptions: {
-        entryFileNames: 'client.js',
-        banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
-        intro: 'var module = { exports: {} }; var exports = module.exports;',
-        footer: 'return module.exports; } });',
-      },
+    plugins: [cssModulesInline(id)],
+    outputOptions: {
+      entryFileNames: 'client.js',
+      banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(id)}, factory: (require) => {`,
+      intro: 'var module = { exports: {} }; var exports = module.exports;',
+      footer: 'return module.exports; } });',
     },
-  ])
+  }
+
+  return defineConfig([hostConfig, clientConfig])
 }
