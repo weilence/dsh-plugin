@@ -16,7 +16,7 @@ import {
   type LocalPromptRow,
   type LocalSkillRow,
 } from './shared'
-import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type PatchInsert } from './patchDoc'
+import { emptyPatchDoc, parsePatchDoc, scanInserts, type Document, type InsertRow } from './patchDoc'
 
 /** 用户级 skills 根（与官方 skill-filesystem 的用户根同一逻辑）。 */
 export interface SkillsRoot {
@@ -269,7 +269,7 @@ export async function readLocalLayers(
 
 /** fold 出的一条本机 MCP 行。 */
 export interface FoldedMcpRow {
-  row: PatchInsert
+  row: InsertRow
   config: Record<string, unknown>
   disabled: boolean
 }

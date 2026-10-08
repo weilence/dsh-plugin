@@ -101,8 +101,8 @@ describe('scanPatchDoc', () => {
 })
 
 describe('appendMcpInsert', () => {
-  it('追加规范 insert 行并往返（仅注释的文件视作空文档）', () => {
-    const doc = parsePatchDoc('# header\n')
+  it('追加规范 insert 行并往返（头注释保留）', () => {
+    const doc = parsePatchDoc('# header\n- id: keep\n  name: keep\n')
     appendMcpInsert(doc, {
       id: 'mcp-new',
       config: { transport: 'stdio', serverName: 'new', command: 'npx', args: ['-y', 'x'] },

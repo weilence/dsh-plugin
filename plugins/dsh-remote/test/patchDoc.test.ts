@@ -72,10 +72,13 @@ describe('upsertInsertRow', () => {
     expect(text).toContain('disabled: true')
   })
 
-  it('空文件（远端缺失）从空序列起步', () => {
+  it('空文件（远端缺失）从空序列起步，追加行保持 block 风格', () => {
     const doc = emptyPatchDoc()
     upsertInsertRow(doc, { id: 'a', name: 'b', config: {} })
     expect(scanInserts(doc)).toHaveLength(1)
+    const text = renderPatchDoc(doc)
+    expect(text).toContain('- id: a')
+    expect(text).not.toContain('[')
   })
 })
 

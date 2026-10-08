@@ -8,10 +8,33 @@ describe('parsePatchDoc', () => {
     expect(scanPatchDoc(document).overrides).toHaveLength(1)
   })
 
-  it('空文件与仅注释文件视作空序列', () => {
-    expect(scanPatchDoc(parsePatchDoc(''))).toEqual({ inserts: [], overrides: [] })
-    expect(scanPatchDoc(parsePatchDoc('# 只是注释\n'))).toEqual({ inserts: [], overrides: [] })
+  it('空文件与仅注释文件对齐官方 fail loud：抛异常；空文档基座视作空序列', () => {
+    expect(() => parsePatchDoc('')).toThrow('顶层数组')
+    expect(() => parsePatchDoc('# 只是注释\n')).toThrow('顶层数组')
     expect(scanPatchDoc(emptyPatchDoc())).toEqual({ inserts: [], overrides: [] })
+  })
+
+  it('空基座不带 flow 标记：追加行渲染为 block 风格', () => {
+    const document = emptyPatchDoc()
+    document.add(document.createNode({ id: 'web', config: { searchProvider: 'zhipu' } }))
+    document.add(document.createNode({ id: 'mcp', commentBefore: '# 标记' }))
+    const text = renderPatchDoc(document)
+    expect(text).toMatch(/^- id: web$/m)
+    expect(text).toContain('  searchProvider: zhipu')
+    expect(text).toContain('# 标记')
+    expect(text).not.toContain('[')
+    expect(text).not.toContain('{')
+  })
+
+  it('flow 存量文件经编辑后写盘转为 block 风格；无数据落空数组', () => {
+    const document = parsePatchDoc('[ { id: web, config: { searchProvider: zhipu } } ]\n')
+    document.add(document.createNode({ id: 'mcp' }))
+    const text = renderPatchDoc(document)
+    expect(text).toMatch(/^- id: web$/m)
+    expect(text).toContain('  searchProvider: zhipu')
+    expect(text).not.toContain('{')
+    expect(text).not.toContain('[')
+    expect(renderPatchDoc(parsePatchDoc('[]'))).toBe('[]\n')
   })
 
   it('非数组顶层与语法错误抛异常', () => {

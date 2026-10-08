@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { rename, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { isSeq, parseDocument, type Document } from 'yaml'
+import { Document, isCollection, isPair, isSeq, parseDocument } from 'yaml'
 
 export type { Document }
 
@@ -32,24 +32,37 @@ const PARSE_OPTIONS = {
   customTags: [{ tag: 'tag:yaml.org,2002:js', resolve: (value: string) => value }],
 }
 
-/** 解析 patch 文本；非序列或语法错误抛异常（调用方转 HTTP 错误）。 */
+/** 解析 patch 文本；对齐官方 fail loud：空 / 仅注释 / 非序列 / 语法错误都抛，调用方转 HTTP 错误。 */
 export function parsePatchDoc(text: string): Document {
   const document = parseDocument(text, PARSE_OPTIONS)
   const error = document.errors[0]
   if (error !== undefined) throw error
-  // 仅注释 / 空文件解析为 null contents：视作空序列。
-  if (document.contents === null) document.contents = document.createNode([]) as never
   if (!isSeq(document.contents)) throw new Error('patch 文件必须是 YAML 顶层数组')
   return document as Document
 }
 
-/** 空文档（文件缺失时的新建基座）。 */
+/** 文件缺失时的新建基座；构造而非解析 '[]'，顶层不残留 flow 标记。 */
 export function emptyPatchDoc(): Document {
-  return parsePatchDoc('[]\n')
+  return new Document([])
 }
 
-/** 序列化回文本（保证结尾换行，diff 友好）。 */
+/** 递归清除集合节点的 flow 标记——解析残留的内联风格（用户手写或旧版基座产物）不扩散到写盘形态。 */
+function forceBlock(node: unknown): void {
+  if (!isCollection(node)) return
+  node.flow = false
+  for (const item of node.items) {
+    if (isPair(item)) {
+      forceBlock(item.key)
+      forceBlock(item.value)
+    } else {
+      forceBlock(item)
+    }
+  }
+}
+
+/** 序列化回文本：无数据落 `[]`，有数据一律 block 风格，结尾保证换行。 */
 export function renderPatchDoc(document: Document): string {
+  forceBlock(document.contents)
   const text = String(document)
   return text.endsWith('\n') ? text : `${text}\n`
 }
@@ -70,10 +83,6 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
     : undefined
 }
 
-function asRecordOrList(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
 /**
  * 扫描一个 patch 文档里的 insert 行与覆盖行（fold 序：后行整值覆盖前行）。
  *
@@ -83,7 +92,8 @@ function asRecordOrList(value: unknown): unknown[] {
 export function scanPatchDoc(document: Document): { inserts: InsertRow[]; overrides: OverrideRow[] } {
   const inserts: InsertRow[] = []
   const overrides: OverrideRow[] = []
-  const patches = asRecordOrList(document.toJS({ mapAsMap: false }))
+  const composed = document.toJS({ mapAsMap: false })
+  const patches = Array.isArray(composed) ? (composed as unknown[]) : []
   for (let patchIndex = 0; patchIndex < patches.length; patchIndex += 1) {
     const patch = asRecord(patches[patchIndex])
     if (patch === undefined) continue
