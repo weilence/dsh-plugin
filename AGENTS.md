@@ -53,7 +53,6 @@
 
 - `peerDependencies` 必须写**字面 semver range**（如 `>=0.2.0-rc.1 <0.3.0`），不能写 `catalog:`——宿主 app-boot 的兼容性预检对字符串直接做 `semver.satisfies`，无效范围会让宿主拒绝加载插件。
 - 凡 DSH 自带包（`@deepseek-ai/*`）在 `dependencies` / `devDependencies` 里一律以 `"catalog:"` 引用，插件不得自行锁版本——平台包必须同版本协同，升级 DSH 平台只改 `pnpm-workspace.yaml` 的 catalog 一处；第三方库不进 catalog，由使用的插件自行声明。
-- 提交前运行全量验证（与 CI 相同的四项检查）：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
 - 发布：改插件 version → `git tag @weilence/<目录>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。新 scope 各包首发需手动 `npm publish` 一次。
 
 ## 沙箱权限拦截
@@ -62,10 +61,10 @@
 
 ## 代码与提交风格
 
-- 注释中文、写 why 不写 what、落在实现处；删非必要注释与单用途间接层，优先命名与官方包类型，不建本地镜像。
-- 官方服务面一律直接使用官方包类型（type-only 导入，如 `LocaleRuntime`），**禁止手写结构化投影接口**——镜像在官方类型演进时没有编译期警告，漂移只在运行期暴露。
-- prettier：无分号、单引号、行宽 110（`pnpm format`）。
-- 提交信息：Conventional 类型 + 中文主题，如 `feat(dsh-skills): 设置页「Skills 管理」插件`。
+- 提交前必须运行与 CI 相同的四项检查：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
+- 格式化用 `pnpm format`。
+
+结构、类型、注释、措辞、格式、提交与验证规范见 [docs/code-style.md](docs/code-style.md)——必须遵循。
 
 ## 面板交互约定
 
