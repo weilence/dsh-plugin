@@ -1,17 +1,22 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { lstatSync, readFileSync } from 'node:fs'
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { DELETE_PATH, FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
 
-export const inject: string[] = ['webServer']
+export const inject: string[] = ['webServer', 'systemPrompt']
 
 const MAX_PROMPT_BYTES = 1024 * 1024
+
+/** 用户系统提示词正文的文件名；独立于 AGENTS.md，不进入 dsh-agent-instructions 的指令链。 */
+const PROMPT_FILE_NAME = 'system-prompt.md'
 
 function revision(content: string): string {
   return createHash('sha256').update(content).digest('hex')
@@ -42,7 +47,7 @@ function requireRevision(value: unknown): string | null {
 }
 
 function checkRevision(actual: PromptFile, expected: string | null): void {
-  if (actual.revision !== expected) throw new HttpError(409, '全局提示词已在其他位置修改，请刷新后再编辑')
+  if (actual.revision !== expected) throw new HttpError(409, '系统提示词已在其他位置修改，请刷新后再编辑')
 }
 
 export interface Config {
@@ -53,14 +58,66 @@ export function apply(ctx: Context, config: Config = {}): void {
   if (config.dshHome !== undefined && (typeof config.dshHome !== 'string' || !config.dshHome.trim())) {
     throw new Error('dsh-prompts.dshHome 必须是非空目录路径')
   }
-  // agent-instructions 未暴露其私有 dshHome 覆盖；两插件有覆盖时需显式配置相同目录。
-  const path = join(resolveDshHome(config.dshHome), 'AGENTS.md')
+  const path = join(resolveDshHome(config.dshHome), PROMPT_FILE_NAME)
   let writing = Promise.resolve()
   const serialize = async (operation: () => Promise<void>): Promise<void> => {
     const next = writing.then(operation)
     writing = next.catch(() => {})
     await next
   }
+
+  // 段文本在每次组装时同步重读：面板保存与外部编辑都在下一个模型步骤生效。
+  // 任何读取异常都以空串兜底——段文本求值抛错会让整个组装失败，不能让
+  // 一个坏文件拖垮宿主的全部请求；同一错误只警告一次，避免日志刷屏。
+  let warned: string | null = null
+  const warnOnce = (message: string): void => {
+    if (warned === message) return
+    warned = message
+    ctx.logger.warn('dsh-prompts 系统提示词段已忽略：%s', message)
+  }
+  const sectionText = (): string => {
+    let info
+    try {
+      info = lstatSync(path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        warned = null
+        return ''
+      }
+      warnOnce(errMsg(error))
+      return ''
+    }
+    if (!info.isFile() || info.size > MAX_PROMPT_BYTES) {
+      warnOnce(`${path} 不是普通文件或超过 1 MiB`)
+      return ''
+    }
+    try {
+      const content = readFileSync(path, 'utf8')
+      if (Buffer.byteLength(content) > MAX_PROMPT_BYTES) {
+        warnOnce(`${path} 不是普通文件或超过 1 MiB`)
+        return ''
+      }
+      warned = null
+      return content
+    } catch (error) {
+      warnOnce(errMsg(error))
+      return ''
+    }
+  }
+
+  ctx.effect(
+    () =>
+      ctx.systemPrompt.section({
+        name: 'user:system-prompt',
+        // 位于第一方末尾（部署 persona 后缀 10200）之后：用户段变化只影响
+        // 提示词尾部，前缀 KV 缓存尽量保留。
+        order: 10500,
+        text: sectionText,
+        // 用户自由文本原样保留：{{…}} 不做变量插值，未知引用会让组装失败。
+        interpolate: false,
+      }),
+    'dsh-prompts: system prompt section',
+  )
 
   const route = (
     endpoint: string,
@@ -111,7 +168,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           await writeFile(path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-            throw new HttpError(409, '全局提示词已在其他位置创建，请刷新后再编辑')
+            throw new HttpError(409, '系统提示词已在其他位置创建，请刷新后再编辑')
           }
           throw error
         }
@@ -140,7 +197,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     await serialize(async () => {
       const current = await readPrompt(path)
       checkRevision(current, expected)
-      if (!current.exists) throw new HttpError(409, '全局提示词已不存在，请刷新')
+      if (!current.exists) throw new HttpError(409, '系统提示词已不存在，请刷新')
       await unlink(path)
       writeJson(res, 200, { path, exists: false, content: '', revision: null })
     })

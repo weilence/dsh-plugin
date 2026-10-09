@@ -1,15 +1,14 @@
 # @weilence/dsh-prompts
 
-DeepSeek Harness Web 插件：在设置页新增「全局提示词」，编辑用户级 `AGENTS.md`。默认目标为 `~/.dsh/AGENTS.md`，设置 `DSH_HOME` 时使用该目录下的 `AGENTS.md`。
+DeepSeek Harness Web 插件：在设置页新增「系统提示词」，编辑追加到每个模型请求系统提示词末尾的用户段。正文保存在 `$DSH_HOME/system-prompt.md`（设置 `DSH_HOME` 时使用该目录），独立于 `AGENTS.md` 指令链，由本插件直接注册进宿主的系统提示词组装。
 
 ## 功能
 
-- 查看全局文件路径及 Markdown 原文；尚不存在时直接创建。
-- 编辑并保存原文，不转换格式；删除前确认，保留刷新入口。
-- 保存或删除前对照读取时的 SHA-256 版本；其他程序已修改文件时返回冲突，不自动覆盖。读取失败时停止编辑，展示真实错误。
-- 仅管理用户级 `AGENTS.md`，不改动各项目的 `AGENTS.md` / `CLAUDE.md`、会话内容或宿主内置系统提示词。
-
-保存后，Harness 会在当前会话下一次尚未开始的模型步骤重新读取全局指令；不会修改已生成内容，也不会主动推送更新。
+- 插件启动时通过 `ctx.systemPrompt.section` 注册 `user:system-prompt` 段：位于第一方内容（部署 persona 后缀 10200）之后、顺序 10500，`interpolate: false` 原样保留正文中的 `{{…}}`。
+- 段文本在每次组装时重新读取文件：面板保存、外部编辑都在下一个尚未开始的模型步骤生效；文件缺失或为空时段消失，不占任何 token。
+- 查看文件路径及 Markdown 原文；尚不存在时直接创建，删除前再次确认。
+- 保存前对照读取时的 SHA-256 版本；其他程序已修改文件时返回冲突，不自动覆盖。读取失败时停止编辑，展示真实错误。
+- 读取异常（权限、非普通文件、超过 1 MiB）以空串兜底并记录一次警告，绝不阻塞系统提示词组装。
 
 ## 安装
 
@@ -17,9 +16,9 @@ DeepSeek Harness Web 插件：在设置页新增「全局提示词」，编辑�
 dsh plugin --profile <name> add @weilence/dsh-prompts
 ```
 
-安装后重启宿主，并在 Web UI 的设置 →「全局提示词」中使用。宿主同时需要将该包加入 `dependencies` 和 profile 的 `dsh.profile.bundles`；上面的命令会完成配置。
+安装后重启宿主，并在 Web UI 的设置 →「系统提示词」中使用。宿主同时需要将该包加入 `dependencies` 和 profile 的 `dsh.profile.bundles`；上面的命令会完成配置。
 
-**自定义指令目录**：若 `dsh-agent-instructions` 的组合行单独设置了 `dshHome`，它会优先于 `DSH_HOME`，而宿主没有公开接口供其他插件读取这一覆盖值。此时必须在 `dsh-prompts` 的组合行也设置**相同的** `config.dshHome`，并在面板核对显示的文件路径；否则面板默认编辑 `$DSH_HOME/AGENTS.md`（未设置时为 `~/.dsh/AGENTS.md`），可能不是智能体实际读取的文件。
+**自定义目录**：默认目标为 `$DSH_HOME/system-prompt.md`（未设置时为 `~/.dsh/system-prompt.md`）；在 `dsh-prompts` 组合行设置 `config.dshHome` 可改存其他目录，与 `dsh-agent-instructions` 的配置互不相关。
 
 插件路由只接受预期 Host 的同源请求，写请求必须携带插件专用请求头；不接受浏览器指定的任意文件路径。单文件上限为 1 MiB，符号链接和非普通文件不能编辑。
 
