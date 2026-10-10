@@ -6,7 +6,7 @@ export type SessionsT = TranslateNS<typeof NS>
 export const zh = {
   'section.label': '会话',
   'panel.subtitle': '把导出的会话 ZIP 导入为归档会话，并管理归档的恢复与删除。',
-  import: '导入会话',
+  import: '导入',
   'archive.search': '搜索标题、路径或会话 ID',
   'archive.loading': '正在加载归档列表…',
   'archive.unavailable': '归档列表尚不可用，请等待连接恢复后再试。',
@@ -72,7 +72,7 @@ export const en: { [Key in SessionsKey]: string } = {
   'section.label': 'Sessions',
   'panel.subtitle':
     'Import exported session ZIPs as archived sessions, and manage restoring or deleting them.',
-  import: 'Import sessions',
+  import: 'Import',
   'archive.search': 'Search titles, paths or session IDs',
   'archive.loading': 'Loading archived sessions…',
   'archive.unavailable':
