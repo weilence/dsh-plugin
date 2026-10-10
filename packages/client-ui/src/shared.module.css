@@ -379,6 +379,18 @@
   color: var(--dsw-alias-brand-primary);
 }
 
+/* 可点击 pill（Pill 的按钮变体）：只重置字体族与边框——font 简写会连带
+   覆盖 .pill 的 font-size / line-height，按钮字号必须仍由 .pill 给定。 */
+.pillButton {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.pillButton:hover {
+  background: var(--dsw-alias-bg-layer-3, var(--dsw-alias-bg-layer-2));
+}
+
 .rowDesc {
   margin: 0;
   font-size: 12px;

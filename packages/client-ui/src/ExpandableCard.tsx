@@ -120,7 +120,7 @@ export function ExpandableCard(props: ExpandableCardProps) {
             <span className={styles.title}>{props.title}</span>
             {props.badge}
             {props.pills?.map((pill, index) => (
-              <Pill key={index} text={pill.text} tone={pill.tone} title={pill.title} />
+              <Pill key={index} text={pill.text} tone={pill.tone} title={pill.title} onClick={pill.onClick} />
             ))}
             {props.meta !== undefined && props.meta !== '' ? (
               <span className={styles.meta} data-drag-skip>
