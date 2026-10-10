@@ -12,6 +12,7 @@ import type { ConnectionRequestRejection } from '@deepseek-ai/dsh-client-connect
 import { applyWithEngine } from '../src/index'
 import { RemoteEngine } from '../src/engine'
 import { ForwardRegistry } from '../src/forwards'
+import { mcpSignature } from '../src/shared'
 
 function postReq(body: unknown, headers: Record<string, string | string[] | undefined>): IncomingMessage {
   const payload = Buffer.from(JSON.stringify(body))
@@ -77,12 +78,14 @@ async function makeHarness(): Promise<Harness> {
       '- insert:',
       '    - id: registry-plugin',
       "      name: 'some-registry-plugin'",
-      '- insert:',
-      '    - id: mcp-demo',
-      "      name: '@deepseek-ai/dsh-mcp-client'",
-      '      config: { transport: stdio, serverName: demo, command: npx }',
       '',
     ].join('\n'),
+    'utf8',
+  )
+  // 全局 MCP 档：dsh-mcp 插件管理的同一文件（条目名 = serverName）
+  await writeFile(
+    join(homeDir, 'mcp.json'),
+    JSON.stringify({ mcpServers: { demo: { command: 'npx', args: ['-y', 'pkg'] } } }),
     'utf8',
   )
   // 层 package.json：link spec（本地）与 semver spec（registry）各一；registry 实体
@@ -145,6 +148,7 @@ async function makeHarness(): Promise<Harness> {
     instanceVersion: async () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
     pushTar: async () => {},
     pushFile: async () => {},
+    readLocalMcp: async () => ({ file: '', rootExtras: {}, entries: new Map(), rows: [] }),
     readLocalLayers: async () => [],
     scanSkills: async () => [],
     localDshVersion: '0.1.7-rc.2',
@@ -214,7 +218,7 @@ describe('dsh-remote 路由', () => {
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ available: true })
     const rows = response.body as unknown as {
-      mcpRows: { id: string }[]
+      mcpRows: { name: string; summary: string; signature: string }[]
       pluginRows: {
         id: string
         name: string
@@ -222,7 +226,9 @@ describe('dsh-remote 路由', () => {
         version: string | null
       }[]
     }
-    expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
+    // 签名 = 条目对象的规范化 JSON（键序无关），弹窗与引擎的同一判等输入
+    expect(rows.mcpRows[0]).toMatchObject({ name: 'demo', summary: 'npx -y pkg' })
+    expect(rows.mcpRows[0]?.signature).toBe(mcpSignature({ command: 'npx', args: ['-y', 'pkg'] }))
     expect(rows.pluginRows.map((row) => row.name)).toEqual([
       '@weilence/dsh-mcp',
       'extra-bundle-plugin',

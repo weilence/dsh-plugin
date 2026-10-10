@@ -18,9 +18,9 @@ import {
 } from '../src/engine'
 import type { ForwardHandle, SshResult } from '../src/ssh'
 import { ForwardRegistry } from '../src/forwards'
-import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
+import { emptyPatchDoc, parsePatchDoc } from '../src/patchDoc'
 import { readStore, writeStore } from '../src/connections'
-import { foldSkillDigest, type LocalPatchLayer } from '../src/localenv'
+import { foldSkillDigest, mcpSummary, type LocalPatchLayer, type LocalMcpFile } from '../src/localenv'
 import { mcpSignature, type SaveRequest } from '../src/shared'
 
 interface Recorded {
@@ -59,6 +59,8 @@ interface FakeOptions {
   respond?: (command: string) => SshResult | Promise<SshResult> | undefined
   profilePatch?: string
   homePatch?: string
+  /** 本机全局 mcp.json 的 mcpServers 条目（MCP 同步源）。 */
+  localMcp?: Record<string, Record<string, unknown>>
   /** profile 层所在目录（registry 包实体定位在层内 node_modules 下）。 */
   layerDir?: string
   /** 层 package.json 的 dependencies（install 形态判定依据）。 */
@@ -131,18 +133,32 @@ function makeDeps(options: FakeOptions = {}) {
     async pushFile(alias, localPath, remoteDir, fileName) {
       filePushes.push({ alias, localPath, remoteDir, fileName })
     },
+    readLocalMcp: async (): Promise<LocalMcpFile> => {
+      const entries = new Map(Object.entries(options.localMcp ?? {}))
+      return {
+        file: '/home/mcp.json',
+        rootExtras: {},
+        entries,
+        rows: [...entries].map(([name, entry]) => ({
+          name,
+          summary: mcpSummary(entry),
+          signature: mcpSignature(entry),
+        })),
+      }
+    },
     readLocalLayers: async () => {
+      const docOf = (text: string | undefined) => (text === undefined ? emptyPatchDoc() : parsePatchDoc(text))
       const layers: LocalPatchLayer[] = [
         {
           source: 'profile',
           file: join(options.layerDir ?? '/profile', 'cordis.patch.yml'),
-          doc: options.profilePatch === undefined ? emptyPatchDoc() : parsePatchDoc(options.profilePatch),
+          doc: docOf(options.profilePatch),
           deps: options.profileDeps ?? {},
         },
         {
           source: 'home',
           file: '/home/cordis.patch.yml',
-          doc: options.homePatch === undefined ? emptyPatchDoc() : parsePatchDoc(options.homePatch),
+          doc: docOf(options.homePatch),
           deps: {},
         },
       ]
@@ -445,22 +461,17 @@ describe('RemoteEngine', () => {
     expect(fake.calls.some((call) => call.command.includes('npm install -g'))).toBe(false)
   })
 
-  const REMOTE_PATCH = `# 远端手写注释
-- insert:
-    - id: mcp-demo
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        transport: stdio
-        serverName: demo
-        command: npx
-- insert:
-    - id: custom-hand
-      name: '@deepseek-ai/dsh-mcp-client'
-      config:
-        transport: stdio
-        serverName: hand
-        command: old-cmd
-`
+  const REMOTE_MCP_JSON = `${JSON.stringify(
+    {
+      $schema: 'https://dsh.dev/mcp.schema.json',
+      mcpServers: {
+        demo: { command: 'npx' },
+        'remote-only': { command: 'keep-cmd' },
+      },
+    },
+    null,
+    2,
+  )}\n`
 
   it('connect：部署段直通 → start → poll token → forward → health → running（连接路径零同步）', async () => {
     makeEngine({
@@ -807,98 +818,77 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').phase).toBe('running')
   })
 
-  it('sync mcp：提交行全量写入（含已一致的强制重写）、手写 id 替换；注释保留', async () => {
+  it('sync mcp：选中条目合并进远端 mcp.json（同名覆盖、远端独有条目与顶层键保留、键序稳定）', async () => {
     makeEngine({
-      profilePatch: [
-        '- insert:',
-        '    - id: mcp-demo',
-        "      name: '@deepseek-ai/dsh-mcp-client'",
-        '      config:',
-        '        transport: stdio',
-        '        serverName: demo',
-        '        command: node',
-        '- insert:',
-        '    - id: mcp-same',
-        "      name: '@deepseek-ai/dsh-mcp-client'",
-        '      config:',
-        '        transport: stdio',
-        '        serverName: samesrv',
-        '        command: npx',
-        '- insert:',
-        '    - id: mcp-hand',
-        "      name: '@deepseek-ai/dsh-mcp-client'",
-        '      config:',
-        '        transport: stdio',
-        '        serverName: hand',
-        '        command: new-cmd',
-      ].join('\n'),
+      localMcp: {
+        demo: { command: 'node', args: ['server.js'] },
+        samesrv: { command: 'npx' },
+        hand: { command: 'new-cmd' },
+      },
       respond: (command) => {
-        // 远端：demo 配置不同（npx vs 本机 node）、samesrv 完全一致、hand 同名不同 id 不同配置
-        if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
-          return {
-            code: 0,
-            stdout: `${REMOTE_PATCH}- insert:\n    - id: mcp-same\n      name: '@deepseek-ai/dsh-mcp-client'\n      config:\n        transport: stdio\n        serverName: samesrv\n        command: npx\n`,
-            stderr: '',
-          }
+        // 远端：demo 配置不同（npx vs 本机 node）、samesrv 完全一致、remote-only 远端独有
+        if (command.includes('cat ~/.dsh/mcp.json')) return { code: 0, stdout: REMOTE_MCP_JSON, stderr: '' }
         return undefined
       },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'mcp', ['demo', 'samesrv', 'hand'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    const write = fake.calls.find((call) =>
-      call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml'),
-    )
+    const write = fake.calls.find((call) => call.command.includes('cat > ~/.dsh/mcp.json'))
     expect(write).toBeDefined()
-    // 手写注释与未勾选的无关行原样保留
-    expect(write?.stdin).toContain('# 远端手写注释')
-    // 提交行全量写入：demo 换成本机配置；samesrv 内容一致也强制重写；hand 行替换 custom-hand
-    expect(write?.stdin).toContain('command: node')
-    expect(write?.stdin).toContain('serverName: samesrv')
-    expect(write?.stdin).toContain('id: mcp-hand')
-    expect(write?.stdin).toContain('command: new-cmd')
-    expect(write?.stdin).not.toContain('custom-hand')
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({
-      installed: ['mcp-demo', 'mcp-same', 'mcp-hand'],
-    })
-    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo', 'mcp-same', 'mcp-hand'])
+    const merged = JSON.parse(String(write?.stdin)) as {
+      $schema: string
+      mcpServers: Record<string, { command: string }>
+    }
+    // 选中条目全量写入：demo 换成本机配置；samesrv 内容一致也强制重写；hand 新增
+    expect(merged.mcpServers.demo).toEqual({ command: 'node', args: ['server.js'] })
+    expect(merged.mcpServers.samesrv).toEqual({ command: 'npx' })
+    expect(merged.mcpServers.hand).toEqual({ command: 'new-cmd' })
+    // 远端独有条目与顶层其他键不动（只新增/覆盖，永不删除）
+    expect(merged.mcpServers['remote-only']).toEqual({ command: 'keep-cmd' })
+    expect(merged.$schema).toBe('https://dsh.dev/mcp.schema.json')
+    // 键序稳定：已有条目原位覆盖、新条目追加在末尾
+    expect(Object.keys(merged.mcpServers)).toEqual(['demo', 'remote-only', 'samesrv', 'hand'])
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['demo', 'samesrv', 'hand'] })
+    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['demo', 'samesrv', 'hand'])
   })
 
-  it('sync mcp：已一致勾选提交 → 强制重写写盘；取消全部勾选 → 远端零动作', async () => {
-    const identical = [
-      '- insert:',
-      '    - id: mcp-demo',
-      "      name: '@deepseek-ai/dsh-mcp-client'",
-      '      config:',
-      '        transport: stdio',
-      '        serverName: demo',
-      '        command: npx',
-    ].join('\n')
+  it('sync mcp：已一致勾选提交 → 强制重写写盘；取消全部勾选 → 远端零动作；远端文件坏 → 显式中止', async () => {
+    const identical = `${JSON.stringify({ mcpServers: { demo: { command: 'npx' } } }, null, 2)}\n`
     makeEngine({
-      profilePatch: identical,
+      localMcp: { demo: { command: 'npx' } },
       respond: (command) => {
-        if (command.includes('cat ~/.dsh/profiles/web/cordis.patch.yml'))
-          return { code: 0, stdout: identical, stderr: '' }
+        if (command.includes('cat ~/.dsh/mcp.json')) return { code: 0, stdout: identical, stderr: '' }
         return undefined
       },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'mcp', ['demo'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    // 勾选已一致行 = 强制重写：写盘执行（写入幂等）
-    expect(
-      fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
-    ).toBe(true)
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['mcp-demo'] })
+    // 勾选已一致条目 = 强制重写：写盘执行（写入幂等）
+    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/mcp.json'))).toBe(true)
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['demo'] })
 
-    // 未勾选 = 不动：无任何删除 / 重写（同步永不删远端内容）
+    // 未勾选 = 不动：远端零接触（同步永不删远端内容）
     fake.calls.length = 0
     engine.startSync('dev-box', 'mcp', [])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(
-      fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
-    ).toBe(false)
+    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/mcp.json'))).toBe(false)
     expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [] })
+
+    // 远端文件解析不了：显式中止，不盲覆盖
+    makeEngine({
+      localMcp: { demo: { command: 'npx' } },
+      respond: (command) => {
+        if (command.includes('cat ~/.dsh/mcp.json')) return { code: 0, stdout: '{ broken', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'mcp', ['demo'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(engine.stateOf('dev-box').phase).toBe('error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('解析失败')
   })
 
   const PLUGIN_PATCH = [
@@ -1271,7 +1261,7 @@ describe('RemoteEngine', () => {
           return { code: 0, stdout: `${hex('a')}  ./alpha/SKILL.md\n${hex('b')}  ./beta.md\n`, stderr: '' }
         if (command.startsWith('if cd ~/.agents/skills'))
           return { code: 0, stdout: `${hex('c')}  ./gamma/SKILL.md\n`, stderr: '' }
-        if (command.includes('cordis.patch.yml')) return { code: 0, stdout: REMOTE_PATCH, stderr: '' }
+        if (command.includes('cat ~/.dsh/mcp.json')) return { code: 0, stdout: REMOTE_MCP_JSON, stderr: '' }
         if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
           return {
             code: 0,
@@ -1297,16 +1287,8 @@ describe('RemoteEngine', () => {
         ],
       },
       mcp: [
-        {
-          serverName: 'demo',
-          signature: mcpSignature({ transport: 'stdio', serverName: 'demo', command: 'npx' }, false),
-          summary: 'npx',
-        },
-        {
-          serverName: 'hand',
-          signature: mcpSignature({ transport: 'stdio', serverName: 'hand', command: 'old-cmd' }, false),
-          summary: 'old-cmd',
-        },
+        { name: 'demo', signature: mcpSignature({ command: 'npx' }), summary: 'npx' },
+        { name: 'remote-only', signature: mcpSignature({ command: 'keep-cmd' }), summary: 'keep-cmd' },
       ],
       plugins: [
         { name: '@deepseek-ai/dsh-base', version: null },
@@ -1316,13 +1298,13 @@ describe('RemoteEngine', () => {
     })
   })
 
-  it('remoteInventory：patch 语法坏 → mcp null（无法比对）；hasher 缺失 → 该根 null', async () => {
+  it('remoteInventory：mcp.json 结构坏 → mcp null（无法比对）；hasher 缺失 → 该根 null', async () => {
     makeEngine({
       respond: (command) => {
         if (command.startsWith('if cd ~/.dsh/skills'))
           return { code: 0, stdout: '__DSH_NO_HASHER__\n', stderr: '' }
-        if (command.includes('cordis.patch.yml')) {
-          return { code: 0, stdout: '- insert: [broken\n', stderr: '' }
+        if (command.includes('cat ~/.dsh/mcp.json')) {
+          return { code: 0, stdout: '{ broken json', stderr: '' }
         }
         return undefined
       },
@@ -1350,18 +1332,6 @@ describe('RemoteEngine', () => {
     expect(() => engine.startSync('dev-box', 'skills', [])).toThrow(BusyError)
     release?.()
     await waitFor(() => engine.stateOf('dev-box').op === null)
-  })
-
-  it('remote patch 渲染：upsert 后的文本可直接再解析', async () => {
-    const doc = parsePatchDoc(REMOTE_PATCH)
-    upsertInsertRow(doc, {
-      id: 'mcp-demo',
-      name: '@deepseek-ai/dsh-mcp-client',
-      config: { transport: 'streamable-http', serverName: 'demo', url: 'https://example/mcp' },
-    })
-    const text = renderPatchDoc(doc)
-    expect(text).toContain('# 远端手写注释')
-    expect(parsePatchDoc(text)).toBeDefined()
   })
 
   it('远端事实脚本：真实子进程跑出 name/version，包缺失版本为空串', async () => {

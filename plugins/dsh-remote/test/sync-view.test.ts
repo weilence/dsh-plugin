@@ -19,8 +19,8 @@ const localRows: LocalRowsResponse = {
     { name: 'review', root: 'user-agents', description: null, digest: 'd2' },
   ],
   mcpRows: [
-    { id: 'mcp-foo', serverName: 'foo', summary: 'npx foo', signature: 's1' },
-    { id: 'mcp-bar', serverName: null, summary: 'npx bar', signature: 's2' },
+    { name: 'foo', summary: 'npx foo', signature: 's1' },
+    { name: 'bar', summary: 'npx bar', signature: 's2' },
   ],
   pluginRows: [
     {
@@ -46,7 +46,7 @@ const localRows: LocalRowsResponse = {
 const inventory: RemoteInventoryResponse = {
   // user-agents 根的远端管道失败 → 无法比对（保守按不同处理）
   skills: { 'user-dsh': [{ name: 'deploy', digest: 'd0' }], 'user-agents': null },
-  mcp: [{ serverName: 'foo', signature: 's0', summary: 'npx foo@remote' }],
+  mcp: [{ name: 'foo', signature: 's0', summary: 'npx foo@remote' }],
   plugins: [
     { name: '@weilence/dsh-skills', version: '0.9.0' },
     { name: 'lodash', version: '4.17.21' },

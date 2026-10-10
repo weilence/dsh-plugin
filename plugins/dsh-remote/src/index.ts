@@ -17,6 +17,7 @@ import {
   composeLocalRows,
   profileContextOf,
   readLocalLayers,
+  readLocalMcp,
   scanSkillRows,
   scanSystemPrompt,
   skillsRoots,
@@ -230,6 +231,7 @@ function makeEngine(ctx: Context): RemoteEngine {
     pushTar: tarOverSsh,
     pushFile,
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
+    readLocalMcp: () => readLocalMcp(profileContextOf(ctx)?.home ?? dshHomePath()),
     // 技能行带内容摘要：同步弹窗的「一致」判定源
     scanSkills: async () => {
       const roots = []
@@ -369,7 +371,8 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
               writeJson(res, 200, response as unknown as Record<string, unknown>)
               return
             }
-            const { mcpRows, pluginRows } = await composeLocalRows(await readLocalLayers(profile))
+            const { pluginRows } = await composeLocalRows(await readLocalLayers(profile))
+            const mcpRows = (await readLocalMcp(profile.home)).rows
             // skills 根与系统提示词是 DSH 用户级全局（非 profile 内），清单与 profile 无关
             const skillRows: LocalSkillRow[] = []
             for (const root of skillsRoots()) skillRows.push(...(await scanSkillRows(root)))

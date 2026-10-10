@@ -226,60 +226,94 @@ export async function readLocalLayers(
   return layers
 }
 
-/** fold 出的一条本机 MCP 行。 */
-export interface FoldedMcpRow {
-  row: InsertRow
-  config: Record<string, unknown>
-  disabled: boolean
+/** 全局 MCP 档（~/.dsh/mcp.json，dsh-mcp 插件管理的同一文件）；工作区档
+ *  （<cwd>/.mcp.json）是目录特定，不参与跨机同步。 */
+export function mcpFile(home: string): string {
+  return join(home, 'mcp.json')
 }
 
-/** MCP 行的 fold：先按序收集全部覆盖行（后层覆盖前层），再套到 insert 上。 */
-export function foldMcpRows(layers: readonly LocalPatchLayer[]): FoldedMcpRow[] {
-  const overrides = new Map<string, { config?: Record<string, unknown>; disabled?: boolean }>()
-  for (const layer of layers) {
-    const composed = layer.doc.toJS({ mapAsMap: false })
-    if (!Array.isArray(composed)) continue
-    for (const item of composed) {
-      const record =
-        typeof item === 'object' && item !== null && !Array.isArray(item)
-          ? (item as Record<string, unknown>)
-          : undefined
-      if (record === undefined || record.insert !== undefined || typeof record.id !== 'string') continue
-      const current = overrides.get(record.id) ?? {}
-      if (typeof record.config === 'object' && record.config !== null && !Array.isArray(record.config)) {
-        current.config = record.config as Record<string, unknown>
-      }
-      if (typeof record.disabled === 'boolean') current.disabled = record.disabled
-      overrides.set(record.id, current)
+/** 解析 .mcp.json 文本（null = 文件不存在 → 空状态）。顶层结构问题抛错；
+ *  与 dsh-mcp 的文件方言一致：mcpServers 包装为主，缺包装时接受
+ *  「名称 → 配置」直接映射。 */
+export function parseMcpServers(text: string | null): {
+  rootExtras: Record<string, unknown>
+  entries: Map<string, Record<string, unknown>>
+} {
+  const empty = {
+    rootExtras: {} as Record<string, unknown>,
+    entries: new Map<string, Record<string, unknown>>(),
+  }
+  if (text === null || text.trim().length === 0) return empty
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('不是合法的 JSON')
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('顶层必须是 JSON 对象')
+  }
+  const root = parsed as Record<string, unknown>
+  const wrapped =
+    typeof root.mcpServers === 'object' && root.mcpServers !== null && !Array.isArray(root.mcpServers)
+      ? (root.mcpServers as Record<string, unknown>)
+      : undefined
+  const entries = new Map<string, Record<string, unknown>>()
+  const source = wrapped ?? root
+  for (const [name, value] of Object.entries(source)) {
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      entries.set(name, value as Record<string, unknown>)
     }
   }
-  const byId = new Map<string, FoldedMcpRow>()
-  for (const layer of layers) {
-    for (const insert of scanInserts(layer.doc)) {
-      if (insert.name !== MCP_PLUGIN_NAME) continue
-      const base =
-        typeof insert.config === 'object' && insert.config !== null && !Array.isArray(insert.config)
-          ? (insert.config as Record<string, unknown>)
-          : {}
-      const override = overrides.get(insert.id)
-      byId.set(insert.id, {
-        row: insert,
-        config: { ...base, ...(override?.config ?? {}) },
-        disabled: override?.disabled ?? insert.disabled === true,
-      })
+  const rootExtras: Record<string, unknown> = {}
+  if (wrapped !== undefined) {
+    for (const [key, value] of Object.entries(root)) {
+      if (key !== 'mcpServers') rootExtras[key] = value
     }
   }
-  return [...byId.values()]
+  return { rootExtras, entries }
 }
 
-export function mcpSummary(config: Record<string, unknown>): string {
-  if (config.transport === 'stdio') {
-    const command = typeof config.command === 'string' ? config.command : ''
-    const args = Array.isArray(config.args) ? config.args.join(' ') : ''
-    return [command, args].filter((part) => part.length > 0).join(' ') || 'stdio'
+/** 条目的传输形态摘要（stdio 命令行或 http 端点；推断不出给占位）。 */
+export function mcpSummary(entry: Record<string, unknown>): string {
+  const args = Array.isArray(entry.args) ? entry.args.filter((item) => typeof item === 'string') : []
+  if (typeof entry.command === 'string') {
+    return [entry.command, args.join(' ')].filter((part) => part.length > 0).join(' ') || 'stdio'
   }
-  if (typeof config.url === 'string') return config.url
-  return typeof config.transport === 'string' ? config.transport : '未声明传输'
+  if (typeof entry.url === 'string' && entry.url.length > 0) return entry.url
+  return '未声明传输'
+}
+
+/** 一份本机全局 MCP 档的读取结果。 */
+export interface LocalMcpFile {
+  /** 文件绝对路径。 */
+  file: string
+  /** 顶层除 mcpServers 外的键（合并写远端时身份保留）。 */
+  rootExtras: Record<string, unknown>
+  /** 条目名 → 原始条目对象（写远端时身份保留）。 */
+  entries: Map<string, Record<string, unknown>>
+  /** wire 行（弹窗展示与判等）。 */
+  rows: LocalMcpRow[]
+}
+
+/** 读本机全局 MCP 档（原始条目全量保留供合并写远端；解析失败原样抛——
+ *  弹窗与同步都要面对同一份坏文件，静默降级会把它当空清单覆盖远端）。 */
+export async function readLocalMcp(home: string): Promise<LocalMcpFile> {
+  const file = mcpFile(home)
+  let text: string | null = null
+  try {
+    text = await readFile(file, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const { rootExtras, entries } = parseMcpServers(text)
+  const rows: LocalMcpRow[] = [...entries.keys()].map((name) => ({
+    name,
+    summary: mcpSummary(entries.get(name)!),
+    signature: mcpSignature(entries.get(name)!),
+  }))
+  rows.sort((left, right) => left.name.localeCompare(right.name))
+  return { file, rootExtras, entries, rows }
 }
 
 /** 本地路径安装的 spec 前缀（pnpm 的 link: / file: 协议）。 */
@@ -318,24 +352,15 @@ async function pluginRowMeta(
   return { install: 'registry', root: version === null ? null : root, version }
 }
 
-/** 组装 wire 上的本机清单（MCP 行 + 插件行）。 */
+/** 组装 wire 上的本机插件行清单（MCP 条目走 readLocalMcp，不来自 patch）。 */
 export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Promise<{
-  mcpRows: LocalMcpRow[]
   pluginRows: LocalPluginRow[]
 }> {
-  const mcpRows: LocalMcpRow[] = foldMcpRows(layers).map(({ row, config, disabled }) => ({
-    id: row.id,
-    serverName:
-      typeof config.serverName === 'string' && config.serverName.length > 0 ? config.serverName : null,
-    summary: mcpSummary(config),
-    signature: mcpSignature(config, disabled),
-  }))
-  mcpRows.sort((left, right) => ((left.serverName ?? left.id) < (right.serverName ?? right.id) ? -1 : 1))
-
   const pluginRows: LocalPluginRow[] = []
   const seen = new Set<string>()
   for (const layer of layers) {
     for (const insert of scanInserts(layer.doc)) {
+      // 旧版 MCP patch 行（mcp-client insert）不再属于插件同步清单
       if (insert.name === MCP_PLUGIN_NAME) continue
       // 本插件自身是远端装配基线（isRemoteSelf），不进同步清单
       if (isRemoteSelf(insert.name)) continue
@@ -362,5 +387,5 @@ export async function composeLocalRows(layers: readonly LocalPatchLayer[]): Prom
     }
   }
   pluginRows.sort((left, right) => left.name.localeCompare(right.name))
-  return { mcpRows, pluginRows }
+  return { pluginRows }
 }

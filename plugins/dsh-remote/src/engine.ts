@@ -4,17 +4,16 @@ import type { ForwardRegistry } from './forwards'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
-import { composeLocalRows, foldMcpRows, foldSkillDigest, mcpSummary, type LocalPatchLayer } from './localenv'
 import {
-  emptyPatchDoc,
-  parsePatchDoc,
-  removeInsertRows,
-  renderPatchDoc,
-  scanInserts,
-  upsertInsertRow,
-} from './patchDoc'
+  composeLocalRows,
+  foldSkillDigest,
+  mcpSummary,
+  parseMcpServers,
+  readLocalMcp,
+  type LocalPatchLayer,
+  type LocalMcpFile,
+} from './localenv'
 import {
-  MCP_PLUGIN_NAME,
   REMOTE_PLUGIN_NAME,
   REMOTE_PROFILE,
   isRemoteSelf,
@@ -34,13 +33,6 @@ import {
   type SyncKind,
   type TestResponse,
 } from './shared'
-
-/** MCP 行 config 的 serverName（非字符串或缺省为 undefined）。 */
-function asServerName(config: unknown): string | undefined {
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) return undefined
-  const name = (config as Record<string, unknown>).serverName
-  return typeof name === 'string' && name.length > 0 ? name : undefined
-}
 
 /** 远端读插件事实的内嵌脚本（remotePluginFacts 经 ssh 执行）：输出行
  *  `<name>\t<version>`（空串 = 读不到）。 */
@@ -104,6 +96,8 @@ export interface EngineDeps {
   /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
   pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
   readLocalLayers(): Promise<LocalPatchLayer[]>
+  /** 本机全局 MCP 档（~/.dsh/mcp.json）：原始条目 + 弹窗行。 */
+  readLocalMcp(): Promise<LocalMcpFile>
   scanSkills(): Promise<
     { key: 'user-dsh' | 'user-agents'; path: string; rows: { name: string; digest: string | null }[] }[]
   >
@@ -757,29 +751,6 @@ export class RemoteEngine {
     return [...byName].map(([name, files]) => ({ name, digest: foldSkillDigest(files) }))
   }
 
-  /** 远端 patch 内 MCP 行的事实（serverName → 行 id / 配置签名 / 摘要；手写行
-   *  id 不必循命名约定，按 serverName 对齐）。 */
-  private mcpFactsOfDoc(
-    doc: ReturnType<typeof parsePatchDoc>,
-  ): Map<string, { id: string; signature: string; summary: string }> {
-    const facts = new Map<string, { id: string; signature: string; summary: string }>()
-    for (const row of scanInserts(doc)) {
-      if (row.name !== MCP_PLUGIN_NAME) continue
-      const serverName = asServerName(row.config)
-      if (serverName === undefined) continue
-      const config =
-        typeof row.config === 'object' && row.config !== null && !Array.isArray(row.config)
-          ? (row.config as Record<string, unknown>)
-          : {}
-      facts.set(serverName, {
-        id: row.id,
-        signature: mcpSignature(config, row.disabled === true),
-        summary: mcpSummary(config),
-      })
-    }
-    return facts
-  }
-
   /** 远端插件事实：bundles 激活清单 + 激活插件的已装版本（一条 node 批量读，
    *  部署前置保证远端有 node；脚本见 REMOTE_PLUGIN_FACTS_SCRIPT）。任一环节
    *  失败回 null——按「无法比对」处理，同步侧保守安装。 */
@@ -846,20 +817,18 @@ export class RemoteEngine {
       'user-dsh': await this.remoteSkillFacts(alias, 'user-dsh'),
       'user-agents': await this.remoteSkillFacts(alias, 'user-agents'),
     }
-    const patch = await this.deps.exec(
-      alias,
-      `cat ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}/cordis.patch.yml || true`,
-    )
+    const mcpFileText = await this.deps.exec(alias, 'cat ~/.dsh/mcp.json 2>/dev/null || true')
     let mcp: RemoteMcpFact[] | null = []
-    if (patch.stdout.trim().length > 0) {
+    if (mcpFileText.stdout.trim().length > 0) {
       try {
-        mcp = [...this.mcpFactsOfDoc(parsePatchDoc(patch.stdout))].map(([serverName, fact]) => ({
-          serverName,
-          signature: fact.signature,
-          summary: fact.summary,
+        const { entries } = parseMcpServers(mcpFileText.stdout)
+        mcp = [...entries].map(([name, entry]) => ({
+          name,
+          signature: mcpSignature(entry),
+          summary: mcpSummary(entry),
         }))
       } catch {
-        // 远端 patch 语法坏：无法比对（写入侧 doMcpSync 会显式失败并报原因）
+        // 远端文件结构坏：无法比对（写入侧 doMcpSync 会显式失败并报原因）
         mcp = null
       }
     }
@@ -929,63 +898,47 @@ export class RemoteEngine {
     runtime.lastSync.skills = { at: this.deps.now(), pushed }
   }
 
-  /** MCP 同步：提交即执行——本机两层 patch fold 出选中 serverName 的生效配置，
-   *  整块写进远端 profile patch（勾选已一致行即强制重写；写入幂等）。远端手写
-   *  行（同 serverName 不同 id）被本机行替换：覆盖语义，不是删除远端条目。
-   *  未勾选不动。 */
+  /** MCP 同步：提交即执行——本机全局 mcp.json 的选中条目合并进远端同一文件
+   *  （Map 原位覆盖保键序，远端独有条目与顶层其他键不动——只新增/覆盖，
+   *  永不删除；勾选已一致条目即强制重写，写入幂等）。工作区档是目录特定，
+   *  不参与跨机同步。远端文件解析不了（结构坏）时显式中止：盲覆盖会毁掉
+   *  用户手写的其余条目。 */
   private async doMcpSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
-    const layers = await this.deps.readLocalLayers()
-    const rows: {
-      serverName: string
-      id: string
-      name: string
-      config: Record<string, unknown>
-      disabled?: boolean
-    }[] = []
-    for (const entry of foldMcpRows(layers)) {
-      const serverName = asServerName(entry.config)
-      if (serverName === undefined || !selected.has(serverName)) continue
-      rows.push({
-        serverName,
-        id: entry.row.id,
-        name: MCP_PLUGIN_NAME,
-        config: entry.config,
-        // 只写 true：显式 false 会渲染成 YAML 行（upsertInsertRow 对 undefined 不写）
-        disabled: entry.disabled || undefined,
-      })
-    }
+    const local = await this.deps.readLocalMcp()
+    const chosen = [...local.entries].filter(([name]) => selected.has(name))
+    const installed = chosen.map(([name]) => name)
 
-    const remotePatch = `~/.dsh/profiles/${REMOTE_PROFILE}/cordis.patch.yml`
-    this.step(id, 'read-remote', remotePatch)
-    const current = await this.deps.exec(connection.sshAlias, `cat ${remotePatch} || true`)
-    const doc = current.stdout.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(current.stdout)
-    const remoteFacts = this.mcpFactsOfDoc(doc)
+    if (chosen.length > 0) {
+      const remoteFile = '~/.dsh/mcp.json'
+      this.step(id, 'read-remote', remoteFile)
+      const current = await this.deps.exec(connection.sshAlias, `cat ${remoteFile} 2>/dev/null || true`)
+      let remote: { rootExtras: Record<string, unknown>; entries: Map<string, Record<string, unknown>> }
+      try {
+        remote = parseMcpServers(current.stdout.trim().length === 0 ? null : current.stdout)
+      } catch (error) {
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端 ${remoteFile} 解析失败，中止覆盖：${error instanceof Error ? error.message : String(error)}`,
+          mergedOutput('', current.stdout),
+        )
+      }
 
-    const replacedIds = new Set<string>()
-    for (const row of rows) {
-      const fact = remoteFacts.get(row.serverName)
-      if (fact !== undefined && fact.id !== row.id) replacedIds.add(fact.id)
-    }
-    const installed = rows.map((row) => row.id)
-
-    if (rows.length > 0) {
-      this.step(id, 'merge', `${rows.length} 行`)
-      if (replacedIds.size > 0) removeInsertRows(doc, replacedIds)
-      for (const row of rows) upsertInsertRow(doc, row)
+      this.step(id, 'merge', `${chosen.length} 条`)
+      for (const [name, entry] of chosen) remote.entries.set(name, entry)
+      const next = { ...remote.rootExtras, mcpServers: Object.fromEntries(remote.entries) }
 
       this.step(id, 'write-remote')
-      await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
       const write = await this.deps.exec(
         connection.sshAlias,
-        `cat > ${remotePatch}.tmp-dsh-remote && mv ${remotePatch}.tmp-dsh-remote ${remotePatch}`,
-        { stdin: renderPatchDoc(doc) },
+        `cat > ${remoteFile}.tmp-dsh-remote && mv ${remoteFile}.tmp-dsh-remote ${remoteFile}`,
+        { stdin: `${JSON.stringify(next, null, 2)}\n` },
       )
       if (write.code !== 0)
         throw new SshFailure(
           'remote-cmd-failed',
-          `远端 patch 写入失败：${write.stderr.trim()}`,
+          `远端 mcp.json 写入失败：${write.stderr.trim()}`,
           mergedOutput('', write.stderr),
         )
     }

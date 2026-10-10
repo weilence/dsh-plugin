@@ -122,9 +122,10 @@ export function canonicalJson(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 
-/** MCP 行的生效配置签名（config 与 disabled 一并入签，弹窗徽标与引擎跳过共用）。 */
-export function mcpSignature(config: Record<string, unknown>, disabled: boolean): string {
-  return canonicalJson({ config, disabled })
+/** MCP 条目的配置签名（整个条目对象的规范化 JSON——disabled 与未知键天然
+ *  入签，身份保留语义下未知键变化就是差异；弹窗徽标与引擎共用）。 */
+export function mcpSignature(entry: Record<string, unknown>): string {
+  return canonicalJson(entry)
 }
 
 /** 远端一个技能的事实（digest = 内容摘要；null = 远端摘要管道失败）。 */
@@ -133,9 +134,9 @@ export interface RemoteSkillFact {
   digest: string | null
 }
 
-/** 远端一条 MCP 行的事实（按 serverName 对齐）。 */
+/** 远端一个 MCP 条目的事实（按条目名对齐；名即 serverName）。 */
 export interface RemoteMcpFact {
-  serverName: string
+  name: string
   signature: string
   /** 传输形态摘要（弹窗「远端：…」对比行用）。 */
   summary: string
@@ -204,14 +205,13 @@ export interface LocalSkillRow {
   digest: string | null
 }
 
-/** 本机 MCP 行（两层用户 patch 的只读清单，供勾选下发）。 */
+/** 本机 MCP 条目（全局 mcp.json 的只读清单，供勾选下发；工作区档不参与同步）。 */
 export interface LocalMcpRow {
-  /** patch 行 id（形如 mcp-<serverName>）。 */
-  id: string
-  serverName: string | null
+  /** 条目名（mcpServers 的键，即 serverName）。 */
+  name: string
   /** 传输形态摘要（stdio 命令或 http 端点）。 */
   summary: string
-  /** 生效配置签名（config + disabled 的规范化 JSON）。 */
+  /** 条目对象的规范化 JSON 签名。 */
   signature: string
 }
 
@@ -255,7 +255,7 @@ export interface LocalRowsResponse {
 export interface RemoteInventoryResponse {
   /** 远端两个 skills 根的技能摘要（按根区分：本机同名技能在不同根是不同条目）。 */
   skills: Record<'user-dsh' | 'user-agents', RemoteSkillFact[] | null>
-  /** 远端 profile patch 内 MCP 行（按 serverName 对齐）。 */
+  /** 远端全局 mcp.json 的 mcpServers 条目（按条目名对齐）。 */
   mcp: RemoteMcpFact[] | null
   /** 远端 bundles 激活清单及各自已装版本。 */
   plugins: RemotePluginFact[] | null

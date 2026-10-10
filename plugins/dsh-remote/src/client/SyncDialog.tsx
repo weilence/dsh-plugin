@@ -154,17 +154,15 @@ export function rowsOf(
   if (kind === 'mcp') {
     return localRows.mcpRows.map((entry) => {
       const facts = inventory?.mcp
-      const fact =
-        entry.serverName === null ? undefined : facts?.find((item) => item.serverName === entry.serverName)
+      const fact = facts?.find((item) => item.name === entry.name)
       const status: ItemStatus =
         facts === undefined || facts === null ? 'unknown' : mcpStatus(entry.signature, fact)
       return {
-        key: entry.serverName ?? entry.id,
+        key: entry.name,
         status,
         view: (t) => ({
-          key: entry.serverName ?? entry.id,
-          title: entry.serverName ?? entry.id,
-          titleMeta: entry.id,
+          key: entry.name,
+          title: entry.name,
           ...(status === 'same' ? { tag: t('status.same') } : {}),
           lines: [
             entry.summary,

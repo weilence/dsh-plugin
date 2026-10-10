@@ -25,11 +25,12 @@ describe('canonicalJson', () => {
 })
 
 describe('mcpSignature', () => {
-  it('config 内容相同即相等（键序无关）；disabled 参与判定', () => {
-    expect(mcpSignature({ command: 'npx', args: ['a'] }, false)).toBe(
-      mcpSignature({ args: ['a'], command: 'npx' }, false),
+  it('条目内容相同即相等（键序无关）；disabled 与未知键参与判定', () => {
+    expect(mcpSignature({ command: 'npx', args: ['a'] })).toBe(mcpSignature({ args: ['a'], command: 'npx' }))
+    expect(mcpSignature({ command: 'npx', disabled: true })).not.toBe(mcpSignature({ command: 'npx' }))
+    expect(mcpSignature({ command: 'npx', reconnect: { enabled: false } })).not.toBe(
+      mcpSignature({ command: 'npx' }),
     )
-    expect(mcpSignature({ command: 'npx' }, true)).not.toBe(mcpSignature({ command: 'npx' }, false))
   })
 })
 
@@ -45,7 +46,7 @@ describe('skillStatus', () => {
 
 describe('mcpStatus', () => {
   it('三态：absent / same / diff（签名恒可计算，无 unknown）', () => {
-    const fact: RemoteMcpFact = { serverName: 's', signature: 'sig', summary: 'x' }
+    const fact: RemoteMcpFact = { name: 's', signature: 'sig', summary: 'x' }
     expect(mcpStatus('sig', fact)).toBe('same')
     expect(mcpStatus('other', fact)).toBe('diff')
     expect(mcpStatus('sig', undefined)).toBe('absent')
