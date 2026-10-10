@@ -542,8 +542,7 @@
 }
 
 .notice,
-.error,
-.success {
+.error {
   font-size: 12px;
   line-height: 18px;
   border-radius: 8px;
@@ -558,9 +557,4 @@
 .error {
   background: var(--dsw-alias-interactive-bg-hover-danger);
   color: var(--dsw-alias-state-error-primary);
-}
-
-.success {
-  background: var(--dsw-alias-state-success-bg);
-  color: var(--dsw-alias-state-success-primary);
 }
