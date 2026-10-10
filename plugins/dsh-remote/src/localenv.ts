@@ -1,6 +1,6 @@
 // 本机清单只读扫描；本地写管理归 dsh-skills / dsh-mcp。
 import { createHash } from 'node:crypto'
-import { readdir, readFile, realpath, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -91,47 +91,6 @@ async function fileHash(file: string): Promise<string> {
   return createHash('sha256')
     .update(await readFile(file))
     .digest('hex')
-}
-
-/** 打包与包指纹共用的目录排除段（单一来源）：packPackage 的拷贝过滤与此同表，
- *  保证「指纹所见的文件集 === 打进 tgz 的文件集」。 */
-export const PACKAGE_PACK_EXCLUDED: readonly string[] = ['node_modules', '.git']
-
-/** 打包与双端指纹共用的忽略规则：排除段之外，另跳过 ._ 前缀条目——macOS
- *  AppleDouble（tar 对扩展属性的序列化副产物、Finder 网络卷遗留），不是包
- *  内容。曾因宿主内 tar 序列化 provenance xattr 令远端已装指纹永远对不上。 */
-export function isPackJunkSegment(segment: string): boolean {
-  return PACKAGE_PACK_EXCLUDED.includes(segment) || segment.startsWith('._')
-}
-
-/** 插件包根的内容指纹：整树逐文件 sha256 后折叠（与远端 node -e 管线镜像——
- *  '/' 连接的相对路径、同一忽略规则、符号链接不计），同内容必同指纹。刻意不比
- *  mtime / 权限：声明语义只关心内容字节。读不到（定位失败 / 文件不可读）回
- *  null——同步侧按「无法比对」保守重装。 */
-export async function packageTreeDigest(root: string): Promise<string | null> {
-  const files: { path: string; hash: string }[] = []
-  const walk = async (dir: string, prefix: string): Promise<void> => {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (isPackJunkSegment(entry.name)) continue
-      const rel = `${prefix}${entry.name}`
-      if (entry.isDirectory()) await walk(join(dir, entry.name), `${rel}/`)
-      else if (entry.isFile()) files.push({ path: rel, hash: await fileHash(join(dir, entry.name)) })
-    }
-  }
-  try {
-    await walk(await realpath(root), '')
-    return foldSkillDigest(files)
-  } catch {
-    return null
-  }
-}
-
-/** 插件 payload 的内容寻址文件名：dsh profile 固定 nodeLinker: hoisted，其下
- *  pnpm add 只认 specifier 变化——同 name@version 换内容若沿用旧文件名，远端
- *  会以 Already up to date 跳过重新解包（--force 也绕不过）；指纹入名使内容
- *  变化必然改变 specifier。 */
-export function payloadFileName(name: string, version: string, digest: string): string {
-  return `${name.replace(/^@/, '').replace(/\//g, '-')}-${version}-${digest.slice(0, 8)}.tgz`
 }
 
 /** 一个技能的文件摘要行：目录包递归 + `<name>.md` 单文件（两者并存取并集，
@@ -343,7 +302,7 @@ async function readPackageVersion(root: string): Promise<string | null> {
 async function pluginRowMeta(
   layer: LocalPatchLayer,
   name: string,
-): Promise<Pick<LocalPluginRow, 'install' | 'root' | 'version' | 'digest'>> {
+): Promise<Pick<LocalPluginRow, 'install' | 'root' | 'version'>> {
   const spec = layer.deps[name]
   if (spec !== undefined && LOCAL_SPEC_PATTERN.test(spec)) {
     const target = spec.slice(spec.indexOf(':') + 1).trim()
@@ -352,21 +311,11 @@ async function pluginRowMeta(
       spec.slice(0, spec.indexOf(':')).toLowerCase() === 'file'
         ? resolve(dirname(layer.file), target)
         : target
-    return {
-      install: 'local',
-      root,
-      version: await readPackageVersion(root),
-      digest: await packageTreeDigest(root),
-    }
+    return { install: 'local', root, version: await readPackageVersion(root) }
   }
   const root = join(dirname(layer.file), 'node_modules', name)
   const version = await readPackageVersion(root)
-  return {
-    install: 'registry',
-    root: version === null ? null : root,
-    version,
-    digest: version === null ? null : await packageTreeDigest(root),
-  }
+  return { install: 'registry', root: version === null ? null : root, version }
 }
 
 /** 组装 wire 上的本机清单（MCP 行 + 插件行）。 */

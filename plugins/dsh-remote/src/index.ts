@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { cp, mkdtemp, readFile, realpath } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
+import { mkdtemp, readFile, readdir, realpath } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { Context } from '@deepseek-ai/cordis'
@@ -13,11 +13,8 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { errMsg } from '@dsh-plugins/shared'
 import {
-  PACKAGE_PACK_EXCLUDED,
   composeLocalRows,
   globalPromptFile,
-  packageTreeDigest,
-  payloadFileName,
   profileContextOf,
   readLocalLayers,
   scanGlobalPrompt,
@@ -88,80 +85,63 @@ const localPluginVersion: string | null = (() => {
 })()
 
 /**
- * 本地组装任意插件包根的 tgz（npm tarball 布局：package/ 前缀）。整目录拷贝
- * 排除段与 packageTreeDigest 单一来源（PACKAGE_PACK_EXCLUDED）——指纹所见即
- * 打包所装；registry 实体的 symlink 先 realpath 落到 .pnpm 真实目录。文件名
- * 内容寻址（name-version-指纹8，见 localenv.payloadFileName）：同版本换内容
- * 必须换文件名，远端 pnpm（hoisted linker）才会重新解包。不用 `pnpm pack`——
- * 宿主形态（desktop / web CLI）不保证带着包管理器；系统 tar（Windows 10+
- * 自带 bsdtar）即可产出 pnpm 可安装的包。staging 留在系统 tmp，交给 OS 清理。
+ * 本地组装任意插件包根的 tgz：`pnpm pack` 打包——发布语义（files 白名单、
+ * prepack 构建、catalog:/workspace: 依赖落成具体 range），产物名即
+ * <扁平化包名>-<version>.tgz。插件判等是版本号（见 shared.pluginStatus），文件
+ * 选择不影响判定；workspace 协议不改写则远端 pnpm 解析不了依赖
+ * （ERR_PNPM_SPEC_NOT_SUPPORTED_BY_ANY_RESOLVER，catalog: 实际发生过）。
+ * 打包走标准工具，不用系统 tar 手拼；宿主进程必须解析得到 pnpm——GUI 启动
+ * 不继承 shell rc 的 PATH，找不到直接显式报错，不回退自实现打包（两套打包
+ * 行为会让产物不确定）。staging 留在系统 tmp，交给 OS 清理。
  */
-async function packPackage(root: string): Promise<{ path: string; fileName: string }> {
+export async function packPackage(root: string): Promise<{ path: string; fileName: string }> {
   const real = await realpath(root)
-  let manifest: { name?: unknown; version?: unknown }
-  try {
-    manifest = JSON.parse(await readFile(join(real, 'package.json'), 'utf8'))
-  } catch {
-    throw new SshFailure('unknown', `包目录缺 package.json：${real}`)
-  }
-  const name = typeof manifest.name === 'string' ? manifest.name : ''
-  const version = typeof manifest.version === 'string' ? manifest.version : ''
-  if (name.length === 0 || version.length === 0) {
-    throw new SshFailure('unknown', `包 ${real} 的 package.json 缺 name / version，无法打包`)
-  }
   const staging = await mkdtemp(join(tmpdir(), 'dsh-remote-pack-'))
-  const bundle = join(staging, 'package')
-  // 排除只看根内相对段：根自身可能就位于 node_modules（.pnpm 实体）之内
-  const excluded = new Set(PACKAGE_PACK_EXCLUDED)
-  await cp(real, bundle, {
-    recursive: true,
-    filter: (src) => {
-      const segments = relative(real, src).split(/[\\/]+/)
-      return !segments.some((segment) => excluded.has(segment))
-    },
-  })
-  // 指纹取暂存目录（与源根经同一过滤拷贝，故与 LocalPluginRow.digest 同口径）；
-  // 算不出属于文件不可读——显式失败，不带病打包。
-  const digest = await packageTreeDigest(bundle)
-  if (digest === null) {
-    throw new SshFailure('unknown', `包 ${real} 的内容指纹计算失败（存在不可读文件），无法打包`)
-  }
-  const fileName = payloadFileName(name, version, digest)
-  const tarball = join(staging, fileName)
-  await new Promise<void>((resolve, reject) => {
-    // COPYFILE_DISABLE：macOS bsdtar 默认把扩展属性序列化成 ._* AppleDouble 条目
-    // 打进 tgz，Linux 端照原样解包——幽灵文件会污染已装指纹，令每次同步都误判
-    // diff（且同版本同名重装被 hoisted linker 跳过，永远无法收敛）。
-    const child = spawn('tar', ['-czf', tarball, '-C', staging, 'package'], {
-      windowsHide: true,
-      env: { ...process.env, COPYFILE_DISABLE: '1' },
+  // pnpm 的 --json 会被 prepack 脚本的 stdout 污染，产物名不解析输出，改为读
+  // 全新空目录里唯一落地的 tgz。Windows 的 pnpm 是 .cmd，node 直接 spawn 会被
+  // 拒绝，走 shell 并给路径加引号；unix 保持参数数组不经 shell（临时目录路径
+  // 可能含空格）。
+  const win32 = process.platform === 'win32'
+  const result = await new Promise<{ code: number; output: string }>((resolve, reject) => {
+    const child = spawn(
+      'pnpm',
+      ['pack', win32 ? `--pack-destination="${staging}"` : `--pack-destination=${staging}`],
+      { cwd: real, windowsHide: true, shell: win32 },
+    )
+    let output = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      output += String(chunk)
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      output += String(chunk)
     })
     child.on('error', (error: NodeJS.ErrnoException) => {
       reject(
         error.code === 'ENOENT'
           ? new SshFailure(
               'local-tool-missing',
-              '本机未找到 tar：Windows 10+ 自带 bsdtar，请确认其在 PATH 上',
+              '本机未找到 pnpm：插件同步与部署的打包需要它，且必须在宿主进程可见的 PATH 上',
             )
           : error,
       )
     })
     child.on('close', (code) => {
-      if (code === 0) resolve()
-      else reject(new SshFailure('unknown', `tar 打包失败（退出码 ${String(code)}）`))
+      resolve({ code: code ?? -1, output })
     })
   })
-  return { path: tarball, fileName }
+  if (result.code !== 0) {
+    throw new SshFailure('unknown', `pnpm pack 失败：${summarizeOutput('', result.output)}`)
+  }
+  const files = (await readdir(staging)).filter((name) => name.endsWith('.tgz'))
+  if (files.length !== 1) {
+    throw new SshFailure('unknown', `pnpm pack 未产出唯一 tgz（得到 ${String(files.length)} 个），无法传输`)
+  }
+  return { path: join(staging, files[0]), fileName: files[0] }
 }
 
-/** 部署自装：本插件打包（带构建产物防呆——开发 checkout 未 build 时明确报错）。 */
+/** 部署自装：本插件打包（prepack 即 tsdown，产物在打包时现建）。 */
 async function packPlugin(): Promise<{ path: string; fileName: string }> {
-  const root = pluginPackageRoot()
-  for (const artifact of ['lib/index.js', 'lib/client.js']) {
-    if (!existsSync(join(root, artifact)))
-      throw new SshFailure('unknown', `本插件缺少构建产物 ${artifact}：先在插件目录执行 pnpm build`)
-  }
-  return packPackage(root)
+  return packPackage(pluginPackageRoot())
 }
 
 /** 单文件二进制推送：tgz 经 ssh stdin 直写远端 payload 目录。 */

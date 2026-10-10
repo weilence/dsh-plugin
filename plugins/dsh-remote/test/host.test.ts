@@ -220,7 +220,6 @@ describe('dsh-remote 路由', () => {
         name: string
         install: string
         version: string | null
-        digest: string | null
       }[]
     }
     expect(rows.mcpRows.map((row) => row.id)).toEqual(['mcp-demo'])
@@ -231,10 +230,8 @@ describe('dsh-remote 路由', () => {
     ])
     // link spec → 本地（root 为 spec 目标）；semver spec → registry（root 为层内 node_modules）
     expect(rows.pluginRows[0]).toMatchObject({ install: 'local', version: '2.0.0' })
-    // 本地实体的内容指纹可算（推送路径的比对判据）
-    expect(typeof rows.pluginRows[0].digest).toBe('string')
-    // bundles 补充行：无实体 → registry 形态、version 与指纹均 null
-    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null, digest: null })
+    // bundles 补充行：无实体 → registry 形态、version null
+    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null })
     expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
     // 全局提示词行：profileContext.home 下的 AGENTS.md，摘要为内容 sha256
     expect(response.body).toMatchObject({

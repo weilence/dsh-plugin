@@ -30,7 +30,6 @@ const localRows: LocalRowsResponse = {
       install: 'local',
       root: '/r',
       version: '1.0.0',
-      digest: 'g1',
     },
     {
       id: 'p2',
@@ -39,7 +38,6 @@ const localRows: LocalRowsResponse = {
       install: 'registry',
       root: '/r2',
       version: '4.17.21',
-      digest: null,
     },
   ],
   promptRow: { path: '/home/AGENTS.md', digest: 'p' },
@@ -50,15 +48,15 @@ const inventory: RemoteInventoryResponse = {
   skills: { 'user-dsh': [{ name: 'deploy', digest: 'd0' }], 'user-agents': null },
   mcp: [{ serverName: 'foo', signature: 's0', summary: 'npx foo@remote' }],
   plugins: [
-    { name: '@weilence/dsh-skills', version: '0.9.0', digest: 'g0' },
-    { name: 'lodash', version: '4.17.21', digest: null },
+    { name: '@weilence/dsh-skills', version: '0.9.0' },
+    { name: 'lodash', version: '4.17.21' },
   ],
   prompts: { exists: true, digest: 'p0' },
 }
 
 describe('同步弹窗投影（渲染期取词）', () => {
   it('技能行按根路径 + 判定徽标组装 titleMeta，说明行是事实原样', () => {
-    const rows = rowsOf('skills', localRows, inventory, 'remote')
+    const rows = rowsOf('skills', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff', 'unknown'])
 
     const deploy = rows[0]!.view(makeT())
@@ -72,29 +70,27 @@ describe('同步弹窗投影（渲染期取词）', () => {
   })
 
   it('MCP 行 diff 时附「远端：摘要」对比行，absent 时不附', () => {
-    const rows = rowsOf('mcp', localRows, inventory, 'remote')
+    const rows = rowsOf('mcp', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff', 'absent'])
 
     expect(rows[0]!.view(makeT()).lines).toEqual(['npx foo', '远端：npx foo@remote'])
     expect(rows[1]!.view(makeT()).lines).toEqual(['npx bar'])
   })
 
-  it('插件行按传输形态比对并组装层级 / 形态 / 版本元信息', () => {
-    // 本地安装恒本地打包传输：比内容指纹（g1 ≠ g0 → diff）
-    const rows = rowsOf('plugins', localRows, inventory, 'remote')
+  it('插件行比版本号并组装层级 / 形态 / 版本元信息', () => {
+    const rows = rowsOf('plugins', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff', 'same'])
 
-    expect(rows[0]!.view(makeT()).titleMeta).toBe('profile 层 · 本地 · v1.0.0 · 与远端不同 · 远端 v0.9.0')
-    // registry + 远端下载：比版本（4.17.21 = 4.17.21 → same）
+    expect(rows[0]!.view(makeT()).titleMeta).toBe('profile 层 · 本地 · v1.0.0 · 与远端版本不同 · 远端 v0.9.0')
     expect(rows[1]!.view(makeT()).titleMeta).toBe('home 层 · npm · v4.17.21 · 已一致')
   })
 
   it('插件远端已激活但版本读不到时给出未知版本措辞', () => {
     const noVersion: RemoteInventoryResponse = {
       ...inventory,
-      plugins: [{ name: '@weilence/dsh-skills', version: null, digest: null }],
+      plugins: [{ name: '@weilence/dsh-skills', version: null }],
     }
-    const rows = rowsOf('plugins', localRows, noVersion, 'remote')
+    const rows = rowsOf('plugins', localRows, noVersion)
     expect(rows[0]!.status).toBe('unknown')
     expect(rows[0]!.view(makeT()).titleMeta).toBe(
       'profile 层 · 本地 · v1.0.0 · 无法比对 · 远端已激活（版本未知）',
@@ -102,7 +98,7 @@ describe('同步弹窗投影（渲染期取词）', () => {
   })
 
   it('提示词行比对单文件摘要', () => {
-    const rows = rowsOf('prompts', localRows, inventory, 'remote')
+    const rows = rowsOf('prompts', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff'])
     const item = rows[0]!.view(makeT())
     expect(item.title).toBe('AGENTS.md')
@@ -111,7 +107,7 @@ describe('同步弹窗投影（渲染期取词）', () => {
   })
 
   it('同一描述子可按语言重取：判定与事实不变，措辞跟随宿主语言', () => {
-    const row = rowsOf('skills', localRows, inventory, 'remote')[0]!
+    const row = rowsOf('skills', localRows, inventory)[0]!
     expect(row.view(makeT('en')).titleMeta).toBe('~/.dsh/skills · content differs')
   })
 })

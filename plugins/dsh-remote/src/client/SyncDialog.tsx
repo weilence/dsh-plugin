@@ -53,7 +53,7 @@ const KIND_EMPTY_KEYS: Record<SyncKind, RemoteKey> = {
 const STATUS_KEYS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, RemoteKey>> = {
   skills: { diff: 'status.skills.diff', absent: 'status.skills.absent', unknown: 'status.skills.unknown' },
   mcp: { diff: 'status.mcp.diff', absent: 'status.mcp.absent', unknown: 'status.mcp.unknown' },
-  // 插件的 diff 按传输形态比指纹或版本（见 rowsOf），措辞取对两种比对都成立的说法
+  // 插件比版本号（npm 语义：版本即内容契约）
   plugins: {
     diff: 'status.plugins.diff',
     absent: 'status.plugins.absent',
@@ -99,14 +99,12 @@ function statusLabel(kind: SyncKind, status: ItemStatus, t: RemoteT): string {
 }
 
 /** 本机清单 × 远端事实 → 本类全部行的判定（清单不可比对时由调用方拦截）。
- *  registryPluginInstall 只参与插件行：传输什么就比什么——本地打包传输比内容
- *  指纹，远端 npm 下载比版本（与引擎执行时的判定同源同函数）。名称 / 路径 /
- *  版本号等是事实原样，只有措辞走词典。 */
+ *  插件行比对版本号——与引擎执行时的判定同源同函数。名称 / 路径 / 版本号等
+ *  是事实原样，只有措辞走词典。 */
 export function rowsOf(
   kind: SyncKind,
   localRows: LocalRowsResponse,
   inventory: RemoteInventoryResponse | null,
-  registryInstall: RegistryPluginInstall,
 ): SyncRow[] {
   if (kind === 'prompts') {
     const prompt = localRows.promptRow
@@ -178,13 +176,8 @@ export function rowsOf(
   return localRows.pluginRows.map((plugin) => {
     const facts = inventory?.plugins
     const fact = facts?.find((item) => item.name === plugin.name)
-    const viaPush = plugin.install === 'local' || registryInstall === 'push'
     const status: ItemStatus =
-      facts === undefined || facts === null
-        ? 'unknown'
-        : viaPush
-          ? pluginStatus(plugin.digest, fact?.digest)
-          : pluginStatus(plugin.version, fact?.version)
+      facts === undefined || facts === null ? 'unknown' : pluginStatus(plugin.version, fact?.version)
     return {
       key: plugin.name,
       status,
@@ -259,12 +252,12 @@ export function SyncDialog(props: {
   // 判定可 memo（同一事实集），措辞在渲染期经 view(t) 现取。
   const rows = useMemo(() => {
     if (unavailable || localRows === null || !settled) return []
-    const all = rowsOf(kind, localRows, inventory, draft.registryPluginInstall)
+    const all = rowsOf(kind, localRows, inventory)
     return [
       ...all.filter((entry) => entry.status !== 'same'),
       ...all.filter((entry) => entry.status === 'same'),
     ]
-  }, [kind, localRows, inventory, settled, unavailable, draft.registryPluginInstall])
+  }, [kind, localRows, inventory, settled, unavailable])
 
   const statusOfKey = useMemo(() => new Map(rows.map((entry) => [entry.key, entry.status])), [rows])
   const pickedOfKind =

@@ -105,7 +105,7 @@ export interface ConnState {
 }
 
 /** 一个条目与远端比对后的结论：same 跳过写入，diff 覆盖，absent 远端安装，
- *  unknown 指纹读不出——一律按 diff 保守执行（宁可重推不可漏装）。 */
+ *  unknown 值读不出——一律按 diff 保守执行（宁可重推不可漏装）。 */
 export type ItemStatus = 'same' | 'diff' | 'absent' | 'unknown'
 
 /** 递归按 key 排序的稳定 JSON：两侧 YAML 键序 / 注释差异不参与相等性。 */
@@ -141,12 +141,10 @@ export interface RemoteMcpFact {
   summary: string
 }
 
-/** 远端一个插件的事实（列表恒为 bundles 激活清单；version / digest null = 读不到）。 */
+/** 远端一个插件的事实（列表恒为 bundles 激活清单；version null = 读不到）。 */
 export interface RemotePluginFact {
   name: string
   version: string | null
-  /** 已装包树的内容指纹（与 localenv.packageTreeDigest 同口径）；读不到为 null。 */
-  digest: string | null
 }
 
 export function skillStatus(local: string | null, remote: RemoteSkillFact | undefined): ItemStatus {
@@ -175,9 +173,8 @@ export function mcpStatus(localSignature: string, remote: RemoteMcpFact | undefi
 }
 
 /** 插件条目比对（remote 缺席 = 远端 bundles 未激活，任侧值缺失 = 无法比对）。
- *  比对值由调用侧按传输形态选字段：本地打包传输比内容指纹（开发版同版本换
- *  内容只有指纹可见），远端 npm 下载比版本（npm 同版本内容不可变，版本即
- *  内容的充分代理）。 */
+ *  比对值恒为版本号——npm 语义下版本即内容契约，本地打包传输与远端 npm 下载
+ *  同判；同版本换内容不可见，改码推远端必须 bump version。 */
 export function pluginStatus(local: string | null, remote: string | null | undefined): ItemStatus {
   if (remote === undefined) return 'absent'
   if (local === null || remote === null) return 'unknown'
@@ -232,8 +229,6 @@ export interface LocalPluginRow {
   root: string | null
   /** 本机包版本（root 下 package.json 的 version）；读取失败为 null。 */
   version: string | null
-  /** 包树内容指纹（与打包文件集同口径；本地传输路径的相等性判据）；计算失败为 null。 */
-  digest: string | null
 }
 
 /** 本机全局提示词行（用户级 AGENTS.md——dsh-prompts 插件管理的同一文件）。 */
@@ -262,7 +257,7 @@ export interface RemoteInventoryResponse {
   skills: Record<'user-dsh' | 'user-agents', RemoteSkillFact[] | null>
   /** 远端 profile patch 内 MCP 行（按 serverName 对齐）。 */
   mcp: RemoteMcpFact[] | null
-  /** 远端 bundles 激活清单及各自已装版本与包树内容指纹。 */
+  /** 远端 bundles 激活清单及各自已装版本。 */
   plugins: RemotePluginFact[] | null
   /** 远端全局提示词（AGENTS.md）事实；null = 读取失败。 */
   prompts: RemotePromptFact | null

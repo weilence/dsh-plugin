@@ -6,7 +6,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -21,7 +21,7 @@ import type { ForwardHandle, SshResult } from '../src/ssh'
 import { ForwardRegistry } from '../src/forwards'
 import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
 import { readStore, writeStore } from '../src/connections'
-import { foldSkillDigest, packageTreeDigest, type LocalPatchLayer } from '../src/localenv'
+import { foldSkillDigest, type LocalPatchLayer } from '../src/localenv'
 import { mcpSignature, type SaveRequest } from '../src/shared'
 
 interface Recorded {
@@ -928,7 +928,7 @@ describe('RemoteEngine', () => {
           }
         }
         if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: '@weilence/dsh-skills\t9.9.9\tfar-digest\n', stderr: '' }
+          return { code: 0, stdout: '@weilence/dsh-skills\t9.9.9\n', stderr: '' }
         }
         return undefined
       },
@@ -1003,8 +1003,8 @@ describe('RemoteEngine', () => {
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const cleanup = fake.calls.find((call) => call.command.includes('find ~/.dsh/dsh-remote/payload'))
     expect(cleanup).toBeDefined()
-    // 只清同包更早的指纹变体，绝不清刚装上的文件
-    expect(cleanup?.command).toContain(`-name 'packed-*.tgz'`)
+    // 只清同包其他版本（版本段锚定数字，不误删相似名包），绝不清刚装上的文件
+    expect(cleanup?.command).toContain(`-name 'weilence-dsh-mcp-[0-9]*.tgz'`)
     expect(cleanup?.command).toContain(`! -name 'packed-1.0.0.tgz'`)
   })
 
@@ -1079,11 +1079,11 @@ describe('RemoteEngine', () => {
     expect(detail.length).toBeLessThan(20 * 1024 + 200)
   })
 
-  it('sync plugins：本地传输按内容指纹比对——版本同但内容变 → 重装', async () => {
+  it('sync plugins：本地传输按版本比对——版本不同 → 打包推送', async () => {
     const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
     await writeFile(
       join(localPkg, 'package.json'),
-      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.5.0' }),
+      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.6.0' }),
       'utf8',
     )
     makeEngine({
@@ -1099,9 +1099,8 @@ describe('RemoteEngine', () => {
             stderr: '',
           }
         }
-        // 远端版本一致但指纹不同：开发版同版本换内容——只有指纹可见
         if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: `@weilence/dsh-mcp\t0.5.0\t${'f'.repeat(64)}\n`, stderr: '' }
+          return { code: 0, stdout: '@weilence/dsh-mcp\t0.5.0\n', stderr: '' }
         }
         return undefined
       },
@@ -1118,48 +1117,7 @@ describe('RemoteEngine', () => {
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync plugins：本地传输指纹一致 → 跳过安装（同步幂等）', async () => {
-    const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
-    await writeFile(
-      join(localPkg, 'package.json'),
-      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.5.0' }),
-      'utf8',
-    )
-    const localDigest = await packageTreeDigest(localPkg)
-    if (localDigest === null) throw new Error('fixture 包树指纹计算失败')
-    makeEngine({
-      profilePatch: PLUGIN_PATCH,
-      profileDeps: {
-        '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}`,
-      },
-      respond: (command) => {
-        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
-          return {
-            code: 0,
-            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-mcp"]}}}\n',
-            stderr: '',
-          }
-        }
-        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: `@weilence/dsh-mcp\t0.5.0\t${localDigest}\n`, stderr: '' }
-        }
-        return undefined
-      },
-    })
-    await engine.save(saveRequest())
-    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
-    await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(engine.stateOf('dev-box').phase).toBe('idle')
-    expect(fake.packedRoots()).toEqual([])
-    expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
-    expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      installed: [],
-      skipped: ['@weilence/dsh-mcp'],
-    })
-    await rm(localPkg, { recursive: true, force: true })
-  })
-
-  it('sync plugins：registry 插件远端下载按版本比对——版本同即跳过（指纹不参与）', async () => {
+  it('sync plugins：registry 插件远端下载按版本比对——版本同即跳过', async () => {
     const layerDir = await mkdtemp(join(tmpdir(), 'dsh-remote-layer-'))
     const entity = join(layerDir, 'node_modules', 'some-registry-plugin')
     await mkdir(entity, { recursive: true })
@@ -1180,9 +1138,9 @@ describe('RemoteEngine', () => {
             stderr: '',
           }
         }
-        // 版本同、指纹不同：远端下载路径只比版本（npm 同版本内容不可变）
+        // 版本同即跳过（npm 语义：版本即内容契约）
         if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: `some-registry-plugin\t1.4.2\t${'f'.repeat(64)}\n`, stderr: '' }
+          return { code: 0, stdout: `some-registry-plugin\t1.4.2\n`, stderr: '' }
         }
         return undefined
       },
@@ -1196,6 +1154,41 @@ describe('RemoteEngine', () => {
       skipped: ['some-registry-plugin'],
     })
     await rm(layerDir, { recursive: true, force: true })
+  })
+
+  it('sync plugins：本地插件版本同 → 跳过（版本即内容契约，不打包）', async () => {
+    const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
+    await writeFile(
+      join(localPkg, 'package.json'),
+      JSON.stringify({ name: '@weilence/dsh-mcp', version: '0.5.0' }),
+      'utf8',
+    )
+    makeEngine({
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: { '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}` },
+      respond: (command) => {
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
+          return {
+            code: 0,
+            stdout: '{"dsh":{"profile":{"bundles":["@weilence/dsh-mcp"]}}}\n',
+            stderr: '',
+          }
+        }
+        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
+          return { code: 0, stdout: '@weilence/dsh-mcp\t0.5.0\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    expect(fake.packedRoots()).toEqual([])
+    expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
+      installed: [],
+      skipped: ['@weilence/dsh-mcp'],
+    })
+    await rm(localPkg, { recursive: true, force: true })
   })
 
   it('sync plugins：版本已装但未激活（不在 bundles）→ 重装后恢复激活', async () => {
@@ -1379,8 +1372,8 @@ describe('RemoteEngine', () => {
         },
       ],
       plugins: [
-        { name: '@deepseek-ai/dsh-base', version: null, digest: null },
-        { name: '@weilence/dsh-remote', version: null, digest: null },
+        { name: '@deepseek-ai/dsh-base', version: null },
+        { name: '@weilence/dsh-remote', version: null },
       ],
       prompts: { exists: true, digest: hex('d') },
     })
@@ -1434,30 +1427,18 @@ describe('RemoteEngine', () => {
     expect(parsePatchDoc(text)).toBeDefined()
   })
 
-  it('远端事实脚本：真实子进程跑出 name/version/指纹，指纹与 packageTreeDigest 同折叠', async () => {
-    // 脚本以字符串内嵌远端执行，fake ssh 测不到它本身——镜像不变量
-    // （同排除表 / 同折叠 ⇒ 同内容必同指纹）只有真跑子进程才算数
+  it('远端事实脚本：真实子进程跑出 name/version，包缺失版本为空串', async () => {
+    // 脚本以字符串内嵌远端执行，fake ssh 测不到它本身——真跑子进程才算数
     const pkgRoot = await mkdtemp(join(tmpdir(), 'dsh-remote-mirror-'))
-    await mkdir(join(pkgRoot, 'lib'), { recursive: true })
-    await mkdir(join(pkgRoot, 'node_modules'), { recursive: true })
     await writeFile(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0' }), 'utf8')
-    await writeFile(join(pkgRoot, 'lib', 'a.js'), 'A', 'utf8')
-    await writeFile(join(pkgRoot, '.dotfile'), 'd', 'utf8')
-    await writeFile(join(pkgRoot, '._junk'), 'apple-double', 'utf8')
-    await writeFile(join(pkgRoot, 'node_modules', 'junk.js'), 'junk', 'utf8')
-    await symlink(join(pkgRoot, 'lib', 'a.js'), join(pkgRoot, 'link.js'))
-    const run = spawnSync(process.execPath, ['-e', REMOTE_PLUGIN_FACTS_SCRIPT, pkgRoot], {
+    const absent = join(pkgRoot, 'empty')
+    await mkdir(absent)
+    const run = spawnSync(process.execPath, ['-e', REMOTE_PLUGIN_FACTS_SCRIPT, pkgRoot, absent], {
       encoding: 'utf8',
     })
     expect(run.status).toBe(0)
     expect(run.stderr).toBe('')
-    const line = run.stdout.trim()
-    const first = line.indexOf('\t')
-    const second = line.indexOf('\t', first + 1)
-    expect(line.slice(0, first)).toBe(pkgRoot)
-    expect(line.slice(first + 1, second)).toBe('1.0.0')
-    // 排除 node_modules、计入点文件、._ 幽灵与符号链接不计——两侧口径一致
-    expect(line.slice(second + 1)).toBe(await packageTreeDigest(pkgRoot))
+    expect(run.stdout).toBe(`${pkgRoot}\t1.0.0\n${absent}\t\n`)
     await rm(pkgRoot, { recursive: true, force: true })
   })
 })

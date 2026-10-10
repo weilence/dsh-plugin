@@ -5,14 +5,7 @@ import { createHash } from 'node:crypto'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
-import {
-  PACKAGE_PACK_EXCLUDED,
-  composeLocalRows,
-  foldMcpRows,
-  foldSkillDigest,
-  mcpSummary,
-  type LocalPatchLayer,
-} from './localenv'
+import { composeLocalRows, foldMcpRows, foldSkillDigest, mcpSummary, type LocalPatchLayer } from './localenv'
 import {
   emptyPatchDoc,
   parsePatchDoc,
@@ -54,32 +47,13 @@ function asServerName(config: unknown): string | undefined {
 }
 
 /** 远端读插件事实的内嵌脚本（remotePluginFacts 经 ssh 执行）：输出行
- *  `<name>\t<version>\t<digest>`。指纹的收集与折叠镜像 localenv.packageTreeDigest
- *  （'/' 相对路径、isPackJunkSegment 同一忽略规则、符号链接不计、path\0hash\0
- *  排序折叠）——导出供测试以真实子进程校验镜像不变量。 */
+ *  `<name>\t<version>`（空串 = 读不到）。 */
 export const REMOTE_PLUGIN_FACTS_SCRIPT = [
-  'const fs = require("fs"), crypto = require("crypto")',
-  `const excluded = new Set(${JSON.stringify(PACKAGE_PACK_EXCLUDED)})`,
-  // ._ 前缀条目与排除段同样不计：镜像 localenv.isPackJunkSegment
-  'const junk = (name) => excluded.has(name) || name.startsWith("._")',
-  'function walk(dir, prefix, out) {',
-  '  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {',
-  '    if (junk(e.name)) continue',
-  '    const rel = prefix + e.name',
-  '    if (e.isDirectory()) walk(dir + "/" + e.name, rel + "/", out)',
-  '    else if (e.isFile()) out.push({ p: rel, h: crypto.createHash("sha256").update(fs.readFileSync(dir + "/" + e.name)).digest("hex") })',
-  '  }',
-  '}',
+  'const fs = require("fs")',
   'for (const n of process.argv.slice(1)) {',
-  '  let v = "", d = ""',
+  '  let v = ""',
   '  try { v = String(JSON.parse(fs.readFileSync(n + "/package.json", "utf8")).version ?? "") } catch {}',
-  '  try {',
-  '    const files = []',
-  '    walk(fs.realpathSync(n), "", files)',
-  '    files.sort((a, b) => (a.p < b.p ? -1 : 1))',
-  '    d = crypto.createHash("sha256").update(files.map((f) => f.p + "\\0" + f.h + "\\0").join("")).digest("hex")',
-  '  } catch {}',
-  '  console.log(n + "\\t" + v + "\\t" + d)',
+  '  console.log(n + "\\t" + v)',
   '}',
 ].join('\n')
 
@@ -810,10 +784,9 @@ export class RemoteEngine {
     return facts
   }
 
-  /** 远端插件事实：bundles 激活清单 + 激活插件的已装版本与包树内容指纹（一条
-   *  node 批量读，部署前置保证远端有 node；realpath 穿透 node_modules 符号链接，
-   *  脚本见 REMOTE_PLUGIN_FACTS_SCRIPT）。任一环节失败回 null——按「无法比对」
-   *  处理，同步侧保守安装。 */
+  /** 远端插件事实：bundles 激活清单 + 激活插件的已装版本（一条 node 批量读，
+   *  部署前置保证远端有 node；脚本见 REMOTE_PLUGIN_FACTS_SCRIPT）。任一环节
+   *  失败回 null——按「无法比对」处理，同步侧保守安装。 */
   private async remotePluginFacts(
     alias: string,
     names: readonly string[],
@@ -828,7 +801,7 @@ export class RemoteEngine {
     } catch {
       return null
     }
-    const facts = new Map<string, { version: string | null; digest: string | null }>()
+    const facts = new Map<string, string | null>()
     const probe = bundles.filter((name) => names.includes(name))
     if (probe.length > 0) {
       const read = await this.deps.exec(
@@ -840,24 +813,14 @@ export class RemoteEngine {
       )
       if (read.code !== 0) return null
       for (const line of read.stdout.split(/\r?\n/)) {
-        // 输出行形态：`<name>\t<version>\t<digest>`（version / digest 空串 = 读不到）
+        // 输出行形态：`<name>\t<version>`（version 空串 = 读不到）
         const first = line.indexOf('\t')
         if (first <= 0) continue
-        const second = line.indexOf('\t', first + 1)
-        if (second === -1) continue
-        const version = line.slice(first + 1, second).trim()
-        const digest = line.slice(second + 1).trim()
-        facts.set(line.slice(0, first), {
-          version: version.length > 0 ? version : null,
-          digest: digest.length > 0 ? digest : null,
-        })
+        const version = line.slice(first + 1).trim()
+        facts.set(line.slice(0, first), version.length > 0 ? version : null)
       }
     }
-    return bundles.map((name) => ({
-      name,
-      version: facts.get(name)?.version ?? null,
-      digest: facts.get(name)?.digest ?? null,
-    }))
+    return bundles.map((name) => ({ name, version: facts.get(name) ?? null }))
   }
 
   /** 远端全局提示词事实：单文件 sha256（sha256sum / shasum 择一，文件缺失打
@@ -1058,12 +1021,10 @@ export class RemoteEngine {
     runtime.lastSync.mcp = { at: this.deps.now(), installed, skipped }
   }
 
-  /** 插件同步：勾选项逐个比对远端事实，一致跳过，其余安装。比对值按传输形态
-   *  选——本地打包传输比内容指纹（开发版同版本换内容只有指纹可见，且 payload
-   *  文件名内容寻址，指纹变化必换名重装：hoisted linker 下同版本换内容不换名
-   *  会被 pnpm 以 Already up to date 跳过重新解包）；远端 npm 下载比版本
-   *  （npm 同版本内容不可变）。值同但未激活（不在 bundles）也走重装——否则
-   *  已安装但未激活的插件永远无法激活。未勾选不动（不删除）。
+  /** 插件同步：勾选项逐个比对远端事实，一致跳过，其余安装。比对值恒为版本号
+   *  （npm 语义：版本即内容契约，本地打包传输与远端 npm 下载同判）——同版本
+   *  换内容不可见，改码推远端必须 bump version。值同但未激活（不在 bundles）
+   *  也走重装——否则已安装但未激活的插件永远无法激活。未勾选不动（不删除）。
    *  registry 插件按调用选项分流推送 / 远端 npm 下载；本地路径安装恒本地打包
    *  传输（未发布的开发版本也只有这条路径能到达远端）。 */
   private async doPluginSync(
@@ -1088,19 +1049,14 @@ export class RemoteEngine {
       const row = byName.get(name)
       if (row === undefined) continue
       const fact = factByName?.get(name)
-      const viaPush = row.install === 'local' || registryInstall === 'push'
-      const status =
-        factByName === null
-          ? 'unknown'
-          : viaPush
-            ? pluginStatus(row.digest, fact?.digest)
-            : pluginStatus(row.version, fact?.version)
+      const status = factByName === null ? 'unknown' : pluginStatus(row.version, fact?.version)
       if (status === 'same') {
         skipped.push(name)
         continue
       }
 
       this.step(id, 'install', row.name)
+      const viaPush = row.install === 'local' || registryInstall === 'push'
       const install = viaPush
         ? await this.addViaPush(connection.sshAlias, row)
         : await this.deps.exec(
@@ -1161,9 +1117,9 @@ export class RemoteEngine {
     runtime.lastSync.prompts = { at: this.deps.now(), pushed, skipped }
   }
 
-  /** 打包本机包根 → 推送 payload → 远端 add tgz → 清同包旧指纹文件（本地路径
-   *  插件与选项 push 的 registry 插件共用；payload 只是传输介质，装入
-   *  node_modules 后即可清，目录不随内容迭代堆积）。 */
+  /** 打包本机包根 → 推送 payload → 远端 add tgz → 清同包其他版本的 payload
+   *  文件（本地路径插件与选项 push 的 registry 插件共用；payload 只是传输介质，
+   *  装入 node_modules 后即可清，目录不随版本迭代堆积）。 */
   private async addViaPush(
     alias: string,
     row: { name: string; root: string | null },
@@ -1179,13 +1135,13 @@ export class RemoteEngine {
       { timeoutMs: OP_TIMEOUT_MS },
     )
     if (install.code === 0) {
-      // 文件名形如 <base>-<version>-<指纹8>.tgz。当前文件必须保留：package.json 的
-      // file: spec 持续指向它，pnpm 后续任何 add/install 都会重读全部 file: 依赖——
-      // 只清同包更早的指纹变体（装完即无人引用）。
-      const stem = packed.fileName.slice(0, packed.fileName.lastIndexOf('-'))
+      // 当前文件必须保留：package.json 的 file: spec 持续指向它，pnpm 后续任何
+      // add/install 都会重读全部 file: 依赖——只清同包其他版本（装完即无人引用）。
+      // 版本段锚定数字：@weilence/dsh-mcp 不误删 @weilence/dsh-mcp-x 的文件。
+      const flat = row.name.replace(/^@/, '').replace(/\//g, '-')
       await this.deps.exec(
         alias,
-        `find ~/.dsh/dsh-remote/payload -maxdepth 1 -name '${stem}-*.tgz' ! -name '${packed.fileName}' -delete || true`,
+        `find ~/.dsh/dsh-remote/payload -maxdepth 1 -name '${flat}-[0-9]*.tgz' ! -name '${packed.fileName}' -delete || true`,
       )
     }
     return install
