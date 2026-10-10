@@ -20,7 +20,7 @@ export const zh = {
 
   'panel.title': '远程开发',
   'panel.subtitle': '连接远端机器上的完整 DSH 实例，并把技能、MCP、插件与系统提示词同步过去。',
-  'panel.create': '新建连接',
+  'panel.create': '新建',
   'panel.refresh': '刷新',
   'panel.loading': '正在读取连接库…',
   'panel.empty': '还没有远程开发连接。',
@@ -36,7 +36,7 @@ export const zh = {
   'phase.running': '运行中',
   'phase.error': '错误',
 
-  'op.test': '测试连接',
+  'op.test': '测试',
   'op.connect': '连接',
   'op.sync-skills': '同步 Skills',
   'op.sync-mcp': '同步 MCP',
@@ -170,7 +170,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'panel.title': 'Remote development',
   'panel.subtitle':
     'Connect to a full DSH instance on a remote machine, and sync skills, MCP servers, plugins and the system prompt to it.',
-  'panel.create': 'New connection',
+  'panel.create': 'New',
   'panel.refresh': 'Refresh',
   'panel.loading': 'Reading the connection library…',
   'panel.empty': 'No remote development connections yet.',
@@ -187,7 +187,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'phase.running': 'Running',
   'phase.error': 'Error',
 
-  'op.test': 'Test connection',
+  'op.test': 'Test',
   'op.connect': 'Connect',
   'op.sync-skills': 'Sync Skills',
   'op.sync-mcp': 'Sync MCP',

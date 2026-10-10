@@ -201,7 +201,7 @@ describe('远程开发面板渲染', () => {
     const html = renderPanel(store)
 
     expect(html).toContain('<h1>远程开发</h1>')
-    expect(html).toContain('新建连接')
+    expect(html).toContain('新建')
     expect(html).toContain('刷新')
     expect(html).toContain('运行中')
     expect(html).toContain('打开')
@@ -377,8 +377,8 @@ describe('远程开发面板渲染', () => {
       createElement(RemoteSection, { store, t: makeT('en'), close: () => {} }),
     )
     expect(html).toContain('<h1>Remote development</h1>')
-    expect(html).toContain('New connection')
-    expect(html).not.toContain('新建连接')
+    expect(html).toContain('New')
+    expect(html).not.toContain('新建')
     store.stopPolling()
   })
 })
