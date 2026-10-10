@@ -1,4 +1,5 @@
-export { Field, TextField, SelectField, TextAreaField, IssueList, fieldInputCls } from './form'
+export { Field, TextField, SelectField, TextAreaField, IssueList, fieldInputCls, selectCls } from './form'
+export { SearchBox } from './SearchBox'
 export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog'
 export { MenuButton, type MenuButtonItem } from './MenuButton'
 export { PickList, type PickItem } from './PickList'

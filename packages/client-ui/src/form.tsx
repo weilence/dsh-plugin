@@ -9,6 +9,9 @@ export function fieldInputCls(disabled?: boolean): string {
   return disabled ? `${styles.fieldInput} ${styles.fieldInputDisabled}` : styles.fieldInput
 }
 
+/** 无标签工具行里的裸 select 取用同一套 select 样式（Field 之外使用）。 */
+export const selectCls: string = styles.select
+
 // 字段行统一单列全宽：官方 settings 表单的既定惯例。
 export function Field(props: { label: ReactNode; wide?: boolean; children: ReactNode }) {
   return (
