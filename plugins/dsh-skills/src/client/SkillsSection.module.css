@@ -13,7 +13,7 @@
 .toolbar .scopeSelect {
   width: auto;
   flex: 0 1 auto;
-  min-width: 160px;
+  min-width: 200px;
 }
 
 /* flex-basis 必须归零（flex: 1）：SearchBox 基础样式的 width: 100% 在

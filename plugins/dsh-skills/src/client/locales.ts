@@ -18,9 +18,10 @@ export const zh = {
   'scope.label': '管理范围',
   'scope.user': '全局',
   'scope.workspace': '工作区级',
+  'scope.workspaceNamed': '工作区级（{name}）',
   'scope.noWorkspaceHint': '当前没有打开的工作区会话，先显示全局技能',
 
-  'action.create': '新建技能',
+  'action.create': '新建',
   'action.installGit': '从 Git 安装',
   'action.checkUpdates': '检查更新',
   'action.checking': '检查中…',
@@ -154,9 +155,10 @@ export const en: { [Key in SkillsKey]: string } = {
   'scope.label': 'Scope',
   'scope.user': 'Global',
   'scope.workspace': 'Workspace',
+  'scope.workspaceNamed': 'Workspace ({name})',
   'scope.noWorkspaceHint': 'No open workspace session; showing global skills for now',
 
-  'action.create': 'New skill',
+  'action.create': 'New',
   'action.installGit': 'Install from Git',
   'action.checkUpdates': 'Check updates',
   'action.checking': 'Checking…',

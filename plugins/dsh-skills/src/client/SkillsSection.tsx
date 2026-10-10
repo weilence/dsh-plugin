@@ -108,6 +108,10 @@ export function SkillsSection(props: SkillsSectionProps) {
   // 当前工作区 = 主视图会话（retainedBy.mainView > 0）的 cwd。
   const workspaceCwd = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot)
 
+  // 工作区名 = 主视图工作目录的末段（选项里展示，帮助区分多个工作区）。
+  const workspaceName =
+    workspaceCwd === undefined ? undefined : workspaceCwd.split(/[\\/]/).filter(Boolean).pop()
+
   const [mode, setMode] = useState<ScopeMode>(() => {
     try {
       return window.localStorage.getItem(MODE_KEY) === 'workspace' ? 'workspace' : 'user'
@@ -199,7 +203,9 @@ export function SkillsSection(props: SkillsSectionProps) {
         >
           <option value="user">{t('scope.user')}</option>
           <option value="workspace" disabled={workspaceCwd === undefined}>
-            {t('scope.workspace')}
+            {workspaceName === undefined
+              ? t('scope.workspace')
+              : t('scope.workspaceNamed', { name: workspaceName })}
           </option>
         </select>
         {state.status === 'ready' ? (
@@ -343,7 +349,6 @@ export function SkillsSection(props: SkillsSectionProps) {
             ],
             description: skill.description.length > 0 ? skill.description : t('pill.noDescription'),
             note: skill.whenToUse !== undefined ? t('pill.whenToUse', { text: skill.whenToUse }) : undefined,
-            path: skill.path,
             open,
             onToggle: () => {
               if (busy) return
