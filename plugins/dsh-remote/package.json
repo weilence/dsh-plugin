@@ -1,6 +1,6 @@
 {
   "name": "@weilence/dsh-remote",
-  "version": "0.2.1",
+  "version": "0.1.0",
   "description": "Manage a remote DeepSeek Harness instance over OpenSSH and sync skills, MCP servers, plugins, and the global prompt.",
   "icon": "./icon.svg",
   "type": "module",
