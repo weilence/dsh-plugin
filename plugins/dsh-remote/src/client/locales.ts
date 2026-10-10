@@ -69,9 +69,7 @@ export const zh = {
   'lastSync.plugins': '上次插件同步：装 {count}',
   'lastSync.prompts': '上次提示词同步：{result}',
   'lastSync.prompts.pushed': '已推送',
-  'lastSync.prompts.skipped': '内容一致（跳过）',
   'lastSync.prompts.unchanged': '未勾选（未变更）',
-  'lastSync.skipped': ' · 跳过 {count}（已一致）',
   'lastSync.at': '（{at}）',
 
   'connect.title': '连接远端',
@@ -86,20 +84,15 @@ export const zh = {
   'notice.saved': '已保存连接',
   'notice.deleted': '已删除连接',
   // 同步完成 / 失败摘要是跨语言切换存活的 toast：模板整句入词典（不把可译
-  // 片段当参数拼接），跳过分支独立成键。
+  // 片段当参数拼接）。引擎提交即执行、无跳过概念。
   'notice.syncFailed.skills': '同步skills失败：{detail}',
   'notice.syncFailed.mcp': '同步MCP失败：{detail}',
   'notice.syncFailed.plugins': '同步插件失败：{detail}',
   'notice.syncFailed.prompts': '同步提示词失败：{detail}',
   'notice.syncDone.skills': '同步 Skills 完成：推送 {pushed}',
-  'notice.syncDone.skillsSkipped': '同步 Skills 完成：推送 {pushed} · 跳过 {count}（已一致）',
   'notice.syncDone.mcp': '同步 MCP 完成：写入 {count} 行',
-  'notice.syncDone.mcpSkipped': '同步 MCP 完成：写入 {count} 行 · 跳过 {skipped}（已一致）',
   'notice.syncDone.plugins': '同步插件完成：安装 {count}',
-  'notice.syncDone.pluginsSkipped': '同步插件完成：安装 {count} · 跳过 {skipped}（已一致）',
   'notice.syncDone.promptsPushed': '同步提示词完成：已推送',
-  'notice.syncDone.promptsSkipped': '同步提示词完成：内容一致，未推送',
-  'notice.syncDone.promptsUnchanged': '同步提示词完成：未勾选，未变更',
   'notice.syncDoneGeneric.skills': '同步skills完成',
   'notice.syncDoneGeneric.mcp': '同步MCP完成',
   'notice.syncDoneGeneric.plugins': '同步插件完成',
@@ -144,9 +137,10 @@ export const zh = {
   'sync.summaryCount': '{count} 项{label}',
   'sync.summarySame': '{count} 项已一致（{state}）',
   'sync.hidden': '已隐藏',
-  'sync.lockedBelow': '下方锁定勾选',
+  'sync.forceHint': '勾选即强制重推',
   'sync.summarySuffix': '——勾选才会同步，默认全部不勾。',
   'sync.hideSame': '隐藏已一致条目（{count}）',
+  'sync.selectAll': '全选',
   'sync.remoteMcp': '远端：{summary}',
 
   'status.same': '已一致',
@@ -228,9 +222,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'lastSync.plugins': 'Last plugin sync: installed {count}',
   'lastSync.prompts': 'Last prompt sync: {result}',
   'lastSync.prompts.pushed': 'pushed',
-  'lastSync.prompts.skipped': 'identical (skipped)',
   'lastSync.prompts.unchanged': 'not picked (unchanged)',
-  'lastSync.skipped': ' · skipped {count} (already identical)',
   'lastSync.at': ' ({at})',
 
   'connect.title': 'Connect to remote',
@@ -249,17 +241,9 @@ export const en: { [Key in RemoteKey]: string } = {
   'notice.syncFailed.plugins': 'Plugin sync failed: {detail}',
   'notice.syncFailed.prompts': 'Prompt sync failed: {detail}',
   'notice.syncDone.skills': 'Skills sync finished: pushed {pushed}',
-  'notice.syncDone.skillsSkipped':
-    'Skills sync finished: pushed {pushed} · skipped {count} (already identical)',
   'notice.syncDone.mcp': 'MCP sync finished: wrote {count} rows',
-  'notice.syncDone.mcpSkipped':
-    'MCP sync finished: wrote {count} rows · skipped {skipped} (already identical)',
   'notice.syncDone.plugins': 'Plugin sync finished: installed {count}',
-  'notice.syncDone.pluginsSkipped':
-    'Plugin sync finished: installed {count} · skipped {skipped} (already identical)',
   'notice.syncDone.promptsPushed': 'Prompt sync finished: pushed',
-  'notice.syncDone.promptsSkipped': 'Prompt sync finished: identical, nothing pushed',
-  'notice.syncDone.promptsUnchanged': 'Prompt sync finished: nothing picked, nothing changed',
   'notice.syncDoneGeneric.skills': 'skills sync finished',
   'notice.syncDoneGeneric.mcp': 'MCP sync finished',
   'notice.syncDoneGeneric.plugins': 'Plugin sync finished',
@@ -309,9 +293,10 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.summaryCount': '{count} {label}',
   'sync.summarySame': '{count} already identical ({state})',
   'sync.hidden': 'hidden',
-  'sync.lockedBelow': 'locked checked below',
+  'sync.forceHint': 'pick to force re-push',
   'sync.summarySuffix': ' — only picked items sync; nothing is picked by default.',
   'sync.hideSame': 'Hide identical items ({count})',
+  'sync.selectAll': 'Select all',
   'sync.remoteMcp': 'remote: {summary}',
 
   'status.same': 'identical',

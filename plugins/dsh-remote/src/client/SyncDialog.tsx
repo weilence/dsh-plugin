@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, SelectField, type PickItem } from '@dsh-plugins/client-ui'
 import { errMsg } from '@dsh-plugins/shared'
 import {
@@ -49,7 +49,7 @@ const KIND_EMPTY_KEYS: Record<SyncKind, RemoteKey> = {
   prompts: 'sync.empty.prompts',
 }
 
-/** same 不占状态标签位（它由锁定勾选 + 汇总行表达），其余三态一类一套措辞。 */
+/** same 不占状态标签位（它由行尾 ok 徽标 + 汇总行表达），其余三态一类一套措辞。 */
 const STATUS_KEYS: Record<SyncKind, Record<Exclude<ItemStatus, 'same'>, RemoteKey>> = {
   skills: { diff: 'status.skills.diff', absent: 'status.skills.absent', unknown: 'status.skills.unknown' },
   mcp: { diff: 'status.mcp.diff', absent: 'status.mcp.absent', unknown: 'status.mcp.unknown' },
@@ -118,7 +118,7 @@ export function rowsOf(
         view: (t) => ({
           key: 'AGENTS.md',
           title: 'AGENTS.md',
-          titleMeta: statusLabel(kind, status, t),
+          ...(status === 'same' ? { tag: t('status.same') } : { titleMeta: statusLabel(kind, status, t) }),
           lines: [prompt.path],
         }),
       },
@@ -142,8 +142,9 @@ export function rowsOf(
           title: skill.name,
           titleMeta: [
             skill.root === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills',
-            statusLabel(kind, status, t),
+            status === 'same' ? null : statusLabel(kind, status, t),
           ].join(' · '),
+          ...(status === 'same' ? { tag: t('status.same') } : {}),
           lines: skill.description === null ? [] : [skill.description],
         }),
       }
@@ -163,6 +164,7 @@ export function rowsOf(
           key: entry.serverName ?? entry.id,
           title: entry.serverName ?? entry.id,
           titleMeta: entry.id,
+          ...(status === 'same' ? { tag: t('status.same') } : {}),
           lines: [
             entry.summary,
             ...(status === 'diff' && fact !== undefined
@@ -182,9 +184,11 @@ export function rowsOf(
       key: plugin.name,
       status,
       view: (t) => {
+        // same 行由行尾徽标表达状态：titleMeta 留事实（层级 / 形态 / 版本），
+        // 不再缀「已一致 · 远端 v…」（版本相等时是重复信息）
         const remote =
-          fact === undefined
-            ? statusLabel(kind, status, t)
+          status === 'same' || fact === undefined
+            ? null
             : fact.version === null
               ? t('plugin.remoteActiveUnknown')
               : t('plugin.remoteVersion', { version: fact.version })
@@ -195,8 +199,13 @@ export function rowsOf(
             `${t(plugin.source === 'profile' ? 'plugin.source.profile' : 'plugin.source.home')} · ${t(
               plugin.install === 'local' ? 'plugin.install.local' : 'plugin.install.registry',
             )}${plugin.version === null ? '' : ` · v${plugin.version}`}`,
-            status === 'same' ? statusLabel(kind, status, t) : `${statusLabel(kind, status, t)} · ${remote}`,
-          ].join(' · '),
+            status === 'same'
+              ? null
+              : [statusLabel(kind, status, t), remote].filter((part) => part !== null).join(' · '),
+          ]
+            .filter((part) => part !== null)
+            .join(' · '),
+          ...(status === 'same' ? { tag: t('status.same') } : {}),
         }
       },
     }
@@ -259,7 +268,6 @@ export function SyncDialog(props: {
     ]
   }, [kind, localRows, inventory, settled, unavailable])
 
-  const statusOfKey = useMemo(() => new Map(rows.map((entry) => [entry.key, entry.status])), [rows])
   const pickedOfKind =
     kind === 'skills'
       ? draft.skillNames
@@ -269,27 +277,7 @@ export function SyncDialog(props: {
           ? draft.pluginNames
           : draft.promptNames
 
-  // 判定就绪后把一致项锁定进勾选集（恒在提交名单——引擎对其无操作）；
-  // 非 same 项保持初始不勾选，由用户逐项决定。
-  useEffect(() => {
-    if (rows.length === 0) return
-    const sameKeys = rows.filter((entry) => entry.status === 'same').map((entry) => entry.key)
-    if (sameKeys.length === 0) return
-    setDraft((previous) => {
-      const merged = new Set([...pickedSetOf(kind, previous), ...sameKeys])
-      return kind === 'skills'
-        ? { ...previous, skillNames: merged }
-        : kind === 'mcp'
-          ? { ...previous, mcpServerNames: merged }
-          : kind === 'plugins'
-            ? { ...previous, pluginNames: merged }
-            : { ...previous, promptNames: merged }
-    })
-  }, [rows, kind])
-
   const toggle = (key: string): void => {
-    // 一致项锁定勾选（PickList 已禁用其 checkbox，这里双保险）
-    if (statusOfKey.get(key) === 'same') return
     const next = new Set(pickedOfKind)
     if (next.has(key)) next.delete(key)
     else next.add(key)
@@ -310,9 +298,6 @@ export function SyncDialog(props: {
     return tally
   }, [rows])
 
-  // 纯 same 提交是无操作：提交按钮要求至少勾选一个非 same 项
-  const anyActionable = [...pickedOfKind].some((key) => statusOfKey.get(key) !== 'same')
-
   const submit = async (): Promise<void> => {
     const names = [...pickedOfKind]
     // 勾选随请求直传引擎执行（失败面板错误行可见），不落中间保存
@@ -329,11 +314,30 @@ export function SyncDialog(props: {
       ? t('sync.summaryCount', { count: counts.unknown, label: t(STATUS_KEYS[kind].unknown) })
       : null,
     counts.same > 0
-      ? t('sync.summarySame', { count: counts.same, state: t(hideSame ? 'sync.hidden' : 'sync.lockedBelow') })
+      ? t('sync.summarySame', { count: counts.same, state: t(hideSame ? 'sync.hidden' : 'sync.forceHint') })
       : null,
   ].filter((part): part is string => part !== null)
 
   const visibleRows = hideSame ? rows.filter((entry) => entry.status !== 'same') : rows
+  // 全选只作用于当前可见行：强制重推已一致项是有意动作，须先取消隐藏再把
+  // 它们纳入勾选，随手的全选不隐式触发重推
+  const allVisiblePicked = visibleRows.length > 0 && visibleRows.every((entry) => pickedOfKind.has(entry.key))
+  const toggleAll = (): void => {
+    const next = new Set(pickedOfKind)
+    for (const entry of visibleRows) {
+      if (allVisiblePicked) next.delete(entry.key)
+      else next.add(entry.key)
+    }
+    patch(
+      kind === 'skills'
+        ? { skillNames: next }
+        : kind === 'mcp'
+          ? { mcpServerNames: next }
+          : kind === 'plugins'
+            ? { pluginNames: next }
+            : { promptNames: next },
+    )
+  }
 
   return (
     <Dialog
@@ -349,7 +353,7 @@ export function SyncDialog(props: {
           </Button>
           <Button
             variant="primary"
-            disabled={props.busy || unavailable || inventoryState === 'loading' || !anyActionable}
+            disabled={props.busy || unavailable || inventoryState === 'loading' || pickedOfKind.size === 0}
             onClick={() => void submit()}
           >
             {props.busy ? t('sync.busy') : t(KIND_ACTION_KEYS[kind])}
@@ -395,16 +399,22 @@ export function SyncDialog(props: {
                 {summaryParts.join(' · ')}
                 {t('sync.summarySuffix')}
               </p>
-              <label className={local.hideToggle}>
-                <input
-                  type="checkbox"
-                  checked={hideSame}
-                  onChange={(event) => setHideSame(event.target.checked)}
-                />
-                {t('sync.hideSame', { count: counts.same })}
-              </label>
+              <div className={local.syncToolbar}>
+                <label className={local.checkAll}>
+                  <input type="checkbox" checked={allVisiblePicked} onChange={toggleAll} />
+                  {t('sync.selectAll')}
+                </label>
+                <span className={local.hideSameRow}>
+                  <span className={local.hideSameText}>{t('sync.hideSame', { count: counts.same })}</span>
+                  <Switch
+                    checked={hideSame}
+                    onChange={setHideSame}
+                    label={t('sync.hideSame', { count: counts.same })}
+                  />
+                </span>
+              </div>
               <PickList
-                items={visibleRows.map((entry) => ({ ...entry.view(t), locked: entry.status === 'same' }))}
+                items={visibleRows.map((entry) => entry.view(t))}
                 picked={pickedOfKind}
                 onToggle={toggle}
               />
@@ -414,15 +424,4 @@ export function SyncDialog(props: {
       )}
     </Dialog>
   )
-}
-
-/** 当前类别在草稿里的勾选集（锁定合并用，读当前态而非渲染缓存）。 */
-function pickedSetOf(kind: SyncKind, draft: DraftState): Set<string> {
-  return kind === 'skills'
-    ? draft.skillNames
-    : kind === 'mcp'
-      ? draft.mcpServerNames
-      : kind === 'plugins'
-        ? draft.pluginNames
-        : draft.promptNames
 }

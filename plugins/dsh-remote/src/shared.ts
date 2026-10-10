@@ -97,10 +97,10 @@ export interface ConnState {
   error: { message: string; kind: SshErrorKind; detail?: string } | null
   /** 最近一次各同步的结果摘要（面板展示用；同步只新增/覆盖，skipped = 已一致跳过）。 */
   lastSync: {
-    skills: { at: string; pushed: number; skipped: number } | null
-    mcp: { at: string; installed: string[]; skipped: string[] } | null
-    plugins: { at: string; installed: string[]; skipped: string[] } | null
-    prompts: { at: string; pushed: boolean; skipped: boolean } | null
+    skills: { at: string; pushed: number } | null
+    mcp: { at: string; installed: string[] } | null
+    plugins: { at: string; installed: string[] } | null
+    prompts: { at: string; pushed: boolean } | null
   }
 }
 

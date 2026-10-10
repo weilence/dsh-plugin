@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, realpath } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, realpath, rename } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -136,7 +137,19 @@ export async function packPackage(root: string): Promise<{ path: string; fileNam
   if (files.length !== 1) {
     throw new SshFailure('unknown', `pnpm pack 未产出唯一 tgz（得到 ${String(files.length)} 个），无法传输`)
   }
-  return { path: join(staging, files[0]), fileName: files[0] }
+  // 内容盐：tgz 字节的 sha256 前 8 位入文件名。远端 profile 固定 hoisted linker，
+  // 同 name@version 重装被 pnpm 判等跳过（--force 也绕不过）——勾选已一致项的
+  // 强制重推（典型：改码后忘了 bump version）靠盐变化换 specifier 才会真正重新
+  // 解包；内容真一致则同名，远端自然跳过，本来也无事可做。
+  const original = join(staging, files[0])
+  const salt = createHash('sha256')
+    .update(await readFile(original))
+    .digest('hex')
+    .slice(0, 8)
+  const fileName = files[0].replace(/\.tgz$/, `-${salt}.tgz`)
+  const path = join(staging, fileName)
+  await rename(original, path)
+  return { path, fileName }
 }
 
 /** 部署自装：本插件打包（prepack 即 tsdown，产物在打包时现建）。 */

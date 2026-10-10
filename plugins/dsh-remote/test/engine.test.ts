@@ -1,11 +1,10 @@
 /**
  * 连接引擎：fake ssh / 转发 / 扫描依赖上的全链集成——save/test/connect
  * （含部署段：环境装配 / tgz 推送 / 版本对比 / 实例版本判定与重启回环）
- * /三类同步（一致跳过 / 覆盖 / 未勾选不动 / 不删除远端）/互斥/删除。
+ * /三类同步（提交即执行：已一致项勾选即强制重推 / 未勾选不动 / 不删除远端）/互斥/删除。
  */
 
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -808,7 +807,7 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').phase).toBe('running')
   })
 
-  it('sync mcp：diff 行写入（手写 id 替换）、same 行跳过；注释保留', async () => {
+  it('sync mcp：提交行全量写入（含已一致的强制重写）、手写 id 替换；注释保留', async () => {
     makeEngine({
       profilePatch: [
         '- insert:',
@@ -853,19 +852,19 @@ describe('RemoteEngine', () => {
     expect(write).toBeDefined()
     // 手写注释与未勾选的无关行原样保留
     expect(write?.stdin).toContain('# 远端手写注释')
-    // diff 行整块覆盖：demo 换成本机配置；hand 行替换 custom-hand（id 对齐本机）
+    // 提交行全量写入：demo 换成本机配置；samesrv 内容一致也强制重写；hand 行替换 custom-hand
     expect(write?.stdin).toContain('command: node')
+    expect(write?.stdin).toContain('serverName: samesrv')
     expect(write?.stdin).toContain('id: mcp-hand')
     expect(write?.stdin).toContain('command: new-cmd')
     expect(write?.stdin).not.toContain('custom-hand')
     expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({
-      installed: ['mcp-demo', 'mcp-hand'],
-      skipped: ['samesrv'],
+      installed: ['mcp-demo', 'mcp-same', 'mcp-hand'],
     })
-    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo', 'mcp-hand'])
+    expect((await readStore(home)).manifest['dev-box'].mcp).toEqual(['mcp-demo', 'mcp-same', 'mcp-hand'])
   })
 
-  it('sync mcp：全部一致 → 整次不写盘；取消全部勾选 → 远端零动作', async () => {
+  it('sync mcp：已一致勾选提交 → 强制重写写盘；取消全部勾选 → 远端零动作', async () => {
     const identical = [
       '- insert:',
       '    - id: mcp-demo',
@@ -886,10 +885,11 @@ describe('RemoteEngine', () => {
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'mcp', ['demo'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
+    // 勾选已一致行 = 强制重写：写盘执行（写入幂等）
     expect(
       fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
-    ).toBe(false)
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], skipped: ['demo'] })
+    ).toBe(true)
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: ['mcp-demo'] })
 
     // 未勾选 = 不动：无任何删除 / 重写（同步永不删远端内容）
     fake.calls.length = 0
@@ -898,7 +898,7 @@ describe('RemoteEngine', () => {
     expect(
       fake.calls.some((call) => call.command.includes('cat > ~/.dsh/profiles/web/cordis.patch.yml')),
     ).toBe(false)
-    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [], skipped: [] })
+    expect(engine.stateOf('dev-box').lastSync.mcp).toMatchObject({ installed: [] })
   })
 
   const PLUGIN_PATCH = [
@@ -943,11 +943,10 @@ describe('RemoteEngine', () => {
     expect(commands).toContain(
       'dsh plugin --profile \'web\' add "$HOME/.dsh/dsh-remote/payload/packed-1.0.0.tgz"',
     )
-    // registry 插件：本机版本读不到 → 无法比对 → 保守重装（无 scope 包名）
+    // registry 插件：本机版本读不到 → 仍按勾选安装（提交即执行，精确到名字）
     expect(commands).toContain("dsh plugin --profile 'web' add '@weilence/dsh-skills'")
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp', '@weilence/dsh-skills'],
-      skipped: [],
     })
 
     await engine.save(saveRequest({ id: 'dev-box' }))
@@ -963,7 +962,6 @@ describe('RemoteEngine', () => {
     ).toBe(false)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp'],
-      skipped: [],
     })
   })
 
@@ -1091,19 +1089,6 @@ describe('RemoteEngine', () => {
       profileDeps: {
         '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}`,
       },
-      respond: (command) => {
-        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
-          return {
-            code: 0,
-            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base","@weilence/dsh-mcp"]}}}\n',
-            stderr: '',
-          }
-        }
-        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: '@weilence/dsh-mcp\t0.5.0\n', stderr: '' }
-        }
-        return undefined
-      },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
@@ -1112,12 +1097,11 @@ describe('RemoteEngine', () => {
     expect(fake.calls.some((call) => call.command.includes("dsh plugin --profile 'web' add"))).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp'],
-      skipped: [],
     })
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync plugins：registry 插件远端下载按版本比对——版本同即跳过', async () => {
+  it('sync plugins：registry 插件已一致仍按勾选执行（强制重装）', async () => {
     const layerDir = await mkdtemp(join(tmpdir(), 'dsh-remote-layer-'))
     const entity = join(layerDir, 'node_modules', 'some-registry-plugin')
     await mkdir(entity, { recursive: true })
@@ -1130,33 +1114,18 @@ describe('RemoteEngine', () => {
       layerDir,
       profilePatch: ['- insert:', '    - id: some-plugin', "      name: 'some-registry-plugin'"].join('\n'),
       profileDeps: { 'some-registry-plugin': '^1.4.0' },
-      respond: (command) => {
-        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
-          return {
-            code: 0,
-            stdout: '{"dsh":{"profile":{"bundles":["some-registry-plugin"]}}}\n',
-            stderr: '',
-          }
-        }
-        // 版本同即跳过（npm 语义：版本即内容契约）
-        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: `some-registry-plugin\t1.4.2\n`, stderr: '' }
-        }
-        return undefined
-      },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'plugins', ['some-registry-plugin'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(fake.calls.some((call) => call.command.includes('dsh plugin '))).toBe(false)
+    expect(fake.calls.some((call) => call.command.includes("add 'some-registry-plugin@1.4.2'"))).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      installed: [],
-      skipped: ['some-registry-plugin'],
+      installed: ['some-registry-plugin'],
     })
     await rm(layerDir, { recursive: true, force: true })
   })
 
-  it('sync plugins：本地插件版本同 → 跳过（版本即内容契约，不打包）', async () => {
+  it('sync plugins：本地插件已一致仍按勾选强制重推（打包推送）', async () => {
     const localPkg = await mkdtemp(join(tmpdir(), 'dsh-remote-plugin-'))
     await writeFile(
       join(localPkg, 'package.json'),
@@ -1166,27 +1135,13 @@ describe('RemoteEngine', () => {
     makeEngine({
       profilePatch: PLUGIN_PATCH,
       profileDeps: { '@weilence/dsh-mcp': `link:${localPkg.replaceAll('\\', '/')}` },
-      respond: (command) => {
-        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
-          return {
-            code: 0,
-            stdout: '{"dsh":{"profile":{"bundles":["@weilence/dsh-mcp"]}}}\n',
-            stderr: '',
-          }
-        }
-        if (command.startsWith('cd ~/.dsh/profiles/web/node_modules')) {
-          return { code: 0, stdout: '@weilence/dsh-mcp\t0.5.0\n', stderr: '' }
-        }
-        return undefined
-      },
     })
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(fake.packedRoots()).toEqual([])
+    expect(fake.packedRoots()).toEqual([localPkg.replaceAll('\\', '/')])
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
-      installed: [],
-      skipped: ['@weilence/dsh-mcp'],
+      installed: ['@weilence/dsh-mcp'],
     })
     await rm(localPkg, { recursive: true, force: true })
   })
@@ -1222,12 +1177,11 @@ describe('RemoteEngine', () => {
     expect(fake.calls.some((call) => call.command.includes("dsh plugin --profile 'web' add"))).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.plugins).toMatchObject({
       installed: ['@weilence/dsh-mcp'],
-      skipped: [],
     })
     await rm(localPkg, { recursive: true, force: true })
   })
 
-  it('sync skills：一致项跳过、不同项推送；未勾选与远端独有零接触（不删除）', async () => {
+  it('sync skills：提交即推送（含已一致的强制重推）；未勾选与远端独有零接触（不删除）', async () => {
     makeEngine({
       skills: [
         {
@@ -1239,17 +1193,6 @@ describe('RemoteEngine', () => {
           ],
         },
       ],
-      respond: (command) => {
-        // 远端：kept 内容一致（hash a）、other 内容不同（hash b）、gone 为远端独有
-        if (command.startsWith('if cd ~/.dsh/skills')) {
-          return {
-            code: 0,
-            stdout: `${hex('a')}  ./kept/SKILL.md\n${hex('b')}  ./other/SKILL.md\n${hex('c')}  ./gone/SKILL.md\n`,
-            stderr: '',
-          }
-        }
-        return undefined
-      },
     })
     await writeStore(home, {
       version: 1,
@@ -1267,55 +1210,47 @@ describe('RemoteEngine', () => {
     await engine.load()
     engine.startSync('dev-box', 'skills', ['kept', 'other'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    // 一致项 kept 跳过：tar 只打包 other
+    // 提交项全量推送（kept 内容一致也强制重推）
     expect(fake.tarPushes).toEqual([
-      { alias: 'dev-box', localRoot: 'C:/skills', remoteRoot: '~/.dsh/skills', names: ['other'] },
+      {
+        alias: 'dev-box',
+        localRoot: 'C:/skills',
+        remoteRoot: '~/.dsh/skills',
+        names: ['kept', 'other'],
+      },
     ])
     // 同步永不删除远端：无 rm，远端独有 / 未勾选条目零接触
     expect(fake.calls.some((call) => call.command.includes('rm -rf'))).toBe(false)
-    expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 1, skipped: 1 })
+    expect(engine.stateOf('dev-box').lastSync.skills).toMatchObject({ pushed: 2 })
   })
 
-  it('sync prompts：远端缺文件推送（tmp+mv）、内容一致跳过、未勾选零动作', async () => {
+  it('sync prompts：远端缺文件推送（tmp+mv）、已一致勾选强制重推、未勾选零动作', async () => {
     const content = '# 全局指令\n- 要点\n'
-    let remotePrompt = '__ABSENT__\n'
-    makeEngine({
-      globalPrompt: content,
-      respond: (command) => {
-        if (command.startsWith('f=~/.dsh/AGENTS.md')) {
-          return { code: 0, stdout: remotePrompt, stderr: '' }
-        }
-        return undefined
-      },
-    })
+    makeEngine({ globalPrompt: content })
     await engine.save(saveRequest())
 
-    // 远端无文件 → 推送（原子写：cat > tmp && mv）
+    // 推送（原子写：cat > tmp && mv）
     engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     const write = fake.calls.find((call) => call.command.includes('cat > ~/.dsh/AGENTS.md.tmp-dsh-remote'))
     expect(write).toBeDefined()
     expect(write?.stdin).toBe(content)
-    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true, skipped: false })
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true })
     expect((await readStore(home)).manifest['dev-box'].prompts).toBe(true)
 
-    // 内容一致（远端摘要 = 本机内容 sha256）→ 整次不写盘
-    remotePrompt = `${createHash('sha256').update(content, 'utf8').digest('hex')}  /home/u/.dsh/AGENTS.md\n`
+    // 已一致但勾选提交 = 强制重推：仍写盘
     fake.calls.length = 0
     engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/AGENTS.md'))).toBe(false)
-    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: false, skipped: true })
+    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/AGENTS.md'))).toBe(true)
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true })
 
-    // 未勾选 = 不动：连远端事实都不取
+    // 未勾选 = 不动：远端零接触
     fake.calls.length = 0
     engine.startSync('dev-box', 'prompts', [])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(fake.calls.length).toBe(0)
-    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({
-      pushed: false,
-      skipped: false,
-    })
+    expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: false })
   })
 
   it('sync prompts：本机没有 AGENTS.md → 显式失败', async () => {

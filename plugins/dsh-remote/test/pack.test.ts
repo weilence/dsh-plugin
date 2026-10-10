@@ -12,7 +12,7 @@ const hasPnpm = spawnSync('pnpm', ['--version'], { encoding: 'utf8' }).status ==
 const suite = process.platform === 'win32' || !hasPnpm ? describe.skip : describe
 
 suite('packPackage（pnpm pack）', () => {
-  it('产物名 <扁平化包名>-<version>.tgz 且落盘可读', async () => {
+  it('产物名 <扁平化包名>-<version>-<内容盐8>.tgz 且落盘可读', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsh-remote-packfixture-'))
     try {
       await writeFile(
@@ -22,7 +22,9 @@ suite('packPackage（pnpm pack）', () => {
       )
       await writeFile(join(dir, 'extra.txt'), 'content', 'utf8')
       const packed = await packPackage(dir)
-      expect(packed.fileName).toBe('x-y-pkg-1.2.3.tgz')
+      // 内容盐 = tgz 字节 sha256 前 8 位：同版本换内容（强制重推）时 specifier
+      // 变化，hoisted linker 才会真正重新解包
+      expect(packed.fileName).toMatch(/^x-y-pkg-1\.2\.3-[0-9a-f]{8}\.tgz$/)
       await readFile(packed.path)
     } finally {
       await rm(dir, { recursive: true, force: true })

@@ -188,7 +188,7 @@ describe('远程开发面板渲染', () => {
             since: '2026-01-01T00:00:00.000Z',
           },
           lastSync: {
-            skills: { at: '2026-01-02T03:04:05.000Z', pushed: 2, skipped: 1 },
+            skills: { at: '2026-01-02T03:04:05.000Z', pushed: 2 },
             mcp: null,
             plugins: null,
             prompts: null,
@@ -209,7 +209,7 @@ describe('远程开发面板渲染', () => {
     expect(html).not.toContain('断开')
     expect(html).toContain('同步 ▾|同步 Skills,同步 MCP,同步插件,同步提示词')
     expect(html).toContain('远端 profile web（固定） · 端口 18731 → 18730')
-    expect(html).toContain('上次 Skills 同步：推送 2 · 跳过 1（已一致）（')
+    expect(html).toContain('上次 Skills 同步：推送 2（')
     expect(html).toContain('显示名')
     expect(html).toContain('SSH 别名')
     expect(html).toContain('取消')

@@ -369,27 +369,18 @@ function connectionCard(
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
           {t('lastSync.skills', { pushed: row.state.lastSync.skills.pushed })}
-          {row.state.lastSync.skills.skipped > 0
-            ? t('lastSync.skipped', { count: row.state.lastSync.skills.skipped })
-            : ''}
           {t('lastSync.at', { at: new Date(row.state.lastSync.skills.at).toLocaleString() })}
         </p>
       ) : null}
       {row.state.lastSync.mcp !== null ? (
         <p className={styles.rowWhen}>
           {t('lastSync.mcp', { count: row.state.lastSync.mcp.installed.length })}
-          {row.state.lastSync.mcp.skipped.length > 0
-            ? t('lastSync.skipped', { count: row.state.lastSync.mcp.skipped.length })
-            : ''}
           {t('lastSync.at', { at: new Date(row.state.lastSync.mcp.at).toLocaleString() })}
         </p>
       ) : null}
       {row.state.lastSync.plugins !== null ? (
         <p className={styles.rowWhen}>
           {t('lastSync.plugins', { count: row.state.lastSync.plugins.installed.length })}
-          {row.state.lastSync.plugins.skipped.length > 0
-            ? t('lastSync.skipped', { count: row.state.lastSync.plugins.skipped.length })
-            : ''}
           {t('lastSync.at', { at: new Date(row.state.lastSync.plugins.at).toLocaleString() })}
         </p>
       ) : null}
@@ -398,9 +389,7 @@ function connectionCard(
           {t('lastSync.prompts', {
             result: row.state.lastSync.prompts.pushed
               ? t('lastSync.prompts.pushed')
-              : row.state.lastSync.prompts.skipped
-                ? t('lastSync.prompts.skipped')
-                : t('lastSync.prompts.unchanged'),
+              : t('lastSync.prompts.unchanged'),
           })}
           {t('lastSync.at', { at: new Date(row.state.lastSync.prompts.at).toLocaleString() })}
         </p>

@@ -82,7 +82,10 @@ describe('同步弹窗投影（渲染期取词）', () => {
     expect(rows.map((row) => row.status)).toEqual(['diff', 'same'])
 
     expect(rows[0]!.view(makeT()).titleMeta).toBe('profile 层 · 本地 · v1.0.0 · 与远端版本不同 · 远端 v0.9.0')
-    expect(rows[1]!.view(makeT()).titleMeta).toBe('home 层 · npm · v4.17.21 · 已一致')
+    // same 行：状态走行尾徽标（醒目），titleMeta 留事实（版本相等时远端版本是重复信息）
+    const same = rows[1]!.view(makeT())
+    expect(same.titleMeta).toBe('home 层 · npm · v4.17.21')
+    expect(same.tag).toBe('已一致')
   })
 
   it('插件远端已激活但版本读不到时给出未知版本措辞', () => {
@@ -97,13 +100,21 @@ describe('同步弹窗投影（渲染期取词）', () => {
     )
   })
 
-  it('提示词行比对单文件摘要', () => {
+  it('提示词行已一致走徽标、差异走状态文字', () => {
     const rows = rowsOf('prompts', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff'])
     const item = rows[0]!.view(makeT())
     expect(item.title).toBe('AGENTS.md')
     expect(item.titleMeta).toBe('内容不同')
     expect(item.lines).toEqual(['/home/AGENTS.md'])
+
+    const sameRows = rowsOf(
+      'prompts',
+      { ...localRows, promptRow: { path: '/home/AGENTS.md', digest: 'p0' } },
+      inventory,
+    )
+    expect(sameRows[0]!.view(makeT()).tag).toBe('已一致')
+    expect(sameRows[0]!.view(makeT()).titleMeta).toBeUndefined()
   })
 
   it('同一描述子可按语言重取：判定与事实不变，措辞跟随宿主语言', () => {

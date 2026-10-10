@@ -69,7 +69,8 @@ const SYNC_NOTICE_KEYS: Record<string, { failed: RemoteKey; generic: RemoteKey }
   'sync-prompts': { failed: 'notice.syncFailed.prompts', generic: 'notice.syncDoneGeneric.prompts' },
 }
 
-/** 同步操作的完成摘要（op 从 sync-* 变为空时发 notice）。 */
+/** 同步操作的完成摘要（op 从 sync-* 变为空时发 notice）。引擎提交即执行、
+ *  无跳过概念，摘要只报处理量。 */
 function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
   const keys = SYNC_NOTICE_KEYS[kind]
   if (keys === undefined) return { text: kind }
@@ -77,33 +78,16 @@ function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
     return { key: keys.failed, params: { detail: row.state.error.message } }
   }
   if (kind === 'sync-skills' && row.state.lastSync.skills !== null) {
-    const { pushed, skipped } = row.state.lastSync.skills
-    return skipped > 0
-      ? { key: 'notice.syncDone.skillsSkipped', params: { pushed, count: skipped } }
-      : { key: 'notice.syncDone.skills', params: { pushed } }
+    return { key: 'notice.syncDone.skills', params: { pushed: row.state.lastSync.skills.pushed } }
   }
   if (kind === 'sync-mcp' && row.state.lastSync.mcp !== null) {
-    const { installed, skipped } = row.state.lastSync.mcp
-    return skipped.length > 0
-      ? { key: 'notice.syncDone.mcpSkipped', params: { count: installed.length, skipped: skipped.length } }
-      : { key: 'notice.syncDone.mcp', params: { count: installed.length } }
+    return { key: 'notice.syncDone.mcp', params: { count: row.state.lastSync.mcp.installed.length } }
   }
   if (kind === 'sync-plugins' && row.state.lastSync.plugins !== null) {
-    const { installed, skipped } = row.state.lastSync.plugins
-    return skipped.length > 0
-      ? {
-          key: 'notice.syncDone.pluginsSkipped',
-          params: { count: installed.length, skipped: skipped.length },
-        }
-      : { key: 'notice.syncDone.plugins', params: { count: installed.length } }
+    return { key: 'notice.syncDone.plugins', params: { count: row.state.lastSync.plugins.installed.length } }
   }
-  if (kind === 'sync-prompts' && row.state.lastSync.prompts !== null) {
-    const { pushed, skipped } = row.state.lastSync.prompts
-    return pushed
-      ? { key: 'notice.syncDone.promptsPushed' }
-      : skipped
-        ? { key: 'notice.syncDone.promptsSkipped' }
-        : { key: 'notice.syncDone.promptsUnchanged' }
+  if (kind === 'sync-prompts' && row.state.lastSync.prompts !== null && row.state.lastSync.prompts.pushed) {
+    return { key: 'notice.syncDone.promptsPushed' }
   }
   return { key: keys.generic }
 }

@@ -1,7 +1,6 @@
 import type { ForwardHandle, SshExec } from './ssh'
 import { SshFailure, mergedOutput, shQuote, summarizeOutput } from './ssh'
 import type { ForwardRegistry } from './forwards'
-import { createHash } from 'node:crypto'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
@@ -20,9 +19,6 @@ import {
   REMOTE_PROFILE,
   isRemoteSelf,
   mcpSignature,
-  pluginStatus,
-  promptStatus,
-  skillStatus,
   type ConnOp,
   type ConnRow,
   type ConnState,
@@ -910,30 +906,17 @@ export class RemoteEngine {
     })()
   }
 
-  /** Skills 同步：勾选且指纹不同的按根打包推送；一致项跳过（不重传）；
-   *  未勾选不动——同步只往远端新增/覆盖，不删除远端内容。 */
+  /** Skills 同步：提交即执行——勾选项按根打包推送（弹窗判定是事实源，勾选
+   *  已一致项即强制重推）；未勾选不动——同步只往远端新增/覆盖，不删除远端
+   *  内容。 */
   private async doSkillsSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
     const next: Record<string, string[]> = {}
     let pushed = 0
-    let skipped = 0
     for (const root of await this.deps.scanSkills()) {
       const remoteRoot = root.key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
-      const picked = root.rows.filter((row) => selected.has(row.name))
-      // 该根无勾选项：既不推送也无需取远端指纹（省两次 ssh 往返）
-      if (picked.length === 0) {
-        next[root.key] = []
-        continue
-      }
-      const facts = await this.remoteSkillFacts(connection.sshAlias, root.key)
-      const factByName = new Map((facts ?? []).map((fact) => [fact.name, fact]))
-      const chosen: string[] = []
-      for (const row of picked) {
-        const status = facts === null ? 'unknown' : skillStatus(row.digest, factByName.get(row.name))
-        if (status === 'same') skipped += 1
-        else chosen.push(row.name)
-      }
+      const chosen = root.rows.filter((row) => selected.has(row.name)).map((row) => row.name)
       next[root.key] = chosen
       if (chosen.length > 0) {
         this.step(id, 'push', `${root.key} ${chosen.length} 项`)
@@ -943,13 +926,13 @@ export class RemoteEngine {
     }
     this.store.manifest[id] = { ...this.manifestOf(id), skills: next }
     await this.persist()
-    runtime.lastSync.skills = { at: this.deps.now(), pushed, skipped }
+    runtime.lastSync.skills = { at: this.deps.now(), pushed }
   }
 
-  /** MCP 同步：本机两层 patch fold 出选中 serverName 的生效配置，只把签名不同的
-   *  行写进远端 profile patch——一致项跳过，全部一致则整次不写盘（不触发远端
-   *  HMR / mtime 抖动）。远端手写行（同 serverName 不同 id）被本机行替换：
-   *  覆盖语义，不是删除远端条目。未勾选不动。 */
+  /** MCP 同步：提交即执行——本机两层 patch fold 出选中 serverName 的生效配置，
+   *  整块写进远端 profile patch（勾选已一致行即强制重写；写入幂等）。远端手写
+   *  行（同 serverName 不同 id）被本机行替换：覆盖语义，不是删除远端条目。
+   *  未勾选不动。 */
   private async doMcpSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
@@ -980,26 +963,17 @@ export class RemoteEngine {
     const doc = current.stdout.trim().length === 0 ? emptyPatchDoc() : parsePatchDoc(current.stdout)
     const remoteFacts = this.mcpFactsOfDoc(doc)
 
-    const writes: typeof rows = []
-    const skipped: string[] = []
     const replacedIds = new Set<string>()
     for (const row of rows) {
       const fact = remoteFacts.get(row.serverName)
-      if (fact !== undefined) {
-        if (fact.signature === mcpSignature(row.config, row.disabled === true)) {
-          skipped.push(row.serverName)
-          continue
-        }
-        if (fact.id !== row.id) replacedIds.add(fact.id)
-      }
-      writes.push(row)
+      if (fact !== undefined && fact.id !== row.id) replacedIds.add(fact.id)
     }
-    const installed = writes.map((row) => row.id)
+    const installed = rows.map((row) => row.id)
 
-    if (writes.length > 0) {
-      this.step(id, 'merge', `${writes.length} 行`)
+    if (rows.length > 0) {
+      this.step(id, 'merge', `${rows.length} 行`)
       if (replacedIds.size > 0) removeInsertRows(doc, replacedIds)
-      for (const row of writes) upsertInsertRow(doc, row)
+      for (const row of rows) upsertInsertRow(doc, row)
 
       this.step(id, 'write-remote')
       await this.deps.exec(connection.sshAlias, `mkdir -p ~/.dsh/profiles/${shQuote(REMOTE_PROFILE)}`)
@@ -1018,15 +992,14 @@ export class RemoteEngine {
 
     this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
     await this.persist()
-    runtime.lastSync.mcp = { at: this.deps.now(), installed, skipped }
+    runtime.lastSync.mcp = { at: this.deps.now(), installed }
   }
 
-  /** 插件同步：勾选项逐个比对远端事实，一致跳过，其余安装。比对值恒为版本号
-   *  （npm 语义：版本即内容契约，本地打包传输与远端 npm 下载同判）——同版本
-   *  换内容不可见，改码推远端必须 bump version。值同但未激活（不在 bundles）
-   *  也走重装——否则已安装但未激活的插件永远无法激活。未勾选不动（不删除）。
-   *  registry 插件按调用选项分流推送 / 远端 npm 下载；本地路径安装恒本地打包
-   *  传输（未发布的开发版本也只有这条路径能到达远端）。 */
+  /** 插件同步：提交即安装（弹窗判定是事实源，勾选已一致项即强制重推）——
+   *  同版本换内容由 payload 文件名的内容盐区分 specifier，hoisted linker 会
+   *  真正重新解包。未勾选不动（不删除）。registry 插件按调用选项分流推送 /
+   *  远端 npm 下载；本地路径安装恒本地打包传输（未发布的开发版本也只有这条
+   *  路径能到达远端）。 */
   private async doPluginSync(
     id: string,
     selectedIn: ReadonlySet<string>,
@@ -1037,24 +1010,11 @@ export class RemoteEngine {
     const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
     const byName = new Map(pluginRows.map((row) => [row.name, row]))
     const selected = [...selectedIn].filter((name) => !isRemoteSelf(name) && byName.has(name))
-    const facts = await this.remotePluginFacts(
-      connection.sshAlias,
-      pluginRows.map((row) => row.name),
-    )
-    const factByName = facts === null ? null : new Map(facts.map((fact) => [fact.name, fact]))
 
     const installed: string[] = []
-    const skipped: string[] = []
     for (const name of selected) {
       const row = byName.get(name)
       if (row === undefined) continue
-      const fact = factByName?.get(name)
-      const status = factByName === null ? 'unknown' : pluginStatus(row.version, fact?.version)
-      if (status === 'same') {
-        skipped.push(name)
-        continue
-      }
-
       this.step(id, 'install', row.name)
       const viaPush = row.install === 'local' || registryInstall === 'push'
       const install = viaPush
@@ -1076,11 +1036,11 @@ export class RemoteEngine {
 
     this.store.manifest[id] = { ...this.manifestOf(id), plugins: selected }
     await this.persist()
-    runtime.lastSync.plugins = { at: this.deps.now(), installed, skipped }
+    runtime.lastSync.plugins = { at: this.deps.now(), installed }
   }
 
-  /** 提示词同步：勾选且内容指纹不同才推送（tmp+mv 原子落盘远端 AGENTS.md）；
-   *  一致跳过，未勾选不动。远端实例在下一次尚未开始的模型步骤读取新内容。 */
+  /** 提示词同步：提交即推送（tmp+mv 原子落盘远端 AGENTS.md）；未勾选不动。
+   *  远端实例在下一次尚未开始的模型步骤读取新内容。 */
   private async doPromptSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
@@ -1089,32 +1049,26 @@ export class RemoteEngine {
       throw new SshFailure('unknown', '本机没有全局提示词文件（AGENTS.md），无可同步')
     }
     let pushed = false
-    let skipped = false
     if (selected.size > 0) {
-      const digest = createHash('sha256').update(content, 'utf8').digest('hex')
-      const status = promptStatus(digest, await this.remotePromptFact(connection.sshAlias))
-      if (status === 'same') skipped = true
-      else {
-        const target = '~/.dsh/AGENTS.md'
-        this.step(id, 'push', 'AGENTS.md')
-        const write = await this.deps.exec(
-          connection.sshAlias,
-          `mkdir -p ~/.dsh && cat > ${target}.tmp-dsh-remote && mv ${target}.tmp-dsh-remote ${target}`,
-          { stdin: content },
+      const target = '~/.dsh/AGENTS.md'
+      this.step(id, 'push', 'AGENTS.md')
+      const write = await this.deps.exec(
+        connection.sshAlias,
+        `mkdir -p ~/.dsh && cat > ${target}.tmp-dsh-remote && mv ${target}.tmp-dsh-remote ${target}`,
+        { stdin: content },
+      )
+      if (write.code !== 0) {
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端提示词写入失败：${write.stderr.trim()}`,
+          mergedOutput('', write.stderr),
         )
-        if (write.code !== 0) {
-          throw new SshFailure(
-            'remote-cmd-failed',
-            `远端提示词写入失败：${write.stderr.trim()}`,
-            mergedOutput('', write.stderr),
-          )
-        }
-        pushed = true
       }
+      pushed = true
     }
     this.store.manifest[id] = { ...this.manifestOf(id), prompts: pushed }
     await this.persist()
-    runtime.lastSync.prompts = { at: this.deps.now(), pushed, skipped }
+    runtime.lastSync.prompts = { at: this.deps.now(), pushed }
   }
 
   /** 打包本机包根 → 推送 payload → 远端 add tgz → 清同包其他版本的 payload

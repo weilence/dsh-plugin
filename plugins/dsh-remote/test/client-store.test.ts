@@ -73,7 +73,7 @@ describe('RemoteStore 阶段迁移检测', () => {
     store.stopPolling()
   })
 
-  it('同步 op 结束按类别发完成摘要（含跳过计数）', async () => {
+  it('同步 op 结束按类别发完成摘要（处理量）', async () => {
     const store = new RemoteStore()
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'running', op: { kind: 'sync-skills' } })]),
@@ -86,7 +86,7 @@ describe('RemoteStore 阶段迁移检测', () => {
         connRow('dev', {
           phase: 'running',
           lastSync: {
-            skills: { at: '2026-01-02T00:00:00.000Z', pushed: 2, skipped: 1 },
+            skills: { at: '2026-01-02T00:00:00.000Z', pushed: 2 },
             mcp: null,
             plugins: null,
             prompts: null,
@@ -95,11 +95,11 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('同步 Skills 完成：推送 2 · 跳过 1（已一致）')
+    expect(text(store.getSnapshot().notice)).toBe('同步 Skills 完成：推送 2')
     store.stopPolling()
   })
 
-  it('同步无跳过时摘要不带跳过段', async () => {
+  it('同步插件完成摘要报安装数', async () => {
     const store = new RemoteStore()
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { op: { kind: 'sync-plugins' } })]))
     await store.refresh()
@@ -109,7 +109,7 @@ describe('RemoteStore 阶段迁移检测', () => {
           lastSync: {
             skills: null,
             mcp: null,
-            plugins: { at: '2026-01-02T00:00:00.000Z', installed: ['a'], skipped: [] },
+            plugins: { at: '2026-01-02T00:00:00.000Z', installed: ['a'] },
             prompts: null,
           },
         }),

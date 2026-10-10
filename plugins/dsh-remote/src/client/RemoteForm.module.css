@@ -11,11 +11,28 @@
   justify-content: flex-end;
 }
 
-/* 同步弹窗「隐藏已一致」开关行（纯视图过滤，锁定勾选语义见 PickList locked）。 */
-.hideToggle {
+/* 同步弹窗清单工具行：左「全选」勾选，右「隐藏已一致」开关（纯视图过滤）。 */
+.syncToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.checkAll {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   user-select: none;
   cursor: pointer;
+}
+
+.hideSameRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hideSameText {
+  user-select: none;
 }

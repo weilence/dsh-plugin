@@ -1,4 +1,5 @@
 import shared from './shared.module.css'
+import { ToneChip } from './tone'
 
 /** 清单中的一行候选。 */
 export interface PickItem {
@@ -14,6 +15,8 @@ export interface PickItem {
   /** 勾选锁定：渲染为已勾选 + 不可切换（正常配色，区别于 problem 的红字禁选）；
    *  picked 集合里应恒含此 key。 */
   locked?: boolean
+  /** 行尾的 ok 色调状态徽标（如「已一致」）——醒目于普通元信息文字。 */
+  tag?: string
 }
 
 export function PickList(props: {
@@ -52,6 +55,7 @@ export function PickList(props: {
                 </span>
               ))}
               {item.problem !== undefined ? <span className={shared.pickProblem}>{item.problem}</span> : null}
+              {item.tag !== undefined ? <ToneChip tone="ok">{item.tag}</ToneChip> : null}
             </span>
           </label>
         </li>
