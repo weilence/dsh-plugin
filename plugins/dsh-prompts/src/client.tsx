@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
 import { createBridgeClient } from '@dsh-plugins/shared/api'
 import { errMsg } from '@dsh-plugins/shared'
-import { DELETE_PATH, FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
+import { FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
 import { NS, en, zh } from './client/locales'
 import styles from './client.module.css'
 
@@ -47,23 +47,6 @@ function PromptSection({ t }: PromptSectionProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const refresh = async () => {
-    if (dirty && !window.confirm(t('confirm.refresh'))) return
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const result = await api.request<PromptFile>(FILE_PATH)
-      setFile(result)
-      setDraft(result.content)
-    } catch (cause) {
-      setFile(null)
-      setError(t('load.failed', { detail: errMsg(cause) }))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const save = async () => {
     if (file === null) return
     setBusy(true)
@@ -84,57 +67,28 @@ function PromptSection({ t }: PromptSectionProps) {
     }
   }
 
-  const remove = async () => {
-    if (file?.exists !== true || !window.confirm(t('confirm.delete', { path: file.path }))) return
-    setBusy(true)
-    setError(null)
-    setNotice(null)
-    try {
-      const result = await api.request<PromptFile>(DELETE_PATH, {
-        method: 'POST',
-        body: JSON.stringify({ revision: file.revision }),
-      })
-      setFile(result)
-      setDraft('')
-      setNotice(t('notice.deleted'))
-    } catch (cause) {
-      setError(t('delete.failed', { detail: errMsg(cause) }))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   return (
     <Panel title={t('title')} subtitle={t('subtitle')}>
-      {error !== null ? (
-        <p role="alert" className={styles.error}>
-          {error}
-        </p>
-      ) : null}
-      {notice !== null ? (
-        <p role="status" className={styles.notice}>
-          {notice}
-        </p>
-      ) : null}
-      <div className={styles.info}>
-        <span>{t('path.label')}</span>
-        <code className={styles.path}>
-          {file?.path ?? (error === null ? t('path.loading') : t('path.unavailable'))}
-        </code>
-        {file !== null && !file.exists ? <span>{t('path.absent')}</span> : null}
-      </div>
-      <label className={styles.editorLabel} htmlFor="dsh-prompts-editor">
-        {t('editor.label')}
-      </label>
       <textarea
         id="dsh-prompts-editor"
         className={styles.editor}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         placeholder={t('editor.placeholder')}
+        aria-label={t('editor.label')}
         disabled={file === null || busy}
         spellCheck={false}
       />
+      {/* 失败反馈贴着动作区：表单长时顶部的提示区在视口外，点了保存看不见被拦的原因。 */}
+      {error !== null ? (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      ) : null}
+      {/* 一次性成功提示走官方 Toast：淡出后清空，下次操作即替换；文本相同也换 key 重开计时。 */}
+      {notice !== null ? (
+        <Toast key={notice} text={notice} holdMs={5000} onDone={() => setNotice(null)} />
+      ) : null}
       <div className={styles.actions}>
         <Button
           variant="primary"
@@ -143,19 +97,7 @@ function PromptSection({ t }: PromptSectionProps) {
         >
           {busy ? t('processing') : file?.exists ? t('save') : t('create')}
         </Button>
-        <Button variant="outline" disabled={busy} onClick={() => void refresh()}>
-          {t('refresh')}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={file?.exists !== true || busy || dirty}
-          title={dirty ? t('delete.dirtyTitle') : undefined}
-          onClick={() => void remove()}
-        >
-          {t('button.deleteFile')}
-        </Button>
       </div>
-      <p className={styles.hint}>{t('hint')}</p>
     </Panel>
   )
 }

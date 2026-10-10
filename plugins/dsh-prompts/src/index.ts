@@ -9,7 +9,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
-import { DELETE_PATH, FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
+import { FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
 
 export const inject: string[] = ['webServer', 'systemPrompt']
 
@@ -43,11 +43,13 @@ async function readPrompt(path: string): Promise<PromptFile> {
 
 function requireRevision(value: unknown): string | null {
   if (value === null || (typeof value === 'string' && /^[a-f0-9]{64}$/.test(value))) return value
-  throw new HttpError(400, '缺少有效的文件版本，请先刷新')
+  throw new HttpError(400, '缺少有效的文件版本，请重新打开设置页')
 }
 
 function checkRevision(actual: PromptFile, expected: string | null): void {
-  if (actual.revision !== expected) throw new HttpError(409, '系统提示词已在其他位置修改，请刷新后再编辑')
+  if (actual.revision !== expected) {
+    throw new HttpError(409, '系统提示词已在其他位置修改，请重新打开设置页后再编辑')
+  }
 }
 
 export interface Config {
@@ -168,7 +170,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           await writeFile(path, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
-            throw new HttpError(409, '系统提示词已在其他位置创建，请刷新后再编辑')
+            throw new HttpError(409, '系统提示词已在其他位置创建，请重新打开设置页后再编辑')
           }
           throw error
         }
@@ -188,18 +190,6 @@ export function apply(ctx: Context, config: Config = {}): void {
         }
       }
       writeJson(res, 200, { ...(await readPrompt(path)) })
-    })
-  })
-
-  route(DELETE_PATH, 'POST', async (req, res) => {
-    const body = await readJsonBody(req)
-    const expected = requireRevision(body.revision)
-    await serialize(async () => {
-      const current = await readPrompt(path)
-      checkRevision(current, expected)
-      if (!current.exists) throw new HttpError(409, '系统提示词已不存在，请刷新')
-      await unlink(path)
-      writeJson(res, 200, { path, exists: false, content: '', revision: null })
     })
   })
 }
