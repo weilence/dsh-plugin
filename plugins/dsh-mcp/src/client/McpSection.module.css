@@ -5,8 +5,9 @@
   padding-bottom: 4px;
 }
 
-.toolList {
-  margin: 0;
+/* 弹窗内的工具清单：高度交给弹窗滚动区，不做内部截断；全名可选中复制。 */
+.dialogToolList {
+  margin: 8px 0 0;
   padding: 8px 10px 8px 28px;
   border: 0.5px solid var(--dsw-alias-border-l4);
   border-radius: 9px;
@@ -14,8 +15,6 @@
   font-family: var(--ds-font-family-code);
   font-size: 12px;
   line-height: 1.8;
-  max-height: 180px;
-  overflow: auto;
 }
 
 /* 展开卡片内表单底部的按钮行（取消 / 保存）。 */
@@ -23,4 +22,13 @@
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* JSON 转换备注（身份保留键 / 忽略项提示）：弱化展示，文案可选中复制。 */
+.notes {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+  opacity: 0.75;
 }

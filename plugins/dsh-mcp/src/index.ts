@@ -262,6 +262,9 @@ export function apply(ctx: Context): void {
             // JSON 导入的高级键透传：已知键已被上方严格校验，这里只合并
             // 过滤后的未知键（非法键最终由 Loader 加载时的 schema 校验拒绝）。
             const extra = extrasOf(request.extra)
+            if (request.disabled !== undefined && typeof request.disabled !== 'boolean') {
+              throw new HttpError(400, 'disabled 必须是布尔值')
+            }
 
             const layers = await loadLayers(profile)
             const managed = composeManaged(layers)
@@ -285,6 +288,9 @@ export function apply(ctx: Context): void {
               const layer = layers.find((candidate) => candidate.scope === scope)
               if (layer === undefined) throw new HttpError(400, `未知的作用域「${scope}」`)
               appendMcpInsert(layer.doc, { id, config: extra === undefined ? draft : { ...draft, ...extra } })
+              // disabled 的语义转换：创建即停用（官方形态的停用覆盖行），
+              // 与 insert 同层一次落盘。
+              if (request.disabled === true) setEnabledInDoc(layer.doc, id, false)
               await writeLayers([layer])
               const response: SaveResponse = { id, scope }
               writeJson(res, 200, response as unknown as Record<string, unknown>)
@@ -304,6 +310,15 @@ export function apply(ctx: Context): void {
               if (override.row.config === undefined) continue
               setOverrideConfig(override.layer.doc, override.row.patchIndex, effective)
               touched.add(override.layer)
+            }
+            // disabled 的语义转换：与行级启停覆盖行互转，落点镜像 set-enabled
+            // 路由（已有携带 disabled 的覆盖行改最后一处，否则 insert 层追加）。
+            if (typeof request.disabled === 'boolean') {
+              const bearing = [...row.overrides]
+                .reverse()
+                .find(({ row: candidate }) => candidate.disabled !== undefined)
+              const target = bearing?.layer ?? row.layer
+              if (setEnabledInDoc(target.doc, editing, !request.disabled)) touched.add(target)
             }
             await writeLayers(touched)
             const response: SaveResponse = { id: editing, scope }

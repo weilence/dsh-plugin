@@ -6,7 +6,7 @@ import type { McpRow } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
 import { messageText, type McpT, type NS } from './locales'
 import type { McpStore } from './store'
-import { McpServerForm, McpServerView } from './McpServerForm'
+import { McpServerForm, McpServerView, ToolsDialog } from './McpServerForm'
 import shared from '@dsh-plugins/client-ui/styles'
 import local from './McpSection.module.css'
 
@@ -35,6 +35,8 @@ export function McpSection(props: McpSectionProps) {
   /** 展开中的行（编辑 / 查看）；undefined = 全部收起。 */
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
   const [deleting, setDeleting] = useState<McpRow | undefined>(undefined)
+  /** 工具清单弹窗的目标行；undefined = 关闭。 */
+  const [toolsRow, setToolsRow] = useState<McpRow | undefined>(undefined)
 
   const servers = state.list?.servers ?? []
   const busy = state.busy !== null
@@ -48,7 +50,7 @@ export function McpSection(props: McpSectionProps) {
   }
 
   return (
-    <Panel title={t('section.label')}>
+    <Panel title={t('section.label')} subtitle={t('panel.subtitle')}>
       {errorText ? (
         <div className={styles.error} role="alert">
           {errorText}
@@ -107,15 +109,25 @@ export function McpSection(props: McpSectionProps) {
           const badge = statusBadge(row, t)
           const expanded = editingId === row.id
           const transport = transportOf(row.config)
+          const toolCount = row.live?.tools.length ?? 0
           return {
             title: row.config.serverName ?? t('row.unnamed'),
             pills: [
               ...(transport !== undefined ? [{ text: transport === 'stdio' ? 'stdio' : 'HTTP' }] : []),
-              { text: editable ? t('row.editable') : t('row.readOnly'), tone: editable ? 'ok' : 'warn' },
+              // 只读来源标注保留：解释为什么没有启停 / 删除动作；可编辑行
+              // 不再重复标注（操作按钮本身就是可编辑的事实）。
+              ...(editable ? [] : [{ text: t('row.readOnly'), tone: 'warn' as const }]),
               {
                 text: badge.text,
                 tone: badge.kind === 'on' ? 'ok' : badge.kind === 'err' ? 'err' : 'neutral',
                 title: badge.title,
+                // 状态徽标带工具数（运行中 · N 工具）时本身即入口：点击打开清单弹窗。
+                ...(toolCount > 0
+                  ? {
+                      onClick: () => setToolsRow(row),
+                      title: [badge.title, t('row.toolsHint')].filter(Boolean).join(' · '),
+                    }
+                  : {}),
               },
             ],
             description: endpointOf(row.config) || t('row.endpointMissing'),
@@ -192,6 +204,9 @@ export function McpSection(props: McpSectionProps) {
             )
           }}
         />
+      ) : null}
+      {toolsRow !== undefined ? (
+        <ToolsDialog row={toolsRow} t={t} onClose={() => setToolsRow(undefined)} />
       ) : null}
     </Panel>
   )

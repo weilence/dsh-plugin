@@ -150,6 +150,18 @@ export function mergeForEdit(
   return merged as McpEffectiveConfig
 }
 
+/**
+ * DSH 行配置 → 标准 JSON 单服务器映射（编辑 JSON 视图的生成方向）：
+ * 外层键即 serverName，type 承载 transport，其余键（含身份保留的高级键）
+ * 1:1——与 fromStandardJson 的直接映射方言互逆，往返无损。disabled 是
+ * 行级语义，停用时显式输出（启用时省略，对齐标准文件的惯用形态）。
+ */
+export function toStandardJson(config: Record<string, unknown>, disabled = false): Record<string, unknown> {
+  const { serverName, transport, ...rest } = config
+  const body: Record<string, unknown> = { type: transport, ...(disabled ? { disabled: true } : {}), ...rest }
+  return { [String(serverName)]: body }
+}
+
 export function endpointOf(config: McpConfigDraft | McpEffectiveConfig): string {
   if (config.transport === 'stdio') {
     const parts = [
@@ -161,18 +173,21 @@ export function endpointOf(config: McpConfigDraft | McpEffectiveConfig): string 
   return typeof config.url === 'string' ? config.url : ''
 }
 
-/** JSON 导入解析出的一个服务器：已知键草稿 + 未知键透传 + 提示。 */
-export interface McpJsonEntry {
+/** 标准 JSON 导入解析出的一个服务器：已知键草稿 + 未知键身份保留 + 转换备注。 */
+export interface JsonRow {
   /** 服务器名：mcpServers / 直接映射的键名，或单个服务器对象自动推导的名称。 */
   serverName: string
   draft: McpConfigDraft
   /** 表单外的高级键原样透传（host 合并进 patch，由 Loader 加载时校验）。 */
   extras: Record<string, unknown>
-  notes: string[]
+  /** disabled 键的语义转换结果：true 表示保存后停用该行（不写入 config）。 */
+  disabled: boolean
+  /** 转换备注（词典描述子），渲染期随宿主语言取词。 */
+  notes: PanelMessage[]
 }
 
 export interface McpJsonParseResult {
-  entries: McpJsonEntry[]
+  rows: JsonRow[]
   /** 单台服务器的问题用词典描述子表达，渲染期随宿主语言取词。 */
   problems: { name: string; message: PanelMessage }[]
 }
@@ -193,12 +208,12 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 }
 
 /** 按 type 字段（缺省按 command/url 推断）归一到两种传输形态。 */
-function transportOfEntry(value: Record<string, unknown>, notes: string[]): McpTransport | undefined {
+function transportOfEntry(value: Record<string, unknown>, notes: PanelMessage[]): McpTransport | undefined {
   const type = value.type
   if (type === 'stdio') return 'stdio'
   if (type === 'streamable-http' || type === 'http') return 'streamable-http'
   if (type === 'sse') {
-    notes.push('HTTP+SSE 传输已弃用，按 streamable-http 处理')
+    notes.push({ key: 'import.note.sseDeprecated' })
     return 'streamable-http'
   }
   if (type === undefined) {
@@ -237,11 +252,12 @@ function draftOfEntry(name: string, value: Record<string, unknown>, transport: M
   return draft
 }
 
-// 解析粘贴的 JSON，名称一律来自 JSON 本身：mcpServers 包装 / 直接映射 /
+// 解析粘贴的标准 MCP JSON，名称一律来自 JSON 本身：mcpServers 包装 / 直接映射 /
 // 单个服务器对象（名称从 command 或 URL 推导）三种等价写法（方言细节见
-// mcpImport.test.ts）。顶层结构问题抛带词典描述子的 ConfigError；单个服务
-// 器的问题进 problems 不影响其余。
-export function parseMcpJsonText(text: string): McpJsonParseResult {
+// mcpImport.test.ts）。转换原则：能映射的键全部映射；映射不到的已知语义键
+// （disabled）丢弃并备注；其余未知键身份保留进 extras 并备注。顶层结构问题
+// 抛带词典描述子的 ConfigError；单个服务器的问题进 problems 不影响其余。
+export function fromStandardJson(text: string): McpJsonParseResult {
   const trimmed = text.trim()
   if (trimmed.length === 0) failKey('import.emptyInput')
   let parsed: unknown
@@ -254,11 +270,11 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
     failKey('import.rootNotObject')
   }
   const root = parsed as Record<string, unknown>
-  const entries: McpJsonEntry[] = []
+  const rows: JsonRow[] = []
   const problems: { name: string; message: PanelMessage }[] = []
 
-  const consume = (name: string, value: Record<string, unknown>, prefixNote?: string): void => {
-    const notes: string[] = prefixNote === undefined ? [] : [prefixNote]
+  const consume = (name: string, value: Record<string, unknown>, prefixNote?: PanelMessage): void => {
+    const notes: PanelMessage[] = prefixNote === undefined ? [] : [prefixNote]
     if (!SERVER_NAME_PATTERN.test(name)) {
       problems.push({ name, message: { key: 'import.namePattern', params: { name } } })
       return
@@ -283,13 +299,24 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
     }
     const otherKeys = transport === 'stdio' ? HTTP_ONLY_KEYS : STDIO_ONLY_KEYS
     const dropped = otherKeys.filter((field) => value[field] !== undefined)
-    if (dropped.length > 0)
-      notes.push(`已忽略 ${transport === 'stdio' ? 'HTTP' : 'stdio'} 专属键：${dropped.join(' / ')}`)
+    if (dropped.length > 0) {
+      notes.push({
+        key: 'import.note.ignoredKeys',
+        params: { side: transport === 'stdio' ? 'HTTP' : 'stdio', keys: dropped.join(' / ') },
+      })
+    }
+    // disabled 的语义转换：映射为行级停用（保存后由 host 落停用覆盖行），
+    // 不写入 config。仅精确的 true 生效，其余值按未停用处理。
+    const disabled = value.disabled === true
+    if (disabled) notes.push({ key: 'import.note.disabledConverted' })
     const extras: Record<string, unknown> = {}
     for (const [field, fieldValue] of Object.entries(value)) {
-      if (field !== 'type' && !KNOWN_KEYS.has(field)) extras[field] = fieldValue
+      if (field !== 'type' && field !== 'disabled' && !KNOWN_KEYS.has(field)) extras[field] = fieldValue
     }
-    entries.push({ serverName: name, draft, extras, notes })
+    if (Object.keys(extras).length > 0) {
+      notes.push({ key: 'import.note.preservedKeys', params: { keys: Object.keys(extras).join(' / ') } })
+    }
+    rows.push({ serverName: name, draft, extras, disabled, notes })
   }
 
   const asServerObject = (value: unknown): Record<string, unknown> | undefined =>
@@ -314,7 +341,7 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
     if (derived === undefined) {
       problems.push({ name: '', message: { key: 'import.deriveFailed' } })
     } else {
-      consume(derived, root, `已自动命名 ${derived}（如需自定义名称，请用 {"服务器名": {...}} 包装）`)
+      consume(derived, root, { key: 'import.note.autoNamed', params: { name: derived } })
     }
   } else {
     let seen = false
@@ -331,7 +358,7 @@ export function parseMcpJsonText(text: string): McpJsonParseResult {
       failKey('import.noServers')
     }
   }
-  return { entries, problems }
+  return { rows, problems }
 }
 
 /** 单个服务器对象的回退命名：command 主干（去路径与 .exe 等）或 URL 主机名，

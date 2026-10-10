@@ -5,8 +5,8 @@ DSH web 插件：在设置页新增「MCP 管理」菜单，以官方 [mcp-clien
 ## 功能
 
 - **目录**：列出两层声明（profile / 全局）+ 只读来源（bundle、`--patch` 覆盖）的 MCP 服务器，含传输形态、端点、组合后的生效配置。
-- **运行态**：每个服务器显示 fiber 状态（连接中 / 运行中 · N 工具 / 失败含错误摘要 / 已停用 / 待生效）与 `mcp__<serverName>__*` 工具清单；存在连接中 / 待生效的服务器时面板自动轮询跟进，落定即停。
-- **新建 / 编辑**：表单覆盖两种传输形态的常用键（stdio 的 `command`/`args`/`env`/`cwd` 与 streamable-http 的 `url`/`headers`，及 `toolCallTimeoutMs`、`failOnStartupError`），也支持 JSON 直接粘贴；高级键（`reconnect`、`maxInstructionBytes`）编辑时原样保留。
+- **运行态**：每个服务器显示 fiber 状态（连接中 / 失败含错误摘要 / 已停用 / 待生效），运行中状态带工具数（运行中 · N 工具），点该徽标直接打开 `mcp__<serverName>__*` 清单弹窗（可搜索过滤，全名可复制）；存在连接中 / 待生效的服务器时面板自动轮询跟进，落定即停。
+- **新建 / 编辑**：表单覆盖两种传输形态的常用键（stdio 的 `command`/`args`/`env`/`cwd` 与 streamable-http 的 `url`/`headers`，及 `toolCallTimeoutMs`、`failOnStartupError`），也支持 JSON 直接粘贴；粘贴按业界标准 MCP JSON（`mcpServers` 包装 / 直接映射 / 单个服务器对象）解析，与 patch 行配置**双向自动转换**——`type`↔`transport`、映射键↔`serverName`，高级键（`reconnect`、`maxInstructionBytes`）在编辑 JSON 视图中可见可改、原样往返；`disabled` 语义转换为行级启停（创建即停用 / 编辑时同步启停，落官方形态的停用覆盖行，不写入配置），转换备注实时显示在 JSON 输入区下方。
 - **启停 / 删除**：停用写入官方 plugin-manager 同形态的 `{ id, disabled: true }` 覆盖行；删除移除 insert 声明与所有指向它的覆盖行。
 - **注释保留**：所有写入都走保留注释的 YAML round-trip，文件里的手写注释与无关行不动。
 - **宽版弹窗**：进入本分区时自动加宽宿主设置弹窗（官方将面板固定为 800×800 且无尺寸 API），切到其他分区即还原，不影响其余设置页。

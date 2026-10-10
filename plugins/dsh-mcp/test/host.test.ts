@@ -306,6 +306,48 @@ describe('save 路由', () => {
     }
   })
 
+  it('新建带 disabled：创建即停用（覆盖行承载，config 不保留该键）', async () => {
+    const response = await harness.request('POST', '/dsh-mcp/save', {
+      scope: 'profile',
+      config: { transport: 'stdio', serverName: 'demo', command: 'node' },
+      disabled: true,
+    })
+    expect(response.status).toBe(200)
+    const text = await readFile(join(harness.profileDir, 'cordis.patch.yml'), 'utf8')
+    const scanned = scanPatchDoc(parsePatchDoc(text))
+    expect(scanned.inserts[0]?.config).not.toHaveProperty('disabled')
+    expect(text).toContain('- id: mcp-demo\n  disabled: true\n')
+  })
+
+  it('编辑带 disabled：与行级启停覆盖行互转', async () => {
+    await writeFile(join(harness.profileDir, 'cordis.patch.yml'), STDIO_DEMO)
+    const disable = await harness.request('POST', '/dsh-mcp/save', {
+      scope: 'profile',
+      id: 'mcp-demo',
+      config: { transport: 'stdio', serverName: 'demo', command: 'node' },
+      disabled: true,
+    })
+    expect(disable.status).toBe(200)
+    expect(await readFile(join(harness.profileDir, 'cordis.patch.yml'), 'utf8')).toContain('disabled: true')
+    const enable = await harness.request('POST', '/dsh-mcp/save', {
+      scope: 'profile',
+      id: 'mcp-demo',
+      config: { transport: 'stdio', serverName: 'demo', command: 'node' },
+      disabled: false,
+    })
+    expect(enable.status).toBe(200)
+    expect(await readFile(join(harness.profileDir, 'cordis.patch.yml'), 'utf8')).toContain('disabled: false')
+  })
+
+  it('disabled 非布尔值 400', async () => {
+    const response = await harness.request('POST', '/dsh-mcp/save', {
+      scope: 'profile',
+      config: { transport: 'stdio', serverName: 'demo', command: 'node' },
+      disabled: 'yes',
+    })
+    expect(response.status).toBe(400)
+  })
+
   it('坏配置 400、未知行 404', async () => {
     expect(
       (

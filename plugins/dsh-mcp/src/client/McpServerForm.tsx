@@ -1,6 +1,14 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { IssueList, MetaItem, SelectField, TextAreaField, TextField } from '@dsh-plugins/client-ui'
+import {
+  Dialog,
+  IssueList,
+  MetaItem,
+  SearchBox,
+  SelectField,
+  TextAreaField,
+  TextField,
+} from '@dsh-plugins/client-ui'
 import type {
   McpConfigDraft,
   McpEffectiveConfig,
@@ -12,8 +20,15 @@ import type {
 } from '../shared'
 import { errMsg } from '@dsh-plugins/shared'
 import { SERVER_NAME_PATTERN } from '../shared'
-import { ConfigError, endpointOf, parseMcpJsonText, type McpJsonParseResult } from '../mcpConfig'
-import { messageText, type McpT } from './locales'
+import {
+  ConfigError,
+  endpointOf,
+  extrasOf,
+  fromStandardJson,
+  toStandardJson,
+  type McpJsonParseResult,
+} from '../mcpConfig'
+import { messageText, type McpT, type PanelMessage } from './locales'
 import type { McpStore } from './store'
 import { mcpApi } from './api'
 import shared from '@dsh-plugins/client-ui/styles'
@@ -46,6 +61,10 @@ interface DraftState {
   headers: string
   toolCallTimeoutMs: string
   failOnStartupError: boolean
+  /** 行级启停：与标准 JSON 的 disabled 键互转（不写入 config），表单不展示。 */
+  disabled: boolean
+  /** 表单外的高级键（reconnect 等）：行配置身份保留，编辑 JSON 视图可见可改。 */
+  extras: Record<string, unknown>
 }
 
 export function McpServerForm(props: McpServerFormProps) {
@@ -59,6 +78,8 @@ export function McpServerForm(props: McpServerFormProps) {
   const [jsonText, setJsonText] = useState('')
   const [jsonEdited, setJsonEdited] = useState<string | null>(null)
   const [jsonEditError, setJsonEditError] = useState<string | null>(null)
+  /** 最近一次 JSON 解析的转换备注（身份保留键 / 忽略项），渲染于 JSON 编辑区。 */
+  const [jsonNotes, setJsonNotes] = useState<PanelMessage[]>([])
   // 保存动作的结论（解析问题 / 连接检查失败）；checkBypassed 标记「上次
   // 检查失败后用户再次点击」，此时跳过检查直接写入。
   const [actionError, setActionError] = useState<string | null>(null)
@@ -84,6 +105,7 @@ export function McpServerForm(props: McpServerFormProps) {
     if (mode === 'edit' && next === 'json') {
       setJsonEdited(jsonTextOf(draft))
       setJsonEditError(null)
+      setJsonNotes([])
     }
   }
 
@@ -105,21 +127,25 @@ export function McpServerForm(props: McpServerFormProps) {
       ? messageText(error.descriptor, t)
       : errMsg(error)
 
-  /** 编辑的 JSON 文本回填：解析成功即应用到草稿；serverName 由外层键给出，
-   *  回填时以当前行为准（名称改动 = 删除后新建，不走编辑）。 */
+  /** 编辑的 JSON 文本回填：解析成功即应用到草稿（含高级键 extras 与行级
+   *  disabled）；serverName 由外层键给出，回填时以当前行为准（名称改动 =
+   *  删除后新建，不走编辑）。转换备注随解析更新，渲染于输入区下方。 */
   const applyJsonEdit = (text: string): void => {
     clearOutcome()
     setJsonEdited(text)
     setJsonEditError(null)
+    setJsonNotes([])
     if (text.trim().length === 0) return
     try {
-      const result = parseMcpJsonText(text)
-      if (result.entries.length !== 1) {
+      const result = fromStandardJson(text)
+      if (result.rows.length !== 1) {
         setJsonEditError(t('input.needSingleEntry'))
         return
       }
+      const row = result.rows[0]!
+      setJsonNotes(row.notes)
       setDraft((previous) => ({
-        ...draftFromConfig(result.entries[0].draft, previous.scope),
+        ...draftFromConfig({ ...row.draft, ...row.extras }, previous.scope, row.disabled),
         serverName: previous.serverName,
       }))
     } catch (error) {
@@ -160,6 +186,11 @@ export function McpServerForm(props: McpServerFormProps) {
       scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
       id: mode === 'edit' ? row?.id : undefined,
       config,
+      // 高级键显式提交：JSON 视图里改过的 reconnect 等值要覆盖 host 侧的
+      // base 保留（值未变动时与 base 相同，写入无副作用）。
+      extra: Object.keys(draft.extras).length > 0 ? draft.extras : undefined,
+      // disabled 仅在 JSON 编辑改变了行级启停时提交（表单无此入口，不变动）。
+      disabled: draft.disabled !== (row?.disabled ?? false) ? draft.disabled : undefined,
     }
     if (await store.save(request)) props.onDone()
   }
@@ -168,7 +199,7 @@ export function McpServerForm(props: McpServerFormProps) {
   const submitJson = async (): Promise<void> => {
     let result: McpJsonParseResult
     try {
-      result = parseMcpJsonText(jsonText)
+      result = fromStandardJson(jsonText)
     } catch (error) {
       setActionError(parseErrorText(error))
       return
@@ -187,25 +218,36 @@ export function McpServerForm(props: McpServerFormProps) {
       return
     }
     const seen = new Set(knownServerNames)
-    for (const entry of result.entries) {
-      if (seen.has(entry.serverName)) {
-        setActionError(t('input.duplicateInBatch', { name: entry.serverName }))
+    for (const row of result.rows) {
+      if (seen.has(row.serverName)) {
+        setActionError(t('input.duplicateInBatch', { name: row.serverName }))
         return
       }
-      seen.add(entry.serverName)
+      seen.add(row.serverName)
     }
-    if (!(await runCheck(result.entries.map((entry) => ({ name: entry.serverName, config: entry.draft })))))
-      return
-    for (const entry of result.entries) {
+    if (!(await runCheck(result.rows.map((row) => ({ name: row.serverName, config: row.draft }))))) return
+    for (const row of result.rows) {
       const ok = await store.save({
         scope: draft.scope,
-        config: entry.draft,
-        extra: Object.keys(entry.extras).length > 0 ? entry.extras : undefined,
+        config: row.draft,
+        extra: Object.keys(row.extras).length > 0 ? row.extras : undefined,
+        // disabled 的语义转换：创建即按输入停用（host 落停用覆盖行）。
+        disabled: row.disabled || undefined,
       })
       if (!ok) return
     }
     props.onDone()
   }
+
+  /** 新建 JSON 粘贴的实时转换备注：随输入解析（失败静默，错误由保存时报）。 */
+  const liveNotes: PanelMessage[] = useMemo(() => {
+    if (mode !== 'create' || inputMode !== 'json' || jsonText.trim().length === 0) return []
+    try {
+      return fromStandardJson(jsonText).rows.flatMap((row) => row.notes)
+    } catch {
+      return []
+    }
+  }, [mode, inputMode, jsonText])
 
   return (
     <div className={styles.section}>
@@ -222,13 +264,14 @@ export function McpServerForm(props: McpServerFormProps) {
           variant={inputMode === 'json' ? 'primary' : 'outline'}
           onClick={() => switchInputMode('json')}
         >
-          {mode === 'create' ? t('input.jsonPasteTab') : t('input.jsonEditTab')}
+          {t('input.jsonTab')}
         </Button>
       </div>
       {mode === 'create' && inputMode === 'json' ? (
         <JsonBody
           t={t}
           jsonText={jsonText}
+          notes={liveNotes}
           onText={(text) => {
             clearOutcome()
             setJsonText(text)
@@ -253,6 +296,7 @@ export function McpServerForm(props: McpServerFormProps) {
               {jsonEditError}
             </div>
           ) : null}
+          <NotesList t={t} notes={jsonNotes} />
         </div>
       ) : (
         <EditBody
@@ -286,6 +330,35 @@ export function McpServerForm(props: McpServerFormProps) {
   )
 }
 
+/** 工具清单弹窗：SearchBox 过滤 + 等宽全名列表（可选中复制）。由列表行的
+ *  工具按钮打开，不挂在展开详情里——不展开即可查看。 */
+export function ToolsDialog(props: { row: McpRow; t: McpT; onClose(): void }) {
+  const { row, t } = props
+  const [toolQuery, setToolQuery] = useState('')
+  const tools = row.live?.tools ?? []
+  const shownTools = tools.filter((name) => name.toLowerCase().includes(toolQuery.trim().toLowerCase()))
+  return (
+    <Dialog
+      title={`${t('view.tools')} · ${row.config.serverName ?? row.id}`}
+      description={t('view.toolsTotal', { count: tools.length })}
+      closeLabel={t('close')}
+      size="lg"
+      onClose={props.onClose}
+    >
+      <SearchBox label={t('view.toolsSearch')} value={toolQuery} onChange={setToolQuery} />
+      {shownTools.length > 0 ? (
+        <ul className={styles.dialogToolList}>
+          {shownTools.map((name) => (
+            <li key={name}>{name}</li>
+          ))}
+        </ul>
+      ) : (
+        <div className={styles.empty}>{t('view.toolsNoMatch')}</div>
+      )}
+    </Dialog>
+  )
+}
+
 /** 只读详情（bundle / overlay 等不可编辑来源的展开体）。 */
 export function McpServerView(props: { row: McpRow; t: McpT }) {
   const { row, t } = props
@@ -313,16 +386,6 @@ export function McpServerView(props: { row: McpRow; t: McpT }) {
           {row.live.error}
         </div>
       ) : null}
-      {row.live && row.live.tools.length > 0 ? (
-        <div className={styles.bodyField}>
-          <span className={styles.label}>{t('view.tools')}</span>
-          <ul className={styles.toolList}>
-            {row.live.tools.map((name) => (
-              <li key={name}>{name}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
       <TextAreaField
         label={t('view.effectiveConfig')}
         value={configText}
@@ -334,10 +397,23 @@ export function McpServerView(props: { row: McpRow; t: McpT }) {
   )
 }
 
+/** JSON 转换备注列表（身份保留键 / 忽略项）：弱化展示，文案可选中复制。 */
+function NotesList(props: { t: McpT; notes: PanelMessage[] }) {
+  if (props.notes.length === 0) return null
+  return (
+    <ul className={styles.notes}>
+      {props.notes.map((note, index) => (
+        <li key={index}>{messageText(note, props.t)}</li>
+      ))}
+    </ul>
+  )
+}
+
 /** 新建模式的 JSON 粘贴页：方言解析与写入都在「保存」时一次完成。 */
 function JsonBody(props: {
   t: McpT
   jsonText: string
+  notes: PanelMessage[]
   onText(text: string): void
   scope: McpScope
   onScope(scope: McpScope): void
@@ -364,6 +440,7 @@ function JsonBody(props: {
         }
         onChange={props.onText}
       />
+      <NotesList t={t} notes={props.notes} />
     </div>
   )
 }
@@ -550,8 +627,13 @@ function configOf(draft: DraftState): McpConfigDraft {
   }
 }
 
-/** config 对象 → 草稿（JSON 视图回填；scope 由调用方给定）。 */
-function draftFromConfig(config: McpConfigDraft | McpEffectiveConfig, scope: McpScope): DraftState {
+/** config 对象 → 草稿（JSON 视图回填；scope 与行级 disabled 由调用方给定）。
+ *  高级键经 extrasOf 身份抽出进草稿，编辑 JSON 视图可见可改。 */
+function draftFromConfig(
+  config: McpConfigDraft | McpEffectiveConfig,
+  scope: McpScope,
+  disabled = false,
+): DraftState {
   return {
     scope,
     transport: config.transport === 'streamable-http' ? 'streamable-http' : 'stdio',
@@ -566,18 +648,22 @@ function draftFromConfig(config: McpConfigDraft | McpEffectiveConfig, scope: Mcp
     headers: entriesText(config.headers),
     toolCallTimeoutMs: typeof config.toolCallTimeoutMs === 'number' ? String(config.toolCallTimeoutMs) : '',
     failOnStartupError: config.failOnStartupError === true,
+    disabled,
+    extras: extrasOf(config) ?? {},
   }
 }
 
 function initialDraft(props: McpServerFormProps): DraftState {
   const scope = props.mode === 'create' ? 'profile' : ((props.row?.scope as McpScope) ?? 'profile')
-  return draftFromConfig(props.row?.config ?? {}, scope)
+  return draftFromConfig(props.row?.config ?? {}, scope, props.row?.disabled ?? false)
 }
 
-/** 编辑 JSON 视图的文本：外层键即 serverName，值为其 config。 */
+/** 编辑 JSON 视图的文本：外层键即 serverName，type 承载 transport，行级
+ *  disabled 停用时显式输出，高级键（draft.extras）身份保留——与
+ *  fromStandardJson 的直接映射方言互逆，往返无损。 */
 function jsonTextOf(draft: DraftState): string {
-  const { serverName, ...rest } = configOf(draft)
-  return JSON.stringify({ [serverName]: rest }, null, 2)
+  const merged: Record<string, unknown> = { ...configOf(draft), ...draft.extras }
+  return JSON.stringify(toStandardJson(merged, draft.disabled), null, 2)
 }
 
 function validateDraft(

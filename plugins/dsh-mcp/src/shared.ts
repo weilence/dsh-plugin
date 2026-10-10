@@ -87,6 +87,12 @@ export interface SaveRequest {
    * 加载时的 schema 校验拒绝；表单模式不提交此字段。
    */
   extra?: Record<string, unknown>
+  /**
+   * 行级启停，与标准 JSON 的 disabled 键互转：true 在写入后停用该行
+   * （落官方形态的停用覆盖行），false 启用；缺省不动启停态。语义转换，
+   * 不写入 config。
+   */
+  disabled?: boolean
 }
 
 export interface SaveResponse {

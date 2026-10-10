@@ -17,6 +17,7 @@ export type McpT = TranslateNS<typeof NS>
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
   'section.label': 'MCP 管理',
+  'panel.subtitle': '管理 MCP 服务器的配置与启停：保存前自动检查连接，运行状态与工具数量实时展示。',
 
   'action.create': '新建服务器',
   'action.refresh': '刷新',
@@ -30,8 +31,8 @@ export const zh = {
     '还没有 MCP 服务器。stdio（本地命令）或 streamable-http（远程端点）都支持，点「新建服务器」开始。',
 
   'row.unnamed': '（未命名）',
-  'row.editable': '可编辑',
   'row.readOnly': '只读',
+  'row.toolsHint': '点击查看工具清单',
   'row.endpointMissing': '（缺少端点信息）',
   'row.disabled': '已停用',
   'row.pendingEffect': '待生效',
@@ -55,9 +56,8 @@ export const zh = {
   'check.unknownReason': '未知原因',
   'check.requestFailed': '连接检查请求失败：{detail}',
 
-  'input.formTab': '表单输入',
-  'input.jsonPasteTab': 'JSON 粘贴',
-  'input.jsonEditTab': 'JSON 编辑',
+  'input.formTab': '表单',
+  'input.jsonTab': 'JSON',
   'input.jsonEditLabel': '配置（外层键即 serverName，名称以当前行为准）',
   'input.jsonPasteLabel':
     '粘贴 JSON（支持 {"mcpServers": {...}} 包装、{"名称": {...}} 直接映射与单个服务器对象）',
@@ -86,6 +86,9 @@ export const zh = {
   'view.toolCount': '工具数',
   'view.livePending': '待生效（尚未挂载）',
   'view.tools': '已注册工具',
+  'view.toolsSearch': '搜索工具',
+  'view.toolsTotal': '共 {count} 个工具',
+  'view.toolsNoMatch': '没有匹配的工具',
   'view.effectiveConfig': '生效配置（JSON）',
   'view.livePendingDeps': '等待依赖',
   'view.liveConnecting': '连接中',
@@ -116,12 +119,20 @@ export const zh = {
   'import.notServerObject': '不是服务器配置对象',
   'import.notServerObjectSparse': '不是服务器配置对象（缺 command / url / type）',
   'import.deriveFailed': '无法从配置推导 serverName：请改用 {"服务器名": {...}} 包装',
+
+  'import.note.sseDeprecated': 'HTTP+SSE 传输已弃用，按 streamable-http 处理',
+  'import.note.ignoredKeys': '已忽略 {side} 专属键：{keys}',
+  'import.note.disabledConverted': 'disabled 已转换为行级停用（不写入配置）',
+  'import.note.autoNamed': '已自动命名 {name}（如需自定义名称，请用 {"服务器名": {...}} 包装）',
+  'import.note.preservedKeys': '以下键无标准对应，原样保留：{keys}',
 } as const
 
 export type McpKey = keyof typeof zh
 
 export const en: { [Key in McpKey]: string } = {
-  'section.label': 'MCP Management',
+  'section.label': 'MCP',
+  'panel.subtitle':
+    'Manage MCP servers: configure, enable or disable them; connections are checked before saving, with live status and tool counts.',
 
   'action.create': 'New server',
   'action.refresh': 'Refresh',
@@ -135,8 +146,8 @@ export const en: { [Key in McpKey]: string } = {
     'No MCP servers yet. stdio (local command) and streamable-http (remote endpoint) are both supported; click "New server" to start.',
 
   'row.unnamed': '(unnamed)',
-  'row.editable': 'Editable',
   'row.readOnly': 'Read-only',
+  'row.toolsHint': 'Click to view the tool list',
   'row.endpointMissing': '(endpoint missing)',
   'row.disabled': 'Disabled',
   'row.pendingEffect': 'Pending',
@@ -162,8 +173,7 @@ export const en: { [Key in McpKey]: string } = {
   'check.requestFailed': 'Connection check request failed: {detail}',
 
   'input.formTab': 'Form',
-  'input.jsonPasteTab': 'Paste JSON',
-  'input.jsonEditTab': 'Edit JSON',
+  'input.jsonTab': 'JSON',
   'input.jsonEditLabel': 'Configuration (the outer key is the serverName; the name follows the current row)',
   'input.jsonPasteLabel':
     'Paste JSON (supports the {"mcpServers": {...}} wrapper, a direct {"name": {...}} map, or a single server object)',
@@ -194,6 +204,9 @@ export const en: { [Key in McpKey]: string } = {
   'view.toolCount': 'Tools',
   'view.livePending': 'Pending (not mounted yet)',
   'view.tools': 'Registered tools',
+  'view.toolsSearch': 'Search tools',
+  'view.toolsTotal': '{count} tools in total',
+  'view.toolsNoMatch': 'No matching tools',
   'view.effectiveConfig': 'Effective configuration (JSON)',
   'view.livePendingDeps': 'Waiting for dependencies',
   'view.liveConnecting': 'Connecting',
@@ -227,6 +240,12 @@ export const en: { [Key in McpKey]: string } = {
   'import.notServerObjectSparse': 'Not a server configuration object (missing command / url / type)',
   'import.deriveFailed':
     'Cannot derive serverName from the configuration; wrap it as {"name": {...}} instead',
+
+  'import.note.sseDeprecated': 'HTTP+SSE transport is deprecated; treating it as streamable-http',
+  'import.note.ignoredKeys': 'Ignored {side}-only keys: {keys}',
+  'import.note.disabledConverted': '"disabled" converted to row-level disable (not stored in the config)',
+  'import.note.autoNamed': 'Auto-named {name} (to customize the name, wrap it as {"name": {...}})',
+  'import.note.preservedKeys': 'No standard equivalent; kept as-is: {keys}',
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
