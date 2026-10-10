@@ -135,6 +135,7 @@ export const zh = {
   'sync.forceHint': '勾选即强制重推',
   'sync.hideSame': '隐藏已一致条目（{count}）',
   'sync.selectAll': '全选',
+  'sync.allHidden': '全部条目均已一致且被隐藏——关闭「隐藏已一致」可查看，勾选后提交即强制重推。',
   'sync.remoteMcp': '远端：{summary}',
 
   'status.same': '已一致',
@@ -288,6 +289,8 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.forceHint': 'pick to force re-push',
   'sync.hideSame': 'Hide identical items ({count})',
   'sync.selectAll': 'Select all',
+  'sync.allHidden':
+    'Everything is already identical and hidden — turn off "Hide identical items" to view; picked items force re-push on submit.',
   'sync.remoteMcp': 'remote: {summary}',
 
   'status.same': 'identical',

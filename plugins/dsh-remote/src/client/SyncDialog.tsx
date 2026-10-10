@@ -414,11 +414,16 @@ export function SyncDialog(props: {
                   />
                 </span>
               </div>
-              <PickList
-                items={visibleRows.map((entry) => entry.view(t))}
-                picked={pickedOfKind}
-                onToggle={toggle}
-              />
+              {visibleRows.length === 0 ? (
+                // 全部条目已一致且被隐藏：给空态占位说明，不留无解释的空白
+                <p className={local.hint}>{t('sync.allHidden')}</p>
+              ) : (
+                <PickList
+                  items={visibleRows.map((entry) => entry.view(t))}
+                  picked={pickedOfKind}
+                  onToggle={toggle}
+                />
+              )}
             </>
           )}
         </div>
