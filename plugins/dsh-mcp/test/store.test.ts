@@ -5,19 +5,20 @@ import type { ListResponse, McpLiveState, McpRow } from '../src/shared'
 
 const POLL_MS = 2000
 
-const liveRow = (live: McpLiveState | null): McpRow => ({
-  id: 'mcp-demo',
-  scope: 'profile',
+const liveRow = (live: McpLiveState | null, scope: McpRow['scope'] = 'global'): McpRow => ({
+  scope,
+  name: 'demo',
   config: { serverName: 'demo', transport: 'stdio', command: 'demo' },
   disabled: false,
-  editable: true,
   live,
 })
 
-const listResponse = (servers: McpRow[], hotApply = true): ListResponse => ({
+const listResponse = (servers: McpRow[]): ListResponse => ({
   profileName: 'default',
-  patchPaths: { profile: '/tmp/profile/cordis.patch.yml', home: '/tmp/home/cordis.patch.yml' },
-  hotApply,
+  globalPath: '/tmp/home/mcp.json',
+  workspacePath: null,
+  warnings: [],
+  revisions: { global: 'rev', workspace: null },
   servers,
 })
 
@@ -57,30 +58,15 @@ describe('McpStore 过渡态轮询', () => {
     unsubscribe()
   })
 
-  it('待生效行（live 为 null）在 HMR 在场时轮询等条目出现，HMR 缺席时不轮询', async () => {
-    const list = vi
-      .spyOn(mcpApi, 'list')
-      .mockResolvedValueOnce(listResponse([liveRow(null)], true))
-      .mockResolvedValue(listResponse([liveRow({ status: 'pending', tools: [] })], true))
-
+  it('live 为 null（loader 缺席 / 未挂载）不轮询——刷新才有意义', async () => {
+    const list = vi.spyOn(mcpApi, 'list').mockResolvedValue(listResponse([liveRow(null)]))
     const store = new McpStore()
     const unsubscribe = store.subscribe(() => {})
     await store.refresh()
-    expect(list).toHaveBeenCalledTimes(1)
-
-    await vi.advanceTimersByTimeAsync(POLL_MS)
-    expect(list).toHaveBeenCalledTimes(2)
-    unsubscribe()
-
-    // HMR 缺席：文件行不会在线生效，等待没有意义。
-    const cold = vi.spyOn(mcpApi, 'list').mockResolvedValue(listResponse([liveRow(null)], false))
-    const coldStore = new McpStore()
-    const coldUnsubscribe = coldStore.subscribe(() => {})
-    await coldStore.refresh()
-    const coldCalls = cold.mock.calls.length
+    const calls = list.mock.calls.length
     await vi.advanceTimersByTimeAsync(POLL_MS * 5)
-    expect(cold).toHaveBeenCalledTimes(coldCalls)
-    coldUnsubscribe()
+    expect(list).toHaveBeenCalledTimes(calls)
+    unsubscribe()
   })
 
   it('面板关闭（无订阅者）后停止轮询，重新挂载时恢复', async () => {
@@ -100,5 +86,47 @@ describe('McpStore 过渡态轮询', () => {
     store.subscribe(() => {})
     await vi.advanceTimersByTimeAsync(POLL_MS)
     expect(list).toHaveBeenCalledTimes(callsAtClose + 1)
+  })
+
+  it('主视图 cwd 变化触发重拉并把 cwd 带进 list 请求；未变不重拉', async () => {
+    const list = vi
+      .spyOn(mcpApi, 'list')
+      .mockResolvedValue(listResponse([liveRow({ status: 'active', tools: [] }, 'workspace')]))
+
+    const store = new McpStore()
+    const unsubscribe = store.subscribe(() => {})
+    await store.refresh()
+    expect(list.mock.calls[0]).toEqual([undefined])
+
+    await store.setWorkspaceCwd('/work/a')
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(list.mock.calls[1]).toEqual(['/work/a'])
+
+    // 同值短路。
+    await store.setWorkspaceCwd('/work/a')
+    expect(list).toHaveBeenCalledTimes(2)
+    unsubscribe()
+  })
+
+  it('保存动作按档位携带快照 revision 与 cwd', async () => {
+    vi.spyOn(mcpApi, 'list').mockResolvedValue(listResponse([liveRow({ status: 'active', tools: [] })]))
+    const save = vi.spyOn(mcpApi, 'save').mockResolvedValue({ scope: 'global', name: 'demo' })
+    const store = new McpStore()
+    const unsubscribe = store.subscribe(() => {})
+    await store.refresh()
+    await store.setWorkspaceCwd('/work/a')
+    const ok = await store.save({
+      scope: 'global',
+      name: 'demo',
+      config: { transport: 'stdio', serverName: 'demo', command: 'npx' },
+    })
+    expect(ok).toBe(true)
+    expect(save.mock.calls[0]?.[0]).toMatchObject({
+      scope: 'global',
+      name: 'demo',
+      cwd: '/work/a',
+      revision: 'rev',
+    })
+    unsubscribe()
   })
 })

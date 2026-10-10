@@ -76,10 +76,12 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/cordis-plugin-loader": "catalog:",
+    "@deepseek-ai/dsh-api-session-controller": "catalog:",
     "@deepseek-ai/dsh-app-boot": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
     "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
@@ -97,7 +99,6 @@
     "react-dom": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "yaml": "^2.9.0"
+    "vitest": "catalog:"
   }
 }

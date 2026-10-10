@@ -1,8 +1,18 @@
 import type { Config, StdioConfig, StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import type { FiberStatus } from './live'
 
-/** 官方 MCP client 插件的模块名（patch 行 `name` 字段的匹配值）。 */
+/** 官方 MCP client 插件的模块名（动态挂载 Loader 行时的 `name` 字段）。 */
 export const MCP_PLUGIN_NAME = '@deepseek-ai/dsh-mcp-client'
+
+/** 本插件动态挂载的 Loader 行 id 前缀：与 patch 行的 `mcp-` 前缀区分开，
+ *  diff 时只增改删自己名下的条目，patch / 其他插件的行一律不碰。 */
+export const ENTRY_PREFIX = 'mcpx-'
+
+/** 工作区档文件：工作区根下的惯例名称（对齐 Claude Code / Cursor 的 .mcp.json）。 */
+export const WORKSPACE_FILENAME = '.mcp.json'
+
+/** 全局档文件：`~/.dsh` 下的名称，与工作区档同名对称。 */
+export const GLOBAL_FILENAME = 'mcp.json'
 
 /** host 路由路径（client api.ts 复用，端点单源）。 */
 export const LIST_PATH = '/dsh-mcp/list'
@@ -10,22 +20,20 @@ export const SAVE_PATH = '/dsh-mcp/save'
 export const CHECK_PATH = '/dsh-mcp/check'
 export const SET_ENABLED_PATH = '/dsh-mcp/set-enabled'
 export const DELETE_PATH = '/dsh-mcp/delete'
+export const CWD_PATH = '/dsh-mcp/cwd'
 
 /** 官方 mcp-client 对 serverName 的约束（保持模型侧工具名预算）。 */
 export const SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
 
-/** 面板可编辑的两层用户 patch 作用域：profile 层先应用，home 层同名 id
- *  后层覆盖前层；bundle / `--patch` 覆盖引入的行只读展示。 */
-export type McpScope = 'profile' | 'home'
-
-export type McpReadOnlySource = 'bundle' | 'overlay'
+/** 面板管理的两档：全局档（~/.dsh/mcp.json）与工作区档（<cwd>/.mcp.json）。 */
+export type McpScope = 'global' | 'workspace'
 
 export type McpTransport = Config['transport']
 
 /**
  * 一次 MCP 服务器声明的可编辑字段：官方 Config 的展平投影——除
- * transport / serverName 外全部可缺（行可能声明不完整）。编辑时未知键
- * （reconnect、maxInstructionBytes 等）从现有生效配置原样保留。
+ * transport / serverName 外全部可缺。编辑时未知键（reconnect、
+ * maxInstructionBytes 等）从现有配置原样保留。
  */
 export interface McpConfigDraft {
   transport: McpTransport
@@ -40,7 +48,7 @@ export interface McpConfigDraft {
   failOnStartupError?: StdioConfig['failOnStartupError']
 }
 
-/** 宿主侧生效配置：已知键（均可缺——行可能声明不完整）+ 保留的未知键。 */
+/** 宿主侧生效配置：已知键（均可缺）+ 身份保留的未知键。 */
 export type McpEffectiveConfig = Partial<McpConfigDraft> & Record<string, unknown>
 
 /** 运行态：来自 Loader 条目 fiber 与工具注册表的可观测事实。 */
@@ -52,52 +60,59 @@ export interface McpLiveState {
   error?: string
 }
 
-/** 面板一行：一条 MCP 服务器声明及其运行态。 */
+/** 面板一行：一份文件里的 MCP 服务器声明及其运行态。 */
 export interface McpRow {
-  /** patch 行 id（创建时固定为 mcp-<serverName>）。 */
-  id: string
-  /** editable 行的可编辑层；只读行标注 bundle / overlay 来源。 */
-  scope: McpScope | McpReadOnlySource
+  /** 所属档：全局 / 工作区。 */
+  scope: McpScope
+  /** 服务器名（.mcp.json 里的键，即 serverName）。 */
+  name: string
+  /** 映射为 mcp-client Config 形态的配置（含身份保留的未知键）。 */
   config: McpEffectiveConfig
-  /** 组合后的生效停用态。 */
+  /** 文件里的 disabled 扩展键。 */
   disabled: boolean
-  editable: boolean
-  /** 匹配到 Loader 条目时的运行态；文件行尚未生效（或无 HMR）时为 null。 */
+  /** Loader 条目的运行态；loader 服务不可用时为 null。 */
   live: McpLiveState | null
+  /** 条目不合法的原因（未挂载，只能展示或删除）。 */
+  invalid?: string
+  /** 同名被工作区档遮蔽（仅全局行；遮蔽期间不创建运行实例）。 */
+  shadowed?: boolean
 }
 
 export interface ListResponse {
   /** 当前 profile 名（host 侧 profileContext 提供）。 */
   profileName: string | null
-  /** 两层可编辑 patch 的绝对路径（提示与定位用）。 */
-  patchPaths: { profile: string; home: string }
-  /** HMR 服务在场：写入可在线生效；否则需重启。 */
-  hotApply: boolean
+  /** 全局 / 工作区文件的绝对路径（提示与定位用；cwd 未知时 workspacePath 为 null）。 */
+  globalPath: string
+  workspacePath: string | null
+  /** 同步与挂载过程中的非致命告警（loader 缺席、行 id 被占等）。 */
+  warnings: string[]
+  /** 两份文件的内容版本（乐观并发；文件不存在时为 null）。 */
+  revisions: { global: string | null; workspace: string | null }
   servers: McpRow[]
 }
 
+/** 一次保存 / 启停 / 删除请求：scope 定位文件，cwd 为工作区档定位工作目录。 */
 export interface SaveRequest {
   scope: McpScope
-  /** 编辑时的 patch 行 id；缺省为新建。 */
-  id?: string
+  /** 工作区档必带：主视图会话的工作目录。 */
+  cwd?: string
+  /** 服务器名（文件里的键）；改名 = 删除后新建，编辑时不可改。 */
+  name: string
   config: McpConfigDraft
   /**
-   * JSON 导入的未知键透传（reconnect / maxInstructionBytes 等高级键）。
-   * host 过滤掉与已知键同名的项后合并进写入配置，非法键由 Loader
-   * 加载时的 schema 校验拒绝；表单模式不提交此字段。
+   * 表单外的高级键（reconnect / maxInstructionBytes 等）。host 过滤掉与
+   * 已知键同名的项后并入写盘条目；表单模式不提交此字段。
    */
   extra?: Record<string, unknown>
-  /**
-   * 行级启停，与标准 JSON 的 disabled 键互转：true 在写入后停用该行
-   * （落官方形态的停用覆盖行），false 启用；缺省不动启停态。语义转换，
-   * 不写入 config。
-   */
+  /** 行级停用（文件里的 disabled 扩展键）；缺省不动。 */
   disabled?: boolean
+  /** 读取时的文件内容版本，冲突（409）后须刷新重试。 */
+  revision: string | null
 }
 
 export interface SaveResponse {
-  id: string
   scope: McpScope
+  name: string
 }
 
 /** 保存前的连接检查请求：对单个服务器配置做 initialize 握手探测。 */
@@ -114,15 +129,25 @@ export interface CheckResponse {
 
 export interface SetEnabledRequest {
   scope: McpScope
-  id: string
+  cwd?: string
+  name: string
   enabled: boolean
+  revision: string | null
 }
 
 export interface DeleteRequest {
   scope: McpScope
-  id: string
+  cwd?: string
+  name: string
+  revision: string | null
 }
 
-export function rowIdOf(serverName: string): string {
-  return `mcp-${serverName}`
+/** client 启动与会话切换时上报的主视图工作目录（工作区档定位事实源）。 */
+export interface CwdRequest {
+  cwd?: string
+}
+
+/** 动态挂载的 Loader 行 id（scope 内唯一，跨档不冲突）。 */
+export function entryIdOf(scope: McpScope, name: string): string {
+  return `${ENTRY_PREFIX}${scope}-${name}`
 }

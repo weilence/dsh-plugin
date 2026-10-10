@@ -1,7 +1,7 @@
 /** mcpConfig：校验归一与编辑合并（与官方 mcp-client Config schema 对齐）。 */
 
 import { describe, expect, it } from 'vitest'
-import { ConfigError, endpointOf, mergeForEdit, normalizeDraft } from '../src/mcpConfig'
+import { ConfigError, endpointOf, normalizeDraft } from '../src/mcpConfig'
 
 describe('normalizeDraft', () => {
   it('stdio：必填 command，args/env/cwd 可选并剔除空集合', () => {
@@ -64,61 +64,6 @@ describe('normalizeDraft', () => {
     expect(() =>
       normalizeDraft({ transport: 'stdio', serverName: 'a', command: 'x', failOnStartupError: 'yes' }),
     ).toThrow(ConfigError)
-  })
-})
-
-describe('mergeForEdit', () => {
-  it('insert 底座保留未知键，生效配置与草稿依次覆盖', () => {
-    expect(
-      mergeForEdit(
-        [
-          {
-            transport: 'stdio',
-            serverName: 'a',
-            command: 'old',
-            reconnect: { enabled: false },
-            maxInstructionBytes: 1024,
-          },
-          { transport: 'stdio', serverName: 'a', command: 'override' },
-        ],
-        { transport: 'stdio', serverName: 'a', command: 'new' },
-      ),
-    ).toEqual({
-      transport: 'stdio',
-      serverName: 'a',
-      command: 'new',
-      reconnect: { enabled: false },
-      maxInstructionBytes: 1024,
-    })
-  })
-
-  it('切换传输形态时丢弃另一形态的专属键', () => {
-    expect(
-      mergeForEdit(
-        [
-          {
-            transport: 'stdio',
-            serverName: 'a',
-            command: 'node',
-            args: ['x'],
-            cwd: 'c',
-            reconnect: { enabled: true },
-          },
-        ],
-        { transport: 'streamable-http', serverName: 'a', url: 'https://x/mcp' },
-      ),
-    ).toEqual({
-      transport: 'streamable-http',
-      serverName: 'a',
-      url: 'https://x/mcp',
-      reconnect: { enabled: true },
-    })
-    expect(
-      mergeForEdit(
-        [{ transport: 'streamable-http', serverName: 'a', url: 'https://x/mcp', headers: { A: 'b' } }],
-        { transport: 'stdio', serverName: 'a', command: 'node' },
-      ),
-    ).toEqual({ transport: 'stdio', serverName: 'a', command: 'node' })
   })
 })
 

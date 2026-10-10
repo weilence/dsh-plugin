@@ -1,7 +1,7 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { mcpApi } from './api'
 import type { PanelMessage } from './locales'
-import type { DeleteRequest, ListResponse, SaveRequest, SetEnabledRequest } from '../shared'
+import type { DeleteRequest, ListResponse, McpScope, SaveRequest, SetEnabledRequest } from '../shared'
 
 export interface McpState {
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -9,7 +9,9 @@ export interface McpState {
   error: PanelMessage | null
   notice: PanelMessage | null
   list: ListResponse | null
-  /** 正在写入的行 id（保存 / 启停 / 删除中）。 */
+  /** 主视图会话的工作目录（工作区档定位；undefined = 无主会话）。 */
+  workspaceCwd: string | undefined
+  /** 正在写入的行（保存 / 启停 / 删除中）。 */
   busy: string | null
 }
 
@@ -18,28 +20,37 @@ const INITIAL: McpState = {
   error: null,
   notice: null,
   list: null,
+  workspaceCwd: undefined,
   busy: null,
 }
 
-/** 写入后等待 HMR 生效的补偿刷新延迟。 */
+/** 写入后等待挂载与连接落定的补偿刷新延迟。 */
 const SETTLE_DELAYS_MS = [1200, 4000] as const
 
 /** 快照里有过渡态行时的轮询间隔：连接握手与 npx 下载都以秒计，2s 粒度足够。 */
 const TRANSIENT_POLL_MS = 2000
 
 /**
- * 过渡态 = 面板展示「连接中…」（fiber pending/loading/unloading）或
- * 「待生效」（HMR 在场但条目未挂出）。这些状态会自行变化，值得轮询；
- * HMR 缺席时的「待生效」只能靠重启，轮询没有意义。
+ * 过渡态 = 面板展示「连接中…」（fiber pending/loading/unloading）。这些状
+ * 态会自行变化，值得轮询；loader 缺席时 live 为 null 只能靠刷新，不轮询。
  */
 function hasTransientRow(state: McpState): boolean {
   const list = state.list
   if (list === null) return false
   return list.servers.some((row) => {
     if (row.disabled) return false
-    if (row.live === null) return list.hotApply
+    if (row.live === null) return false
     return row.live.status === 'pending' || row.live.status === 'loading' || row.live.status === 'unloading'
   })
+}
+
+/** 表单提交的动作事实；revision / cwd 由 store 按快照补齐。 */
+export interface SaveInput {
+  scope: McpScope
+  name: string
+  config: SaveRequest['config']
+  extra?: Record<string, unknown>
+  disabled?: boolean
 }
 
 export class McpStore {
@@ -74,6 +85,13 @@ export class McpStore {
     if (this.snapshot.notice !== null) this.set({ notice: null })
   }
 
+  /** 主视图工作目录变化（client.tsx 订阅会话列表推来）；变化才重拉。 */
+  setWorkspaceCwd(cwd: string | undefined): void {
+    if (cwd === this.snapshot.workspaceCwd) return
+    this.set({ workspaceCwd: cwd })
+    void this.refresh()
+  }
+
   // 页面打开时多个事件常常接连到来，加载进行中的触发只标记 dirty，完成后
   // 至多补拉一次。
   refresh(): Promise<void> {
@@ -102,7 +120,7 @@ export class McpStore {
     const generation = ++this.refreshGeneration
     if (this.snapshot.status === 'idle') this.set({ status: 'loading' })
     try {
-      const response = await mcpApi.list()
+      const response = await mcpApi.list(this.snapshot.workspaceCwd)
       // 卸载或过期响应：丢弃。
       if (generation !== this.refreshGeneration) return
       this.set({ status: 'ready', error: null, list: response })
@@ -129,7 +147,7 @@ export class McpStore {
     this.pollTimer = null
   }
 
-  /** 写操作成功后的刷新：立即一次，再按延迟补偿 HMR 生效窗口。 */
+  /** 写操作成功后的刷新：立即一次，再按延迟补偿挂载与连接落定的窗口。 */
   private async refreshAfterMutation(notice: PanelMessage): Promise<void> {
     this.set({ notice })
     await this.refresh()
@@ -141,19 +159,29 @@ export class McpStore {
     }
   }
 
-  /** 保存（新建 / 编辑）。失败返回 false 且错误已写入快照。 */
-  async save(request: SaveRequest): Promise<boolean> {
-    const key = request.id ?? `new:${request.config.serverName}`
-    this.set({ busy: key, error: null, notice: null })
+  /** 目标文件的内容版本（乐观并发）；列表未就绪时为 null（新建空文件场景）。 */
+  private revisionOf(scope: McpScope): string | null {
+    return this.snapshot.list?.revisions[scope] ?? null
+  }
+
+  /** 保存（新建 / 同名覆盖编辑）。失败返回 false 且错误已写入快照。 */
+  async save(input: SaveInput): Promise<boolean> {
+    this.set({ busy: input.name, error: null, notice: null })
     try {
-      const outcome = await mcpApi.save(request)
+      const request: SaveRequest = {
+        scope: input.scope,
+        cwd: this.snapshot.workspaceCwd,
+        name: input.name,
+        config: input.config,
+        extra: input.extra,
+        disabled: input.disabled,
+        revision: this.revisionOf(input.scope),
+      }
+      await mcpApi.save(request)
       await this.refreshAfterMutation(
-        request.id === undefined
-          ? {
-              key: 'notice.created',
-              params: { name: request.config.serverName, scope: outcome.scope },
-            }
-          : { key: 'notice.saved', params: { name: request.config.serverName } },
+        input.scope === 'global'
+          ? { key: 'notice.savedGlobal', params: { name: input.name } }
+          : { key: 'notice.savedWorkspace', params: { name: input.name } },
       )
       return true
     } catch (error) {
@@ -165,13 +193,17 @@ export class McpStore {
   }
 
   /** 启用 / 停用。失败返回 false 且错误已写入快照。 */
-  async setEnabled(request: SetEnabledRequest): Promise<boolean> {
-    this.set({ busy: request.id, error: null, notice: null })
+  async setEnabled(request: Omit<SetEnabledRequest, 'revision' | 'cwd'>): Promise<boolean> {
+    this.set({ busy: request.name, error: null, notice: null })
     try {
-      const outcome = await mcpApi.setEnabled(request)
+      await mcpApi.setEnabled({
+        ...request,
+        cwd: this.snapshot.workspaceCwd,
+        revision: this.revisionOf(request.scope),
+      })
       await this.refreshAfterMutation({
-        key: outcome.enabled ? 'notice.enabled' : 'notice.disabled',
-        params: { name: request.id },
+        key: request.enabled ? 'notice.enabled' : 'notice.disabled',
+        params: { name: request.name },
       })
       return true
     } catch (error) {
@@ -183,10 +215,14 @@ export class McpStore {
   }
 
   /** 删除一条声明。失败返回 false 且错误已写入快照。 */
-  async remove(request: DeleteRequest, label: string): Promise<boolean> {
-    this.set({ busy: request.id, error: null, notice: null })
+  async remove(request: Omit<DeleteRequest, 'revision' | 'cwd'>, label: string): Promise<boolean> {
+    this.set({ busy: request.name, error: null, notice: null })
     try {
-      await mcpApi.delete(request)
+      await mcpApi.delete({
+        ...request,
+        cwd: this.snapshot.workspaceCwd,
+        revision: this.revisionOf(request.scope),
+      })
       await this.refreshAfterMutation({ key: 'notice.deleted', params: { name: label } })
       return true
     } catch (error) {

@@ -6,17 +6,17 @@
 
 ## 插件
 
-| 插件                                                 | 包名                             | 功能                                                                                                                                                                                |
-| ---------------------------------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [dsh-mcp](plugins/dsh-mcp)                           | `@weilence/dsh-mcp`              | 设置页「MCP 管理」：浏览 profile / 全局两层 patch 声明的 MCP 服务器与运行态（工具清单、连接失败摘要），新建、编辑、启停、删除（YAML round-trip 保留注释，HMR 在线生效）             |
-| [dsh-models](plugins/dsh-models)                     | `@weilence/dsh-models`           | 设置页「模型」菜单（面板「模型目录」）：导入、编辑 `llm-pi-ai` Provider 与模型，支持订阅账号登录；会话输入框按当前 Provider 展示智谱剩余额度、Codex 限额窗口或 Copilot 套餐剩余额度 |
-| [dsh-notify](plugins/dsh-notify)                     | `@weilence/dsh-notify`           | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览时静默；desktop 窗口恢复接口                                                                                                    |
-| [dsh-prompts](plugins/dsh-prompts)                   | `@weilence/dsh-prompts`          | 设置页「全局提示词」：查看、创建、编辑和删除用户级 `AGENTS.md`，通过文件版本检查避免覆盖外部修改                                                                                    |
-| [dsh-remote](plugins/dsh-remote)                     | `@weilence/dsh-remote`           | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容             |
-| [dsh-sessions](plugins/dsh-sessions/README.md)       | `@weilence/dsh-sessions`         | 设置页「会话」：弹窗选择工作区和多个宿主 ZIP 导入日志、子会话及附件；搜索并恢复或永久删除当前实例的已归档会话，导出使用宿主自带功能；侧栏会话行「…」菜单可把会话迁移到其他工作区    |
-| [dsh-skills](plugins/dsh-skills)                     | `@weilence/dsh-skills`           | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级 round-trip，未知字段保留）                             |
-| [dsh-smart-permission](plugins/dsh-smart-permission) | `@weilence/dsh-smart-permission` | 白名单完全权限权限预设：白名单工具直接以完全权限执行，其余工具逐次询问；同一工具批准一次后本会话内不再询问                                                                          |
-| [dsh-zhipu-tools](plugins/dsh-zhipu-tools)           | `@weilence/dsh-zhipu-tools`      | 设置页「智谱搜索」开关：把 `web_search` 后端切为智谱（默认不替换，写用户 patch 层），另挂载智谱搜索 / 读页 MCP 工具；用量展示由 `dsh-models` 承载                                   |
+| 插件                                                 | 包名                             | 功能                                                                                                                                                                                                                     |
+| ---------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [dsh-mcp](plugins/dsh-mcp)                           | `@weilence/dsh-mcp`              | 设置页「MCP 管理」：管理全局（~/.dsh/mcp.json）与工作区（<工作区>/.mcp.json）两份文件里的 MCP 服务器，动态挂载进 mcp-client（保存即生效，无需 HMR / 重启），实时展示连接状态与工具清单，支持启停、删除与工作区档同名遮蔽 |
+| [dsh-models](plugins/dsh-models)                     | `@weilence/dsh-models`           | 设置页「模型」菜单（面板「模型目录」）：导入、编辑 `llm-pi-ai` Provider 与模型，支持订阅账号登录；会话输入框按当前 Provider 展示智谱剩余额度、Codex 限额窗口或 Copilot 套餐剩余额度                                      |
+| [dsh-notify](plugins/dsh-notify)                     | `@weilence/dsh-notify`           | 回合完成 / 提问 / 审批等待时弹系统桌面通知，前台浏览时静默；desktop 窗口恢复接口                                                                                                                                         |
+| [dsh-prompts](plugins/dsh-prompts)                   | `@weilence/dsh-prompts`          | 设置页「全局提示词」：查看、创建、编辑和删除用户级 `AGENTS.md`，通过文件版本检查避免覆盖外部修改                                                                                                                         |
+| [dsh-remote](plugins/dsh-remote)                     | `@weilence/dsh-remote`           | 设置页「远程开发」：经 SSH 别名管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容                                                  |
+| [dsh-sessions](plugins/dsh-sessions/README.md)       | `@weilence/dsh-sessions`         | 设置页「会话」：弹窗选择工作区和多个宿主 ZIP 导入日志、子会话及附件；搜索并恢复或永久删除当前实例的已归档会话，导出使用宿主自带功能；侧栏会话行「…」菜单可把会话迁移到其他工作区                                         |
+| [dsh-skills](plugins/dsh-skills)                     | `@weilence/dsh-skills`           | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级 round-trip，未知字段保留）                                                                  |
+| [dsh-smart-permission](plugins/dsh-smart-permission) | `@weilence/dsh-smart-permission` | 白名单完全权限权限预设：白名单工具直接以完全权限执行，其余工具逐次询问；同一工具批准一次后本会话内不再询问                                                                                                               |
+| [dsh-zhipu-tools](plugins/dsh-zhipu-tools)           | `@weilence/dsh-zhipu-tools`      | 设置页「智谱搜索」开关：把 `web_search` 后端切为智谱（默认不替换，写用户 patch 层），另挂载智谱搜索 / 读页 MCP 工具；用量展示由 `dsh-models` 承载                                                                        |
 
 各插件的功能、安装与配置说明见其目录内 README。
 

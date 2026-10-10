@@ -128,29 +128,6 @@ export function normalizeDraft(input: unknown): McpConfigDraft {
 }
 
 /**
- * 编辑合并：以 insert 声明为保留底座（未知键 / 高级键在此），生效配置
- * 的键覆盖其上（覆盖行的已知值才是运行事实），最后叠加草稿的已知键；
- * transport 切换时把另一形态的专属键清掉。
- */
-export function mergeForEdit(
-  existing: (Record<string, unknown> | undefined)[],
-  draft: McpConfigDraft,
-): McpEffectiveConfig {
-  const otherKeys: readonly string[] = draft.transport === 'stdio' ? HTTP_ONLY_KEYS : STDIO_ONLY_KEYS
-  const merged: Record<string, unknown> = {}
-  for (const base of existing) {
-    for (const [key, value] of Object.entries(base ?? {})) {
-      merged[key] = value
-    }
-  }
-  for (const key of otherKeys) delete merged[key]
-  for (const [key, value] of Object.entries(draft)) {
-    if (value !== undefined) merged[key] = value
-  }
-  return merged as McpEffectiveConfig
-}
-
-/**
  * DSH 行配置 → 标准 JSON 单服务器映射（编辑 JSON 视图的生成方向）：
  * 外层键即 serverName，type 承载 transport，其余键（含身份保留的高级键）
  * 1:1——与 fromStandardJson 的直接映射方言互逆，往返无损。disabled 是

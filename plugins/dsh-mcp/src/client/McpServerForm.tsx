@@ -16,7 +16,6 @@ import type {
   McpRow,
   McpScope,
   McpTransport,
-  SaveRequest,
 } from '../shared'
 import { errMsg } from '@dsh-plugins/shared'
 import { SERVER_NAME_PATTERN } from '../shared'
@@ -39,6 +38,8 @@ const styles = { ...shared, ...local }
 export interface McpServerFormProps {
   mode: 'create' | 'edit'
   row?: McpRow
+  /** 新建默认档位（跟随列表当前视图）；表单内仍可改选。 */
+  defaultScope?: McpScope
   store: McpStore
   t: McpT
   busy: boolean
@@ -90,7 +91,11 @@ export function McpServerForm(props: McpServerFormProps) {
     () =>
       new Set(
         (store.getSnapshot().list?.servers ?? [])
-          .filter((candidate) => candidate.config.serverName !== undefined && candidate.id !== row?.id)
+          .filter(
+            (candidate) =>
+              !(candidate.scope === row?.scope && candidate.name === row?.name) &&
+              candidate.config.serverName !== undefined,
+          )
           .map((candidate) => candidate.config.serverName as string),
       ),
     [store, row],
@@ -182,17 +187,22 @@ export function McpServerForm(props: McpServerFormProps) {
     if (issues.length > 0) return
     const config = configOf(draft)
     if (!(await runCheck([{ name: config.serverName, config }]))) return
-    const request: SaveRequest = {
-      scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
-      id: mode === 'edit' ? row?.id : undefined,
-      config,
-      // 高级键显式提交：JSON 视图里改过的 reconnect 等值要覆盖 host 侧的
-      // base 保留（值未变动时与 base 相同，写入无副作用）。
-      extra: Object.keys(draft.extras).length > 0 ? draft.extras : undefined,
-      // disabled 仅在 JSON 编辑改变了行级启停时提交（表单无此入口，不变动）。
-      disabled: draft.disabled !== (row?.disabled ?? false) ? draft.disabled : undefined,
+    // 名称即文件里的键：编辑时锁定（改名 = 删除后新建），新建时来自输入。
+    const name = mode === 'edit' ? (row?.name ?? draft.serverName.trim()) : draft.serverName.trim()
+    if (
+      await store.save({
+        scope: mode === 'create' ? draft.scope : (row?.scope as McpScope),
+        name,
+        config,
+        // 高级键显式提交：JSON 视图里改过的 reconnect 等值要覆盖文件里的
+        // 保留值（值未变动时与原值相同，写入无副作用）。
+        extra: Object.keys(draft.extras).length > 0 ? draft.extras : undefined,
+        // disabled 仅在 JSON 编辑改变了行级启停时提交（表单无此入口，不变动）。
+        disabled: draft.disabled !== (row?.disabled ?? false) ? draft.disabled : undefined,
+      })
+    ) {
+      props.onDone()
     }
-    if (await store.save(request)) props.onDone()
   }
 
   /** 新建 JSON 粘贴的保存：解析 → 本地预检（问题 / 重名）→ 逐台连接检查 → 整批落盘。 */
@@ -209,7 +219,7 @@ export function McpServerForm(props: McpServerFormProps) {
         result.problems
           .map((problem) =>
             t('import.problemLine', {
-              name: problem.name.length > 0 ? problem.name : t('row.unnamed'),
+              name: problem.name.length > 0 ? problem.name : '?',
               message: messageText(problem.message, t),
             }),
           )
@@ -229,9 +239,10 @@ export function McpServerForm(props: McpServerFormProps) {
     for (const row of result.rows) {
       const ok = await store.save({
         scope: draft.scope,
+        name: row.serverName,
         config: row.draft,
         extra: Object.keys(row.extras).length > 0 ? row.extras : undefined,
-        // disabled 的语义转换：创建即按输入停用（host 落停用覆盖行）。
+        // disabled 的语义转换：创建即按输入停用（写入文件的扩展键）。
         disabled: row.disabled || undefined,
       })
       if (!ok) return
@@ -339,7 +350,7 @@ export function ToolsDialog(props: { row: McpRow; t: McpT; onClose(): void }) {
   const shownTools = tools.filter((name) => name.toLowerCase().includes(toolQuery.trim().toLowerCase()))
   return (
     <Dialog
-      title={`${t('view.tools')} · ${row.config.serverName ?? row.id}`}
+      title={`${t('view.tools')} · ${row.name}`}
       description={t('view.toolsTotal', { count: tools.length })}
       closeLabel={t('close')}
       size="lg"
@@ -366,7 +377,7 @@ export function McpServerView(props: { row: McpRow; t: McpT }) {
   return (
     <div className={styles.section}>
       <div className={styles.metaGrid}>
-        <MetaItem label="serverName" value={row.config.serverName} />
+        <MetaItem label="serverName" value={row.name} />
         <MetaItem
           label={t('view.transport')}
           value={
@@ -426,8 +437,8 @@ function JsonBody(props: {
           label={t('input.scope')}
           value={props.scope}
           options={[
-            { value: 'profile', label: t('input.scopeProfile') },
-            { value: 'home', label: t('input.scopeHome') },
+            { value: 'global', label: t('input.scopeGlobal') },
+            { value: 'workspace', label: t('input.scopeWorkspace') },
           ]}
           onChange={(scope) => props.onScope(scope as McpScope)}
         />
@@ -464,8 +475,8 @@ function EditBody(props: {
             label={t('input.scope')}
             value={draft.scope}
             options={[
-              { value: 'profile', label: t('input.scopeProfile') },
-              { value: 'home', label: t('input.scopeHome') },
+              { value: 'global', label: t('input.scopeGlobal') },
+              { value: 'workspace', label: t('input.scopeWorkspace') },
             ]}
             onChange={(scope) => patch({ scope: scope as McpScope })}
           />
@@ -654,7 +665,8 @@ function draftFromConfig(
 }
 
 function initialDraft(props: McpServerFormProps): DraftState {
-  const scope = props.mode === 'create' ? 'profile' : ((props.row?.scope as McpScope) ?? 'profile')
+  const scope =
+    props.mode === 'create' ? (props.defaultScope ?? 'global') : ((props.row?.scope as McpScope) ?? 'global')
   return draftFromConfig(props.row?.config ?? {}, scope, props.row?.disabled ?? false)
 }
 

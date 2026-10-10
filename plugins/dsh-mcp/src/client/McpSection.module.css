@@ -1,8 +1,47 @@
-.tabRow {
+/* 工具行：档位下拉 + 搜索 + 动作按钮（与 dsh-skills 同一形态）。 */
+.toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+/* 复用 client-ui 的 select 样式（默认 width:100%），工具行里收回自然宽度。
+   提一级特异性（.toolbar .scopeSelect）：共享 select 规则被每个插件 bundle
+   各内联一份（同 hash），任一后加载插件的 width:100% 都会在文档序上反超单
+   类覆盖——特异性必须压过它，不能依赖 bundle 内的书写顺序。 */
+.toolbar .scopeSelect {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 200px;
+}
+
+/* flex-basis 必须归零（flex: 1）：SearchBox 基础样式的 width: 100% 在
+   basis auto 时会把搜索框顶成独占一行。 */
+.search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.toolbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scopeHint {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 同步告警（文件解析失败、挂载失败等非致命事实）：错误色但不阻断列表。 */
+.warnLine {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
 }
 
 /* 弹窗内的工具清单：高度交给弹窗滚动区，不做内部截断；全名可选中复制。 */

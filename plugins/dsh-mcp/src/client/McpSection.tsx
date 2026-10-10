@@ -1,8 +1,16 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { CardList, ConfirmDialog, ExpandableCard, Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
-import type { McpRow } from '../shared'
+import {
+  CardList,
+  ConfirmDialog,
+  ExpandableCard,
+  Panel,
+  SearchBox,
+  selectCls,
+  useWideSettingsDialog,
+} from '@dsh-plugins/client-ui'
+import type { McpRow, McpScope } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
 import { messageText, type McpT, type NS } from './locales'
 import type { McpStore } from './store'
@@ -22,6 +30,10 @@ export type McpSectionProps = PropsRuntime<'settings.section'> &
   PropsLocale<typeof NS> &
   InjectFace<McpSectionInjected>
 
+const MODE_KEY = 'dsh-mcp/scope-mode'
+
+type ScopeMode = McpScope
+
 export function McpSection(props: McpSectionProps) {
   useWideSettingsDialog()
   const { store, t } = props
@@ -31,26 +43,206 @@ export function McpSection(props: McpSectionProps) {
   }, [store, state.status])
   useEffect(() => () => store.dismissNotice(), [store])
 
+  // 档位记忆在本地存储：下次打开沿用上次的查看范围。
+  const [mode, setMode] = useState<ScopeMode>(() => {
+    try {
+      return window.localStorage.getItem(MODE_KEY) === 'workspace' ? 'workspace' : 'global'
+    } catch {
+      return 'global'
+    }
+  })
+  const changeMode = (next: ScopeMode): void => {
+    setMode(next)
+    setFilter('')
+    setCreating(false)
+    setEditingKey(undefined)
+    try {
+      window.localStorage.setItem(MODE_KEY, next)
+    } catch {
+      // 本地存储不可用时档位仅本次会话生效。
+    }
+  }
+
   const [creating, setCreating] = useState(false)
   /** 展开中的行（编辑 / 查看）；undefined = 全部收起。 */
-  const [editingId, setEditingId] = useState<string | undefined>(undefined)
+  const [editingKey, setEditingKey] = useState<string | undefined>(undefined)
   const [deleting, setDeleting] = useState<McpRow | undefined>(undefined)
   /** 工具清单弹窗的目标行；undefined = 关闭。 */
   const [toolsRow, setToolsRow] = useState<McpRow | undefined>(undefined)
+  /** 列表过滤关键字（名称 / 端点 / 错误摘要，大小写不敏感）。 */
+  const [filter, setFilter] = useState('')
+
+  // 工作区名 = 主视图工作目录的末段（选项里展示，帮助区分多个工作区）。
+  const workspaceName =
+    state.workspaceCwd === undefined ? undefined : state.workspaceCwd.split(/[\\/]/).filter(Boolean).pop()
 
   const servers = state.list?.servers ?? []
   const busy = state.busy !== null
-  const editing = editingId !== undefined ? servers.find((row) => row.id === editingId) : undefined
+  const rowKeyOf = (row: McpRow): string => `${row.scope}:${row.name}`
+  const scopeRows = useMemo(() => servers.filter((row) => row.scope === mode), [servers, mode])
+  const editing = editingKey !== undefined ? scopeRows.find((row) => rowKeyOf(row) === editingKey) : undefined
   const errorText = state.error === null ? null : messageText(state.error, t)
   const noticeText = state.notice === null ? null : messageText(state.notice, t)
 
   const collapse = (): void => {
     setCreating(false)
-    setEditingId(undefined)
+    setEditingKey(undefined)
+  }
+
+  const keyword = filter.trim().toLowerCase()
+  const visible = useMemo(
+    () =>
+      keyword.length === 0
+        ? scopeRows
+        : scopeRows.filter((row) =>
+            [row.name, endpointOf(row.config), row.live?.error ?? '']
+              .join('\n')
+              .toLowerCase()
+              .includes(keyword),
+          ),
+    [scopeRows, keyword],
+  )
+
+  const renderCard = (row: McpRow) => {
+    const key = rowKeyOf(row)
+    const expanded = editingKey === key
+    const badge = statusBadge(row, t)
+    const transport = transportOf(row.config)
+    const toolCount = row.live?.tools.length ?? 0
+    return {
+      title: row.name,
+      pills: [
+        ...(transport !== undefined ? [{ text: transport === 'stdio' ? 'stdio' : 'HTTP' }] : []),
+        {
+          text: badge.text,
+          tone:
+            badge.kind === 'on'
+              ? ('ok' as const)
+              : badge.kind === 'err'
+                ? ('err' as const)
+                : ('neutral' as const),
+          title: badge.title,
+          // 状态徽标带工具数（运行中 · N 工具）时本身即入口：点击打开清单弹窗。
+          ...(toolCount > 0
+            ? {
+                onClick: () => setToolsRow(row),
+                title: [badge.title, t('row.toolsHint')].filter(Boolean).join(' · '),
+              }
+            : {}),
+        },
+        ...(row.shadowed ? [{ text: t('row.shadowed'), title: t('row.shadowedHint') }] : []),
+        ...(row.invalid !== undefined
+          ? [{ text: t('row.invalid'), tone: 'err' as const, title: row.invalid }]
+          : []),
+      ],
+      description:
+        row.invalid !== undefined ? row.invalid : endpointOf(row.config) || t('row.endpointMissing'),
+      error: row.live?.error,
+      open: expanded,
+      onToggle: () => {
+        if (busy) return
+        setCreating(false)
+        setEditingKey(expanded ? undefined : key)
+      },
+      actions: (
+        <>
+          {/* 不合法条目无法映射成表单：只能展示原因与删除，修复走手工改文件。 */}
+          {row.invalid === undefined ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() =>
+                void store.setEnabled({ scope: row.scope, name: row.name, enabled: row.disabled })
+              }
+            >
+              {row.disabled ? t('action.enable') : t('action.disable')}
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.dangerGhost}
+            disabled={busy}
+            onClick={() => setDeleting(row)}
+          >
+            {t('delete')}
+          </Button>
+        </>
+      ),
+      children: expanded ? (
+        row.invalid === undefined &&
+        editing !== undefined &&
+        editing.scope === row.scope &&
+        editing.name === row.name ? (
+          <McpServerForm
+            mode="edit"
+            row={editing}
+            store={store}
+            t={t}
+            busy={busy}
+            error={errorText}
+            onDone={collapse}
+            onCancel={collapse}
+          />
+        ) : (
+          <McpServerView row={row} t={t} />
+        )
+      ) : null,
+    }
   }
 
   return (
     <Panel title={t('section.label')} subtitle={t('panel.subtitle')}>
+      {/* 工具行：档位下拉 + 搜索过滤 + 动作按钮，其下紧接列表。 */}
+      <div className={styles.toolbar}>
+        {/* 裸 select：可访问名经 aria-label，省掉堆叠标签的高度。 */}
+        <select
+          className={`${selectCls} ${styles.scopeSelect}`}
+          aria-label={t('scope.label')}
+          value={mode}
+          onChange={(event) => changeMode(event.target.value as ScopeMode)}
+        >
+          <option value="global">{t('list.global')}</option>
+          <option value="workspace" disabled={state.list?.workspacePath == null}>
+            {workspaceName === undefined
+              ? t('list.workspace')
+              : t('list.workspaceNamed', { name: workspaceName })}
+          </option>
+        </select>
+        {state.status === 'ready' ? (
+          <SearchBox
+            className={styles.search}
+            label={t('search.placeholder')}
+            value={filter}
+            onChange={setFilter}
+          />
+        ) : null}
+        <div className={styles.toolbarActions}>
+          <Button
+            variant="primary"
+            disabled={state.status !== 'ready'}
+            onClick={() => {
+              setEditingKey(undefined)
+              setCreating(!creating)
+            }}
+          >
+            {t('action.create')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={state.status === 'loading'}
+            onClick={() => void store.refresh()}
+          >
+            {t('action.refresh')}
+          </Button>
+        </div>
+      </div>
+      {/* 工作区档选着了却定位不到（本地记忆的档位、cwd 还没上报）时给原因。 */}
+      {mode === 'workspace' && state.list?.workspacePath == null ? (
+        <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
+      ) : null}
+
       {errorText ? (
         <div className={styles.error} role="alert">
           {errorText}
@@ -59,28 +251,18 @@ export function McpSection(props: McpSectionProps) {
       {noticeText !== null ? (
         <Toast key={noticeText} text={noticeText} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
-      <div className={styles.listToolbar}>
-        <Button
-          variant="primary"
-          disabled={state.status !== 'ready'}
-          onClick={() => {
-            setEditingId(undefined)
-            setCreating(!creating)
-          }}
-        >
-          {t('action.create')}
-        </Button>
-        <Button variant="outline" disabled={state.status === 'loading'} onClick={() => void store.refresh()}>
-          {t('action.refresh')}
-        </Button>
-      </div>
+      {state.list?.warnings.map((warning) => (
+        <div key={warning} className={styles.warnLine}>
+          {warning}
+        </div>
+      ))}
       {state.status === 'loading' ? <div className={styles.loading}>{t('list.loading')}</div> : null}
 
+      {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}
       <CardList
-        items={servers}
-        getKey={(row) => `${row.scope}:${row.id}`}
+        items={visible}
+        getKey={rowKeyOf}
         before={
-          // 新建卡片在列表顶部：触发按钮就在上方，长列表也不会把表单推到视口外。
           creating ? (
             <ExpandableCard
               title={t('action.create')}
@@ -91,6 +273,7 @@ export function McpSection(props: McpSectionProps) {
             >
               <McpServerForm
                 mode="create"
+                defaultScope={mode}
                 store={store}
                 t={t}
                 busy={busy}
@@ -102,93 +285,26 @@ export function McpSection(props: McpSectionProps) {
           ) : null
         }
         empty={
-          state.status === 'ready' && !creating ? <div className={styles.empty}>{t('list.empty')}</div> : null
+          state.status === 'ready' ? (
+            <div className={styles.empty}>
+              {keyword.length > 0
+                ? t('list.emptyFiltered', { keyword: filter.trim() })
+                : t('list.emptyScope')}
+            </div>
+          ) : null
         }
-        renderCard={(row) => {
-          const editable = row.editable && (row.scope === 'profile' || row.scope === 'home')
-          const badge = statusBadge(row, t)
-          const expanded = editingId === row.id
-          const transport = transportOf(row.config)
-          const toolCount = row.live?.tools.length ?? 0
-          return {
-            title: row.config.serverName ?? t('row.unnamed'),
-            pills: [
-              ...(transport !== undefined ? [{ text: transport === 'stdio' ? 'stdio' : 'HTTP' }] : []),
-              // 只读来源标注保留：解释为什么没有启停 / 删除动作；可编辑行
-              // 不再重复标注（操作按钮本身就是可编辑的事实）。
-              ...(editable ? [] : [{ text: t('row.readOnly'), tone: 'warn' as const }]),
-              {
-                text: badge.text,
-                tone: badge.kind === 'on' ? 'ok' : badge.kind === 'err' ? 'err' : 'neutral',
-                title: badge.title,
-                // 状态徽标带工具数（运行中 · N 工具）时本身即入口：点击打开清单弹窗。
-                ...(toolCount > 0
-                  ? {
-                      onClick: () => setToolsRow(row),
-                      title: [badge.title, t('row.toolsHint')].filter(Boolean).join(' · '),
-                    }
-                  : {}),
-              },
-            ],
-            description: endpointOf(row.config) || t('row.endpointMissing'),
-            error: row.live?.error,
-            open: expanded,
-            onToggle: () => {
-              if (busy) return
-              setCreating(false)
-              setEditingId(expanded ? undefined : row.id)
-            },
-            actions: editable ? (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busy}
-                  onClick={() =>
-                    void store.setEnabled({
-                      scope: row.scope as 'profile' | 'home',
-                      id: row.id,
-                      enabled: row.disabled,
-                    })
-                  }
-                >
-                  {row.disabled ? t('action.enable') : t('action.disable')}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={styles.dangerGhost}
-                  disabled={busy}
-                  onClick={() => setDeleting(row)}
-                >
-                  {t('delete')}
-                </Button>
-              </>
-            ) : null,
-            children: expanded ? (
-              editable && editing !== undefined ? (
-                <McpServerForm
-                  mode="edit"
-                  row={editing}
-                  store={store}
-                  t={t}
-                  busy={busy}
-                  error={errorText}
-                  onDone={collapse}
-                  onCancel={collapse}
-                />
-              ) : (
-                <McpServerView row={row} t={t} />
-              )
-            ) : null,
-          }
-        }}
+        renderCard={renderCard}
       />
 
       {deleting !== undefined ? (
         <ConfirmDialog
-          title={t('delete.title', { name: deleting.config.serverName ?? deleting.id })}
-          body={t('delete.body', { id: deleting.id })}
+          title={t('delete.title', { name: deleting.name })}
+          body={t('delete.body', {
+            file:
+              deleting.scope === 'global'
+                ? (state.list?.globalPath ?? '')
+                : (state.list?.workspacePath ?? ''),
+          })}
           confirmLabel={t('delete')}
           cancelLabel={t('cancel')}
           closeLabel={t('close')}
@@ -197,11 +313,8 @@ export function McpSection(props: McpSectionProps) {
           onConfirm={() => {
             const target = deleting
             setDeleting(undefined)
-            if (editingId === target.id) setEditingId(undefined)
-            void store.remove(
-              { scope: target.scope as 'profile' | 'home', id: target.id },
-              target.config.serverName ?? target.id,
-            )
+            if (editingKey === rowKeyOf(target)) setEditingKey(undefined)
+            void store.remove({ scope: target.scope, name: target.name }, target.name)
           }}
         />
       ) : null}
@@ -216,8 +329,10 @@ function statusBadge(
   row: McpRow,
   t: McpT,
 ): { text: string; kind: 'on' | 'off' | 'err' | 'warn'; title?: string } {
+  if (row.invalid !== undefined) return { text: t('row.absent'), kind: 'off' }
   if (row.disabled) return { text: t('row.disabled'), kind: 'off' }
-  if (row.live === null) return { text: t('row.pendingEffect'), kind: 'off' }
+  if (row.shadowed) return { text: t('row.shadowed'), kind: 'off' }
+  if (row.live === null) return { text: t('row.absent'), kind: 'off' }
   switch (row.live.status) {
     case 'active':
       return { text: t('row.activeTools', { count: row.live.tools.length }), kind: 'on' }
