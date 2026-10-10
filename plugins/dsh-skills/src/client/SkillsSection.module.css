@@ -1,27 +1,37 @@
-/* 管理范围条：下拉 + 当前工作区路径 / 回退提示。 */
-.scopeBar {
+/* 工具行：管理范围下拉 + 搜索过滤 + 动作按钮一行排布，列表紧随其下。 */
+.toolbar {
   display: flex;
-  align-items: flex-end;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.scopeField {
+/* 复用 client-ui 的 select 样式（默认 width:100%），工具行里收回自然宽度。
+   提一级特异性（.toolbar .scopeSelect）：共享 select 规则被每个插件 bundle
+   各内联一份（p-w1Wa 同 hash），任一后加载插件的 width:100% 都会在文档序
+   上反超单类覆盖——特异性必须压过它，不能依赖 bundle 内的书写顺序。 */
+.toolbar .scopeSelect {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 160px;
+}
+
+/* flex-basis 必须归零（flex: 1）：SearchBox 基础样式的 width: 100% 在
+   basis auto 时会把搜索框顶成独占一行。 */
+.search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.toolbarActions {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 240px;
-  max-width: 320px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .scopeHint {
   font-size: 11px;
   line-height: 17px;
   color: var(--dsw-alias-label-tertiary);
-  padding-bottom: 9px;
-}
-
-/* 列表上方的搜索过滤框：占满一整行。 */
-.searchRow {
-  display: flex;
 }

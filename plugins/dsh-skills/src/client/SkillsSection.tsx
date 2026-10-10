@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
   Panel,
-  SelectField,
+  SearchBox,
+  selectCls,
   useWideSettingsDialog,
-  fieldInputCls,
 } from '@dsh-plugins/client-ui'
 import type { SkillRow } from '../shared'
 import { sourceOrder } from '../shared'
@@ -187,23 +187,63 @@ export function SkillsSection(props: SkillsSectionProps) {
   const busy = state.busy !== null || state.loadingFile !== null
 
   return (
-    <Panel title={t('panel.title')}>
-      <div className={styles.scopeBar}>
-        <div className={styles.scopeField}>
-          <SelectField
-            label={t('scope.label')}
-            value={mode}
-            options={[
-              { value: 'user', label: t('scope.user') },
-              { value: 'workspace', label: t('scope.workspace'), disabled: workspaceCwd === undefined },
-            ]}
-            onChange={(value) => changeMode(value as ScopeMode)}
+    <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
+      {/* 工具行：管理范围下拉 + 搜索过滤 + 动作按钮，其下紧接列表。 */}
+      <div className={styles.toolbar}>
+        {/* 裸 select：可访问名经 aria-label，省掉堆叠标签的高度。 */}
+        <select
+          className={`${selectCls} ${styles.scopeSelect}`}
+          aria-label={t('scope.label')}
+          value={mode}
+          onChange={(event) => changeMode(event.target.value as ScopeMode)}
+        >
+          <option value="user">{t('scope.user')}</option>
+          <option value="workspace" disabled={workspaceCwd === undefined}>
+            {t('scope.workspace')}
+          </option>
+        </select>
+        {state.status === 'ready' ? (
+          <SearchBox
+            className={styles.search}
+            label={t('search.placeholder')}
+            value={filter}
+            onChange={setFilter}
           />
-        </div>
-        {mode === 'workspace' && workspaceCwd === undefined ? (
-          <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
         ) : null}
+        <div className={styles.toolbarActions}>
+          <Button
+            variant="primary"
+            disabled={state.status !== 'ready'}
+            onClick={() => {
+              setOpenKey(undefined)
+              setCreating(!creating)
+            }}
+          >
+            {t('action.create')}
+          </Button>
+          <Button variant="outline" disabled={state.status !== 'ready'} onClick={() => setInstalling(true)}>
+            {t('action.installGit')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={!hasGitSkills || gitWorking}
+            title={hasGitSkills ? undefined : t('action.checkUpdatesDisabled')}
+            onClick={() => void store.checkUpdates()}
+          >
+            {state.gitBusy === 'check' ? t('action.checking') : t('action.checkUpdates')}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={state.status === 'loading' || gitWorking}
+            onClick={() => void store.refresh()}
+          >
+            {t('action.refresh')}
+          </Button>
+        </div>
       </div>
+      {mode === 'workspace' && workspaceCwd === undefined ? (
+        <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
+      ) : null}
 
       {state.error ? (
         <div className={styles.error} role="alert">
@@ -213,50 +253,7 @@ export function SkillsSection(props: SkillsSectionProps) {
       {state.notice !== null ? (
         <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
       ) : null}
-      <div className={styles.listToolbar}>
-        <Button
-          variant="primary"
-          disabled={state.status !== 'ready'}
-          onClick={() => {
-            setOpenKey(undefined)
-            setCreating(!creating)
-          }}
-        >
-          {t('action.create')}
-        </Button>
-        <Button variant="outline" disabled={state.status !== 'ready'} onClick={() => setInstalling(true)}>
-          {t('action.installGit')}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={!hasGitSkills || gitWorking}
-          title={hasGitSkills ? undefined : t('action.checkUpdatesDisabled')}
-          onClick={() => void store.checkUpdates()}
-        >
-          {state.gitBusy === 'check' ? t('action.checking') : t('action.checkUpdates')}
-        </Button>
-        <Button
-          variant="outline"
-          disabled={state.status === 'loading' || gitWorking}
-          onClick={() => void store.refresh()}
-        >
-          {t('action.refresh')}
-        </Button>
-      </div>
       {state.status === 'loading' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
-
-      {state.status === 'ready' ? (
-        <div className={styles.searchRow}>
-          <Input
-            className={fieldInputCls(false)}
-            type="text"
-            value={filter}
-            placeholder={t('search.placeholder')}
-            autoComplete="off"
-            onChange={(event) => setFilter(event.target.value)}
-          />
-        </div>
-      ) : null}
 
       {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}
       <CardList

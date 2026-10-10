@@ -13,6 +13,7 @@ export type SkillsT = TranslateNS<typeof NS>
 export const zh = {
   'section.label': 'Skills 管理',
   'panel.title': 'Skills 管理',
+  'panel.subtitle': '管理标准技能根目录下的 Skills：新建、编辑与删除，支持从 Git 仓库安装和更新。',
 
   'scope.label': '管理范围',
   'scope.user': '全局',
@@ -147,6 +148,8 @@ export type SkillsKey = keyof typeof zh
 export const en: { [Key in SkillsKey]: string } = {
   'section.label': 'Skills',
   'panel.title': 'Skills',
+  'panel.subtitle':
+    'Manage skills in the standard skill roots: create, edit and delete, with installation and updates from Git repositories.',
 
   'scope.label': 'Scope',
   'scope.user': 'Global',
