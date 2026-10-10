@@ -19,6 +19,7 @@ export const zh = {
   'section.label': '远程开发',
 
   'panel.title': '远程开发',
+  'panel.subtitle': '连接远端机器上的完整 DSH 实例，并把技能、MCP、插件与系统提示词同步过去。',
   'panel.create': '新建连接',
   'panel.refresh': '刷新',
   'panel.loading': '正在读取连接库…',
@@ -164,9 +165,11 @@ export const zh = {
 export type RemoteKey = keyof typeof zh
 
 export const en: { [Key in RemoteKey]: string } = {
-  'section.label': 'Remote development',
+  'section.label': 'Remote',
 
   'panel.title': 'Remote development',
+  'panel.subtitle':
+    'Connect to a full DSH instance on a remote machine, and sync skills, MCP servers, plugins and the system prompt to it.',
   'panel.create': 'New connection',
   'panel.refresh': 'Refresh',
   'panel.loading': 'Reading the connection library…',

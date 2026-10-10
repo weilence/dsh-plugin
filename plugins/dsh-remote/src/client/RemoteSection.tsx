@@ -168,7 +168,7 @@ export function RemoteSection(props: RemoteSectionProps) {
     failedDetail === null ? undefined : connections.find((row) => row.id === failedDetail.id)
 
   return (
-    <Panel title={t('panel.title')}>
+    <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
       {env !== undefined && !env.ssh ? (
         <div className={styles.error} role="alert">
           {t('env.noSsh')}
