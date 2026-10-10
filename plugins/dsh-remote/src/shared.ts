@@ -153,7 +153,7 @@ export function skillStatus(local: string | null, remote: RemoteSkillFact | unde
   return local === remote.digest ? 'same' : 'diff'
 }
 
-/** 全局提示词（AGENTS.md）的远端事实；null = 读取失败（无法比对，同步侧保守推送）。 */
+/** 系统提示词（system-prompt.md）的远端事实；null = 读取失败（无法比对，同步侧保守推送）。 */
 export interface RemotePromptFact {
   exists: boolean
   /** 存在时的内容摘要；读不到（权限等）为 null。 */
@@ -231,7 +231,7 @@ export interface LocalPluginRow {
   version: string | null
 }
 
-/** 本机全局提示词行（用户级 AGENTS.md——dsh-prompts 插件管理的同一文件）。 */
+/** 本机系统提示词行（system-prompt.md——dsh-prompts 插件管理的同一文件）。 */
 export interface LocalPromptRow {
   /** 本机文件绝对路径。 */
   path: string
@@ -259,7 +259,7 @@ export interface RemoteInventoryResponse {
   mcp: RemoteMcpFact[] | null
   /** 远端 bundles 激活清单及各自已装版本。 */
   plugins: RemotePluginFact[] | null
-  /** 远端全局提示词（AGENTS.md）事实；null = 读取失败。 */
+  /** 远端系统提示词（system-prompt.md）事实；null = 读取失败。 */
   prompts: RemotePromptFact | null
 }
 
@@ -289,12 +289,12 @@ export interface OpRequest {
 
 export type SyncKind = 'skills' | 'mcp' | 'plugins' | 'prompts'
 
-/** POST /sync：勾选清单随请求直传（勾选 = 安装/覆盖，指纹一致项跳过；
+/** POST /sync：勾选清单随请求直传（提交即执行——勾选项全量安装/覆盖；
  *  未勾选 = 不动——同步只往远端新增/覆盖，永不删除远端内容）。 */
 export interface SyncRequest {
   id: string
   kind: SyncKind
-  /** 勾选项（skills 技能名 / MCP serverName / 插件包名 / prompts 恒为 AGENTS.md）。 */
+  /** 勾选项（skills 技能名 / MCP serverName / 插件包名 / prompts 恒为 system-prompt.md）。 */
   names: string[]
   /** 非本地插件安装方式（仅 plugins 类别；缺省 'remote'）。 */
   registryPluginInstall?: RegistryPluginInstall

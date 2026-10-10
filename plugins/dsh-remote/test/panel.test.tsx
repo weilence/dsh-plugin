@@ -159,7 +159,7 @@ function localRowsFixture(): LocalRowsResponse {
     skillRows: [],
     mcpRows: [],
     pluginRows: [],
-    promptRow: { path: '/home/AGENTS.md', digest: null },
+    promptRow: { path: '/home/system-prompt.md', digest: null },
   }
 }
 

@@ -15,12 +15,12 @@ import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } fr
 import { errMsg } from '@dsh-plugins/shared'
 import {
   composeLocalRows,
-  globalPromptFile,
   profileContextOf,
   readLocalLayers,
-  scanGlobalPrompt,
   scanSkillRows,
+  scanSystemPrompt,
   skillsRoots,
+  systemPromptFile,
 } from './localenv'
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
@@ -230,7 +230,7 @@ function makeEngine(ctx: Context): RemoteEngine {
     pushTar: tarOverSsh,
     pushFile,
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
-    // 技能行带内容摘要：引擎的「一致即跳过推送」判定源
+    // 技能行带内容摘要：同步弹窗的「一致」判定源
     scanSkills: async () => {
       const roots = []
       for (const root of skillsRoots()) {
@@ -242,10 +242,10 @@ function makeEngine(ctx: Context): RemoteEngine {
       }
       return roots
     },
-    readGlobalPrompt: async () => {
+    readSystemPrompt: async () => {
       const home = profileContextOf(ctx)?.home ?? dshHomePath()
       try {
-        return await readFile(globalPromptFile(home), 'utf8')
+        return await readFile(systemPromptFile(home), 'utf8')
       } catch {
         return null
       }
@@ -363,14 +363,14 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
                 skillRows: [],
                 mcpRows: [],
                 pluginRows: [],
-                promptRow: { path: globalPromptFile(dshHomePath()), digest: null },
+                promptRow: { path: systemPromptFile(dshHomePath()), digest: null },
                 available: false,
               }
               writeJson(res, 200, response as unknown as Record<string, unknown>)
               return
             }
             const { mcpRows, pluginRows } = await composeLocalRows(await readLocalLayers(profile))
-            // skills 根与全局提示词是 DSH 用户级全局（非 profile 内），清单与 profile 无关
+            // skills 根与系统提示词是 DSH 用户级全局（非 profile 内），清单与 profile 无关
             const skillRows: LocalSkillRow[] = []
             for (const root of skillsRoots()) skillRows.push(...(await scanSkillRows(root)))
             skillRows.sort((left, right) => left.name.localeCompare(right.name))
@@ -378,7 +378,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
               skillRows,
               mcpRows,
               pluginRows,
-              promptRow: await scanGlobalPrompt(profile.home),
+              promptRow: await scanSystemPrompt(profile.home),
               available: true,
             }
             writeJson(res, 200, response as unknown as Record<string, unknown>)

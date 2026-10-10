@@ -63,14 +63,14 @@ interface FakeOptions {
   layerDir?: string
   /** 层 package.json 的 dependencies（install 形态判定依据）。 */
   profileDeps?: Record<string, string>
-  /** 技能扫描结果（name + 内容摘要；引擎「一致即跳过」的判定输入）。 */
+  /** 技能扫描结果（name + 内容摘要；同步弹窗「一致」判定的输入）。 */
   skills?: {
     key: 'user-dsh' | 'user-agents'
     path: string
     rows: { name: string; digest: string | null }[]
   }[]
-  /** 本机全局提示词（AGENTS.md）内容；缺省 null（本机没有该文件）。 */
-  globalPrompt?: string | null
+  /** 本机系统提示词（system-prompt.md）内容；缺省 null（本机没有该文件）。 */
+  systemPrompt?: string | null
   tar?: boolean
   /** 本机 dsh 版本（部署对齐目标）；缺省 0.1.7-rc.2。 */
   localDshVersion?: string | null
@@ -149,7 +149,7 @@ function makeDeps(options: FakeOptions = {}) {
       return layers
     },
     scanSkills: async () => options.skills ?? [],
-    readGlobalPrompt: async () => options.globalPrompt ?? null,
+    readSystemPrompt: async () => options.systemPrompt ?? null,
     localDshVersion: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
     localPluginVersion: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
     async packPlugin() {
@@ -506,7 +506,7 @@ describe('RemoteEngine', () => {
         if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
-      globalPrompt: null,
+      systemPrompt: null,
     })
     await engine.save(saveRequest())
     engine.startConnect('dev-box')
@@ -514,12 +514,12 @@ describe('RemoteEngine', () => {
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
 
-    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    engine.startSync('dev-box', 'prompts', ['system-prompt.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(engine.stateOf('dev-box')).toMatchObject({
       phase: 'running',
       running: { localPort: 19999 },
-      error: { message: expect.stringContaining('本机没有全局提示词') },
+      error: { message: expect.stringContaining('本机没有系统提示词') },
     })
     expect(fake.forwardCount()).toBe(0)
   })
@@ -1226,13 +1226,15 @@ describe('RemoteEngine', () => {
 
   it('sync prompts：远端缺文件推送（tmp+mv）、已一致勾选强制重推、未勾选零动作', async () => {
     const content = '# 全局指令\n- 要点\n'
-    makeEngine({ globalPrompt: content })
+    makeEngine({ systemPrompt: content })
     await engine.save(saveRequest())
 
     // 推送（原子写：cat > tmp && mv）
-    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    engine.startSync('dev-box', 'prompts', ['system-prompt.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    const write = fake.calls.find((call) => call.command.includes('cat > ~/.dsh/AGENTS.md.tmp-dsh-remote'))
+    const write = fake.calls.find((call) =>
+      call.command.includes('cat > ~/.dsh/system-prompt.md.tmp-dsh-remote'),
+    )
     expect(write).toBeDefined()
     expect(write?.stdin).toBe(content)
     expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true })
@@ -1240,9 +1242,9 @@ describe('RemoteEngine', () => {
 
     // 已一致但勾选提交 = 强制重推：仍写盘
     fake.calls.length = 0
-    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    engine.startSync('dev-box', 'prompts', ['system-prompt.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/AGENTS.md'))).toBe(true)
+    expect(fake.calls.some((call) => call.command.includes('cat > ~/.dsh/system-prompt.md'))).toBe(true)
     expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: true })
 
     // 未勾选 = 不动：远端零接触
@@ -1253,13 +1255,13 @@ describe('RemoteEngine', () => {
     expect(engine.stateOf('dev-box').lastSync.prompts).toMatchObject({ pushed: false })
   })
 
-  it('sync prompts：本机没有 AGENTS.md → 显式失败', async () => {
-    makeEngine({ globalPrompt: null })
+  it('sync prompts：本机没有 system-prompt.md → 显式失败', async () => {
+    makeEngine({ systemPrompt: null })
     await engine.save(saveRequest())
-    engine.startSync('dev-box', 'prompts', ['AGENTS.md'])
+    engine.startSync('dev-box', 'prompts', ['system-prompt.md'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
     expect(engine.stateOf('dev-box').phase).toBe('error')
-    expect(engine.stateOf('dev-box').error?.message).toContain('本机没有全局提示词')
+    expect(engine.stateOf('dev-box').error?.message).toContain('本机没有系统提示词')
   })
 
   it('remoteInventory：四类远端事实（skills 摘要 / MCP 签名 / 插件 bundles+版本 / 提示词摘要）', async () => {
@@ -1277,8 +1279,8 @@ describe('RemoteEngine', () => {
             stderr: '',
           }
         }
-        if (command.startsWith('f=~/.dsh/AGENTS.md')) {
-          return { code: 0, stdout: `${hex('d')}  /home/u/.dsh/AGENTS.md\n`, stderr: '' }
+        if (command.startsWith('f=~/.dsh/system-prompt.md')) {
+          return { code: 0, stdout: `${hex('d')}  /home/u/.dsh/system-prompt.md\n`, stderr: '' }
         }
         return undefined
       },

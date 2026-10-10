@@ -107,8 +107,8 @@ export interface EngineDeps {
   scanSkills(): Promise<
     { key: 'user-dsh' | 'user-agents'; path: string; rows: { name: string; digest: string | null }[] }[]
   >
-  /** 本机全局提示词（AGENTS.md）原文；文件不存在为 null。 */
-  readGlobalPrompt(): Promise<string | null>
+  /** 本机系统提示词（system-prompt.md）原文；文件不存在为 null。 */
+  readSystemPrompt(): Promise<string | null>
   /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 连接部署段直接失败（禁止回退安装 latest）。 */
   localDshVersion: string | null
   /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
@@ -819,11 +819,11 @@ export class RemoteEngine {
     return bundles.map((name) => ({ name, version: facts.get(name) ?? null }))
   }
 
-  /** 远端全局提示词事实：单文件 sha256（sha256sum / shasum 择一，文件缺失打
+  /** 远端系统提示词事实：单文件 sha256（sha256sum / shasum 择一，文件缺失打
    *  __ABSENT__ 哨兵、hasher 缺失打 __NO_HASHER__）。命令失败回 null——按
    *  「无法比对」处理，同步侧保守推送。仅需 ssh 可达（同 skills / MCP）。 */
   private async remotePromptFact(alias: string): Promise<RemotePromptFact | null> {
-    const file = '~/.dsh/AGENTS.md'
+    const file = '~/.dsh/system-prompt.md'
     const out = await this.deps.exec(
       alias,
       `f=${file}; if [ ! -f "$f" ]; then echo __ABSENT__; elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$f"; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$f"; else echo __NO_HASHER__; fi`,
@@ -872,7 +872,7 @@ export class RemoteEngine {
     return { skills, mcp, plugins, prompts }
   }
 
-  /** 触发同步：names 为勾选项（勾选 = 安装/覆盖，指纹一致项引擎侧跳过；
+  /** 触发同步：names 为勾选项（提交即执行——勾选项全量安装/覆盖；
    *  未勾选 = 不动——同步只往远端新增/覆盖，永不删除远端内容）。 */
   startSync(
     id: string,
@@ -1039,19 +1039,19 @@ export class RemoteEngine {
     runtime.lastSync.plugins = { at: this.deps.now(), installed }
   }
 
-  /** 提示词同步：提交即推送（tmp+mv 原子落盘远端 AGENTS.md）；未勾选不动。
-   *  远端实例在下一次尚未开始的模型步骤读取新内容。 */
+  /** 提示词同步：提交即推送（tmp+mv 原子落盘远端 system-prompt.md）；未勾选不动。
+   *  远端实例在下一次尚未开始的模型步骤读取新内容（远端装了 dsh-prompts 时生效）。 */
   private async doPromptSync(id: string, selected: ReadonlySet<string>): Promise<void> {
     const runtime = this.runtimeOf(id)
     const connection = this.connectionOf(id)
-    const content = await this.deps.readGlobalPrompt()
+    const content = await this.deps.readSystemPrompt()
     if (content === null) {
-      throw new SshFailure('unknown', '本机没有全局提示词文件（AGENTS.md），无可同步')
+      throw new SshFailure('unknown', '本机没有系统提示词文件（system-prompt.md），无可同步')
     }
     let pushed = false
     if (selected.size > 0) {
-      const target = '~/.dsh/AGENTS.md'
-      this.step(id, 'push', 'AGENTS.md')
+      const target = '~/.dsh/system-prompt.md'
+      this.step(id, 'push', 'system-prompt.md')
       const write = await this.deps.exec(
         connection.sshAlias,
         `mkdir -p ~/.dsh && cat > ${target}.tmp-dsh-remote && mv ${target}.tmp-dsh-remote ${target}`,

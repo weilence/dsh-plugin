@@ -71,7 +71,7 @@ interface DraftState {
   skillNames: Set<string>
   mcpServerNames: Set<string>
   pluginNames: Set<string>
-  /** 提示词是单文件：集合只含 AGENTS.md 一个键。 */
+  /** 提示词是单文件：集合只含 system-prompt.md 一个键。 */
   promptNames: Set<string>
   registryPluginInstall: RegistryPluginInstall
 }
@@ -109,16 +109,16 @@ export function rowsOf(
 ): SyncRow[] {
   if (kind === 'prompts') {
     const prompt = localRows.promptRow
-    // 本机没有 AGENTS.md：空列表，弹窗空态说明（无可同步不进引擎）
+    // 本机没有 system-prompt.md：空列表，弹窗空态说明（无可同步不进引擎）
     if (prompt.digest === null) return []
     const status = promptStatus(prompt.digest, inventory?.prompts ?? null)
     return [
       {
-        key: 'AGENTS.md',
+        key: 'system-prompt.md',
         status,
         view: (t) => ({
-          key: 'AGENTS.md',
-          title: 'AGENTS.md',
+          key: 'system-prompt.md',
+          title: 'system-prompt.md',
           ...(status === 'same' ? { tag: t('status.same') } : { titleMeta: statusLabel(kind, status, t) }),
           lines: [prompt.path],
         }),

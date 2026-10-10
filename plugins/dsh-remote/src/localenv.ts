@@ -32,16 +32,16 @@ export function skillsRoots(env: Record<string, string | undefined> = process.en
   ]
 }
 
-/** 用户级全局提示词文件（AGENTS.md）——dsh-prompts 插件管理的同一文件。
- *  home 取 profileContext.home（$DSH_HOME）；dsh-agent-instructions 单独覆写
- *  dshHome 时无法读到（宿主无公开接口），与 dsh-prompts 同一限制。 */
-export function globalPromptFile(home: string): string {
-  return join(home, 'AGENTS.md')
+/** 用户系统提示词文件（system-prompt.md）——dsh-prompts 插件管理的同一文件。
+ *  home 取 profileContext.home（$DSH_HOME）；dsh-prompts 配置单独覆写 dshHome
+ *  时无法读到（插件配置宿主不公开），同一限制。 */
+export function systemPromptFile(home: string): string {
+  return join(home, 'system-prompt.md')
 }
 
-/** 扫描本机全局提示词行（弹窗展示与判等用）；文件不存在 digest 为 null。 */
-export async function scanGlobalPrompt(home: string): Promise<LocalPromptRow> {
-  const path = globalPromptFile(home)
+/** 扫描本机系统提示词行（弹窗展示与判等用）；文件不存在 digest 为 null。 */
+export async function scanSystemPrompt(home: string): Promise<LocalPromptRow> {
+  const path = systemPromptFile(home)
   try {
     return { path, digest: await fileHash(path) }
   } catch {

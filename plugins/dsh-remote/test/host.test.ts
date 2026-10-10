@@ -151,7 +151,7 @@ async function makeHarness(): Promise<Harness> {
     localPluginVersion: '0.1.0',
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
     packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
-    readGlobalPrompt: async () => null,
+    readSystemPrompt: async () => null,
     forwards: new ForwardRegistry(root),
     homeDir: root,
     now: () => '2027-01-01T00:00:00.000Z',
@@ -207,9 +207,9 @@ describe('dsh-remote 路由', () => {
     expect(response.body.connections).toEqual([])
   })
 
-  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位 + 全局提示词行', async () => {
+  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位 + 系统提示词行', async () => {
     const promptText = '# 全局指令\n'
-    await writeFile(join(harness.homeDir, 'AGENTS.md'), promptText, 'utf8')
+    await writeFile(join(harness.homeDir, 'system-prompt.md'), promptText, 'utf8')
     const response = await harness.request('GET', '/dsh-remote/local-rows')
     expect(response.status).toBe(200)
     expect(response.body).toMatchObject({ available: true })
@@ -233,10 +233,10 @@ describe('dsh-remote 路由', () => {
     // bundles 补充行：无实体 → registry 形态、version null
     expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null })
     expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
-    // 全局提示词行：profileContext.home 下的 AGENTS.md，摘要为内容 sha256
+    // 系统提示词行：profileContext.home 下的 system-prompt.md，摘要为内容 sha256
     expect(response.body).toMatchObject({
       promptRow: {
-        path: join(harness.homeDir, 'AGENTS.md'),
+        path: join(harness.homeDir, 'system-prompt.md'),
         digest: createHash('sha256').update(promptText).digest('hex'),
       },
     })

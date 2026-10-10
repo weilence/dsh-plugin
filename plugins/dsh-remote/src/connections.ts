@@ -14,7 +14,7 @@ export interface SyncManifest {
   mcp: string[]
   /** 已在远端安装的插件包名。 */
   plugins: string[]
-  /** 最近一次提示词同步是否推送了 AGENTS.md。 */
+  /** 最近一次提示词同步是否推送了 system-prompt.md。 */
   prompts: boolean
 }
 

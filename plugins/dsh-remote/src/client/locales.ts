@@ -115,7 +115,7 @@ export const zh = {
   'sync.desc.skills': '勾选项推送到远端；未勾选不动，不删除远端内容。',
   'sync.desc.mcp': '勾选项写入远端 patch；未勾选不动，不删除远端内容。',
   'sync.desc.plugins': '勾选项安装 / 升级到远端；未勾选不动，不删除远端内容。',
-  'sync.desc.prompts': '勾选即推送到远端 AGENTS.md；未勾选不动，不删除远端文件。',
+  'sync.desc.prompts': '勾选即推送到远端 system-prompt.md；未勾选不动，不删除远端文件。',
   'sync.busy': '同步中…',
   'sync.unavailable': '本机清单不可用（当前宿主未提供 profileContext），无法选择同步内容。',
   'sync.loadingInventory': '正在读取远端清单并与本机比对…',
@@ -128,7 +128,8 @@ export const zh = {
   'sync.empty.skills': '本机两个用户级根（~/.dsh/skills、~/.agents/skills）没有可发现的技能。',
   'sync.empty.mcp': '本机没有可同步的 MCP 声明。',
   'sync.empty.plugins': '本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。',
-  'sync.empty.prompts': '本机没有全局提示词文件（AGENTS.md），无可同步——在「全局提示词」面板创建后再来。',
+  'sync.empty.prompts':
+    '本机没有系统提示词文件（system-prompt.md），无可同步——在「系统提示词」面板创建后再来。',
   'sync.summaryCount': '{count} 项{label}',
   'sync.summarySame': '{count} 项已一致（{state}）',
   'sync.hidden': '已隐藏',
@@ -265,7 +266,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.desc.plugins':
     'Picked items are installed / upgraded on the remote; unpicked ones are untouched and nothing is deleted.',
   'sync.desc.prompts':
-    'Picking pushes the remote AGENTS.md; unpicked means untouched and the file is never deleted.',
+    'Picking pushes the remote system-prompt.md; unpicked means untouched and the file is never deleted.',
   'sync.busy': 'Syncing…',
   'sync.unavailable':
     'The local inventory is unavailable (this host provides no profileContext); sync contents cannot be selected.',
@@ -282,7 +283,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.empty.plugins':
     'No local plugins to sync (both patch layers and the bundles activation list are empty).',
   'sync.empty.prompts':
-    'No local global prompt file (AGENTS.md); nothing to sync — create it in the "Global prompt" panel first.',
+    'No local system prompt file (system-prompt.md); nothing to sync — create it in the "System prompt" panel first.',
   'sync.summaryCount': '{count} {label}',
   'sync.summarySame': '{count} already identical ({state})',
   'sync.hidden': 'hidden',

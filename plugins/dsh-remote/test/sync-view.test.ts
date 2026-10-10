@@ -40,7 +40,7 @@ const localRows: LocalRowsResponse = {
       version: '4.17.21',
     },
   ],
-  promptRow: { path: '/home/AGENTS.md', digest: 'p' },
+  promptRow: { path: '/home/system-prompt.md', digest: 'p' },
 }
 
 const inventory: RemoteInventoryResponse = {
@@ -104,13 +104,13 @@ describe('同步弹窗投影（渲染期取词）', () => {
     const rows = rowsOf('prompts', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff'])
     const item = rows[0]!.view(makeT())
-    expect(item.title).toBe('AGENTS.md')
+    expect(item.title).toBe('system-prompt.md')
     expect(item.titleMeta).toBe('内容不同')
-    expect(item.lines).toEqual(['/home/AGENTS.md'])
+    expect(item.lines).toEqual(['/home/system-prompt.md'])
 
     const sameRows = rowsOf(
       'prompts',
-      { ...localRows, promptRow: { path: '/home/AGENTS.md', digest: 'p0' } },
+      { ...localRows, promptRow: { path: '/home/system-prompt.md', digest: 'p0' } },
       inventory,
     )
     expect(sameRows[0]!.view(makeT()).tag).toBe('已一致')
