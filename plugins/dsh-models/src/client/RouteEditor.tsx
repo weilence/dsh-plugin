@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot, Tag, Toast, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   discoveredToCatalogEntry,
   lookupModelEntry,
@@ -663,15 +663,23 @@ export function RouteEditor(props: RouteEditorProps) {
               {fetching ? t('import.fetching') : t('import.fetch')}
             </Button>
           </div>
-          {fetchStatus !== undefined ? (
-            <div
-              className={
-                fetchStatus.kind === 'ok'
-                  ? styles.success
-                  : fetchStatus.kind === 'error'
-                    ? styles.error
-                    : styles.notice
+          {/* 一次性成功走官方 Toast（淡出后清空，完成回调只清仍为 ok 的状态，不误清新结果）；
+              info / error 行内常驻——没有新增、失败原因需要停留阅读。 */}
+          {fetchStatus !== undefined && fetchStatus.kind === 'ok' ? (
+            <Toast
+              key={fetchStatus.text}
+              text={fetchStatus.text}
+              holdMs={5000}
+              onDone={() =>
+                setFetchStatus((current) =>
+                  current !== undefined && current.kind === 'ok' ? undefined : current,
+                )
               }
+            />
+          ) : null}
+          {fetchStatus !== undefined && fetchStatus.kind !== 'ok' ? (
+            <div
+              className={fetchStatus.kind === 'error' ? styles.error : styles.notice}
               role={fetchStatus.kind === 'error' ? 'alert' : undefined}
             >
               {fetchStatus.text}
