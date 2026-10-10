@@ -10,7 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { errMsg } from '@dsh-plugins/shared'
-import { ConfirmDialog } from '@dsh-plugins/client-ui'
+import { ConfirmDialog, Panel, SearchBox } from '@dsh-plugins/client-ui'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { importFiles, type FileResult } from './client/api'
 import {
@@ -218,111 +218,99 @@ export function SessionsSection({
     .reverse()
 
   return (
-    <div className={styles.section}>
-      <section className={styles.importSection}>
+    <Panel title={t('section.label')} subtitle={t('panel.subtitle')}>
+      <div className={styles.toolbar}>
         <Button variant="primary" onClick={() => setOpen(true)}>
           {t('import')}
         </Button>
-      </section>
-      <section className={styles.archiveSection}>
-        <h2>{t('archive.title')}</h2>
-        <p className={styles.description}>{t('archive.description')}</p>
-        <input
-          type="search"
-          aria-label={t('archive.search')}
-          placeholder={t('archive.search')}
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+        <SearchBox className={styles.search} label={t('archive.search')} value={query} onChange={setQuery} />
+      </div>
+      {snapshot.error !== null ? (
+        <p role="alert" className={styles.detail}>
+          {snapshot.error.code}: {snapshot.error.message}
+        </p>
+      ) : !ready ? (
+        <p role="status">{t('archive.loading')}</p>
+      ) : snapshot.archivedSessionIds.length === 0 ? (
+        <p>{t('archive.empty')}</p>
+      ) : rows.length === 0 ? (
+        <p>{t('archive.noMatch')}</p>
+      ) : null}
+      {snapshot.phase === 'ready' ? (
+        <ul className={styles.archives}>
+          {rows.map(({ id, summary, workspace }) => (
+            <li key={id} className={styles.archiveRow}>
+              <div className={styles.metadata}>
+                <strong>{summary?.displayTitle ?? id}</strong>
+                <code>{id}</code>
+                {workspace !== undefined ? (
+                  <span>
+                    {workspace.title} — {workspace.path}
+                  </span>
+                ) : (
+                  <span>{t('archive.ungrouped')}</span>
+                )}
+                {summary?.cwd !== undefined && summary.cwd !== workspace?.path ? (
+                  <code>{summary.cwd}</code>
+                ) : null}
+                {summary === undefined ? (
+                  <span>
+                    {t(list.phase === 'pending' ? 'archive.metadataLoading' : 'archive.metadataUnavailable')}
+                  </span>
+                ) : Number.isFinite(summary.updatedAt) &&
+                  !Number.isNaN(new Date(summary.updatedAt).getTime()) ? (
+                  <time dateTime={new Date(summary.updatedAt).toISOString()}>
+                    {t('archive.updated', { time: formatTime(summary.updatedAt) })}
+                  </time>
+                ) : null}
+              </div>
+              <div className={styles.restoreAction}>
+                {failure?.sessionId === id ? <p role="alert">{messageText(failure.message, t)}</p> : null}
+                <div className={styles.rowActions}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!ready || restoring !== null || deleting !== null}
+                    onClick={() => void store.restore(id, summary?.displayTitle ?? id)}
+                  >
+                    {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={styles.dangerGhost}
+                    disabled={!ready || restoring !== null || deleting !== null}
+                    onClick={() => store.askDelete({ id, title: summary?.displayTitle ?? id })}
+                  >
+                    {t(deleting === id ? 'archive.deleting' : 'archive.delete')}
+                  </Button>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {failure !== null &&
+      (snapshot.phase !== 'ready' || !rows.some((row) => row.id === failure.sessionId)) ? (
+        <p role="alert" className={styles.detail}>
+          {messageText(failure.message, t)}
+        </p>
+      ) : null}
+      {restoring !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === restoring)) ? (
+        <p role="status">{t('archive.restoring')}</p>
+      ) : null}
+      {deleting !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === deleting)) ? (
+        <p role="status">{t('archive.deleting')}</p>
+      ) : null}
+      {notice !== null ? (
+        // 一次性提示走官方 Toast：淡出后清空，下次操作即替换；文本相同也换 key 重开计时。
+        <Toast
+          key={messageText(notice, t)}
+          text={messageText(notice, t)}
+          holdMs={5000}
+          onDone={() => store.dismissNotice()}
         />
-        {snapshot.error !== null ? (
-          <p role="alert" className={styles.detail}>
-            {snapshot.error.code}: {snapshot.error.message}
-          </p>
-        ) : !ready ? (
-          <p role="status">{t('archive.loading')}</p>
-        ) : snapshot.archivedSessionIds.length === 0 ? (
-          <p>{t('archive.empty')}</p>
-        ) : rows.length === 0 ? (
-          <p>{t('archive.noMatch')}</p>
-        ) : null}
-        {snapshot.phase === 'ready' ? (
-          <ul className={styles.archives}>
-            {rows.map(({ id, summary, workspace }) => (
-              <li key={id} className={styles.archiveRow}>
-                <div className={styles.metadata}>
-                  <strong>{summary?.displayTitle ?? id}</strong>
-                  <code>{id}</code>
-                  {workspace !== undefined ? (
-                    <span>
-                      {workspace.title} — {workspace.path}
-                    </span>
-                  ) : (
-                    <span>{t('archive.ungrouped')}</span>
-                  )}
-                  {summary?.cwd !== undefined && summary.cwd !== workspace?.path ? (
-                    <code>{summary.cwd}</code>
-                  ) : null}
-                  {summary === undefined ? (
-                    <span>
-                      {t(
-                        list.phase === 'pending' ? 'archive.metadataLoading' : 'archive.metadataUnavailable',
-                      )}
-                    </span>
-                  ) : Number.isFinite(summary.updatedAt) &&
-                    !Number.isNaN(new Date(summary.updatedAt).getTime()) ? (
-                    <time dateTime={new Date(summary.updatedAt).toISOString()}>
-                      {t('archive.updated', { time: formatTime(summary.updatedAt) })}
-                    </time>
-                  ) : null}
-                </div>
-                <div className={styles.restoreAction}>
-                  {failure?.sessionId === id ? <p role="alert">{messageText(failure.message, t)}</p> : null}
-                  <div className={styles.rowActions}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={!ready || restoring !== null || deleting !== null}
-                      onClick={() => void store.restore(id, summary?.displayTitle ?? id)}
-                    >
-                      {t(restoring === id ? 'archive.restoring' : 'archive.restore')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className={styles.dangerGhost}
-                      disabled={!ready || restoring !== null || deleting !== null}
-                      onClick={() => store.askDelete({ id, title: summary?.displayTitle ?? id })}
-                    >
-                      {t(deleting === id ? 'archive.deleting' : 'archive.delete')}
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {failure !== null &&
-        (snapshot.phase !== 'ready' || !rows.some((row) => row.id === failure.sessionId)) ? (
-          <p role="alert" className={styles.detail}>
-            {messageText(failure.message, t)}
-          </p>
-        ) : null}
-        {restoring !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === restoring)) ? (
-          <p role="status">{t('archive.restoring')}</p>
-        ) : null}
-        {deleting !== null && (snapshot.phase !== 'ready' || !rows.some((row) => row.id === deleting)) ? (
-          <p role="status">{t('archive.deleting')}</p>
-        ) : null}
-        {notice !== null ? (
-          // 一次性提示走官方 Toast：淡出后清空，下次操作即替换；文本相同也换 key 重开计时。
-          <Toast
-            key={messageText(notice, t)}
-            text={messageText(notice, t)}
-            holdMs={5000}
-            onDone={() => store.dismissNotice()}
-          />
-        ) : null}
-      </section>
+      ) : null}
       {pendingDelete !== null ? (
         <ConfirmDialog
           title={t('archive.deleteConfirmTitle')}
@@ -343,7 +331,7 @@ export function SessionsSection({
           onClose={() => setOpen(false)}
         />
       ) : null}
-    </div>
+    </Panel>
   )
 }
 

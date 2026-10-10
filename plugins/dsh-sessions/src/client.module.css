@@ -1,29 +1,13 @@
-.section {
+.toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 24px;
+  align-items: center;
+  gap: 8px;
 }
 
-.importSection {
-  display: flex;
-  align-items: flex-start;
-}
-
-.archiveSection {
-  border-top: 1px solid var(--dsw-alias-border-l4);
-  padding-top: 20px;
-}
-
-.archiveSection h2 {
-  margin: 0 0 8px;
-  font-size: 16px;
-}
-
-.description {
-  margin: 0 0 16px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-  line-height: 1.6;
+/* 官方 Input 原子自带边框与图标位；这里只负责在工具行里占满剩余宽度。 */
+.search {
+  flex: 1;
+  min-width: 0;
 }
 
 .archives {
@@ -78,8 +62,7 @@
 
 .metadata,
 .detail,
-.restoreAction p,
-.description {
+.restoreAction p {
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -100,8 +83,7 @@
 }
 
 .fields input,
-.fields select,
-.archiveSection input[type='search'] {
+.fields select {
   width: 100%;
   box-sizing: border-box;
   padding: 8px;

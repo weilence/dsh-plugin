@@ -3,7 +3,7 @@
  * 行随菜单关闭而卸载，弹窗必须挂在行外；两者经本模块的桥共享请求。
  */
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { Button, MenuItemButton, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, MenuItemButton, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -169,6 +169,7 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
     setBusy(true)
     setFailure(null)
     setRecovery(null)
+    setNotice(null)
     try {
       const result = await migrateSessionToWorkspace(target.sessionId, workspaceId)
       if (result.ok) {
@@ -214,7 +215,15 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
       footer={
         <div className={styles.footer}>
           <div className={styles.feedback} aria-live="polite">
-            {notice !== null ? <p role="status">{messageText(notice, t)}</p> : null}
+            {/* 一次性成功提示走官方 Toast（z-1100 盖过 Modal 的 1000 遮罩）；淡出后清空。 */}
+            {notice !== null ? (
+              <Toast
+                key={messageText(notice, t)}
+                text={messageText(notice, t)}
+                holdMs={5000}
+                onDone={() => setNotice(null)}
+              />
+            ) : null}
             {failure !== null ? <p role="alert">{messageText(failure, t)}</p> : null}
             {recovery !== null ? (
               <p>

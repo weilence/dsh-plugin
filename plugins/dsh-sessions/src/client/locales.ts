@@ -5,10 +5,8 @@ export type SessionsT = TranslateNS<typeof NS>
 
 export const zh = {
   'section.label': '会话',
+  'panel.subtitle': '把导出的会话 ZIP 导入为归档会话，并管理归档的恢复与删除。',
   import: '导入会话',
-  'archive.title': '已归档会话',
-  'archive.description':
-    '归档不会删除数据，恢复仅取消归档；删除则永久移除日志文件。此处只显示当前连接的 DSH 实例中的归档。',
   'archive.search': '搜索标题、路径或会话 ID',
   'archive.loading': '正在加载归档列表…',
   'archive.unavailable': '归档列表尚不可用，请等待连接恢复后再试。',
@@ -56,7 +54,8 @@ export const zh = {
   'migrate.current': '当前所在工作区',
   'migrate.noTarget': '没有其他工作区可作为迁移目标；请先在左侧列表添加工作区。',
   'migrate.refreshFailed': '迁移完成，但刷新会话列表失败：{detail}。请刷新页面查看新工作区。',
-  'migrate.archiveClearFailed': '已迁移，但会话仍留在归档集中：{detail}。可在下方「已归档会话」点击恢复。',
+  'migrate.archiveClearFailed':
+    '已迁移，但会话仍留在归档集中：{detail}。可在「设置 → 会话」的归档列表中点击恢复。',
   'migrate.loadedFailed': '会话仍加载在宿主内存中，未做任何改动。请重启宿主或确认已关闭该会话后重试。',
   'migrate.activityFailed': '会话仍有进行中的活动，已拒绝迁移：{detail}',
   'migrate.attachFailed': '归入工作区失败，未做任何改动：{detail}',
@@ -71,10 +70,9 @@ export const zh = {
 export type SessionsKey = keyof typeof zh
 export const en: { [Key in SessionsKey]: string } = {
   'section.label': 'Sessions',
+  'panel.subtitle':
+    'Import exported session ZIPs as archived sessions, and manage restoring or deleting them.',
   import: 'Import sessions',
-  'archive.title': 'Archived sessions',
-  'archive.description':
-    'Archiving keeps data; restoring only unarchives, while deleting permanently removes log files. Only archives on the currently connected DSH instance are shown.',
   'archive.search': 'Search titles, paths or session IDs',
   'archive.loading': 'Loading archived sessions…',
   'archive.unavailable':
@@ -131,7 +129,7 @@ export const en: { [Key in SessionsKey]: string } = {
   'migrate.refreshFailed':
     'Migrated, but refreshing the session list failed: {detail}. Refresh the page to see the new workspace.',
   'migrate.archiveClearFailed':
-    'Migrated, but the session remains in the archive set: {detail}. Click restore under "Archived sessions" below.',
+    'Migrated, but the session remains in the archive set: {detail}. Click restore in the archived list under Settings → Sessions.',
   'migrate.loadedFailed':
     'The session is still loaded in the host memory; nothing was changed. Restart the host or make sure the session is closed, then retry.',
   'migrate.activityFailed': 'The session still has running activity; migration was refused: {detail}',

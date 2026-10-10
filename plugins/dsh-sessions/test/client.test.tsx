@@ -21,6 +21,11 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     size: _size,
     ...props
   }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').Button>) => <button {...props} />,
+  Input: ({
+    icon: _icon,
+    ...props
+  }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').Input>) => <input {...props} />,
+  IconSearchOutlineRegular: () => null,
   MenuItemButton: ({
     onSelect,
     separatorBefore: _separator,
@@ -301,7 +306,7 @@ describe('会话设置与导入弹窗', () => {
     expect(text(modal)).toContain(en.files)
     expect(text(modal)).toContain(en.warning)
     expect(text(modal)).toContain('Close')
-    expect(text(renderer.root)).toContain(en['archive.title'])
+    expect(renderer.root.findByProps({ placeholder: en['archive.search'] })).toBeTruthy()
     expect(text(renderer.root)).not.toContain(zh.workspace)
     expect(button(modal, en.import).props.disabled).toBe(true)
   })
