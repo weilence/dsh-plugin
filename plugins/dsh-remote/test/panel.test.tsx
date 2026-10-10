@@ -10,6 +10,9 @@ import { makeT } from './i18n'
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
   Toast: ({ text }: { text: string }) => <div>{text}</div>,
+  StateDot: ({ state }: { state: string }) => <span data-state-dot={state} />,
+  MenuSurface: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  useAnchoredPosition: () => null,
 }))
 
 vi.mock('@dsh-plugins/client-ui', () => ({
@@ -30,8 +33,11 @@ vi.mock('@dsh-plugins/client-ui', () => ({
       title: string
       note?: string
       pills?: { text: string }[]
+      badge?: ReactNode
       actions?: ReactNode
       children?: ReactNode
+      error?: string
+      errorDetail?: { text: string; expandLabel: string }
     }
     empty?: ReactNode
     after?: ReactNode
@@ -45,7 +51,14 @@ vi.mock('@dsh-plugins/client-ui', () => ({
             {card.pills?.map((pill, index) => (
               <span key={index}>{pill.text}</span>
             ))}
+            {card.badge}
             {card.note !== undefined ? <span>{card.note}</span> : null}
+            {card.error !== undefined ? <span>{card.error}</span> : null}
+            {card.errorDetail !== undefined ? (
+              <span>
+                {card.errorDetail.expandLabel}|{card.errorDetail.text}
+              </span>
+            ) : null}
             {card.actions}
             {card.children}
           </div>
@@ -60,10 +73,21 @@ vi.mock('@dsh-plugins/client-ui', () => ({
       {label}|{items.map((item) => item.label).join(',')}
     </div>
   ),
-  Dialog: ({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) => (
+  Dialog: ({
+    title,
+    description,
+    actions,
+    children,
+  }: {
+    title: string
+    description?: string
+    actions?: ReactNode
+    children?: ReactNode
+  }) => (
     <div>
       {title}
       {description}
+      {children}
       {actions}
     </div>
   ),
@@ -113,6 +137,7 @@ function connRow(state: Partial<ConnRow['state']> = {}): ConnRow {
     state: {
       phase: 'idle',
       op: null,
+      progress: null,
       running: null,
       error: null,
       lastSync: { skills: null, mcp: null, plugins: null, prompts: null },
@@ -180,7 +205,8 @@ describe('远程开发面板渲染', () => {
     expect(html).toContain('刷新')
     expect(html).toContain('运行中')
     expect(html).toContain('打开')
-    expect(html).toContain('断开')
+    // 无断开操作：运行中动作只有「打开」
+    expect(html).not.toContain('断开')
     expect(html).toContain('同步 ▾|同步 Skills,同步 MCP,同步插件,同步提示词')
     expect(html).toContain('远端 profile web（固定） · 端口 18731 → 18730')
     expect(html).toContain('上次 Skills 同步：推送 2 · 跳过 1（已一致）（')
@@ -235,7 +261,7 @@ describe('远程开发面板渲染', () => {
     const html = renderPanel(store)
 
     expect(html).toContain('删除连接|')
-    expect(html).toContain('确认删除「开发机 A」（dev-box）？远端产物')
+    expect(html).toContain('确认删除「开发机 A」（dev-box）？只清除本机记录与端口转发')
     expect(html).toContain('|删除|取消')
     store.stopPolling()
   })
@@ -250,6 +276,96 @@ describe('远程开发面板渲染', () => {
 
     expect(html).toContain('连接远端')
     expect(html).toContain('同步插件需要远端已连接。现在连接「开发机 A」（dev-box）？')
+    store.stopPolling()
+  })
+
+  it('同步失败（连接仍在 running）：错误摘要行带 detail 时透出「查看完整」', async () => {
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:19999',
+            localPort: 19999,
+            remotePort: 19998,
+            pid: 4242,
+            since: '2026-01-01T00:00:00.000Z',
+          },
+          error: {
+            message: '远端安装失败：ENOENT …',
+            kind: 'remote-cmd-failed',
+            detail: 'line-a\nline-b\nline-c',
+          },
+        }),
+      ]),
+    )
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+
+    expect(html).toContain('远端安装失败：ENOENT …')
+    expect(html).toContain('查看完整|line-a')
+    expect(html).toContain('line-c')
+    store.stopPolling()
+  })
+
+  it('操作进行中：文字进度 pill 让位 spinner（hover 浮层为交互态，SSR 不渲染）', async () => {
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'deploying',
+          op: { kind: 'connect' },
+          progress: {
+            kind: 'connect',
+            steps: [
+              { step: 'probe', detail: 'node / npm / pnpm / dsh', at: '2026-01-01T00:00:01.000Z' },
+              { step: 'install-dsh', detail: '0.1.7-rc.2', at: '2026-01-01T00:00:02.000Z' },
+            ],
+          },
+        }),
+      ]),
+    )
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+
+    // 阶段文字 pill 不再出现（spinner 表进行中）；浮层只在 hover 后挂载
+    expect(html).not.toContain('部署中')
+    expect(html).toContain('data-state-dot="ongoing"')
+    expect(html).not.toContain('probe · node / npm / pnpm / dsh')
+    store.stopPolling()
+  })
+
+  it('连接失败：badge 显示「连接失败」，详情弹窗含错误摘要、时间线与全文', async () => {
+    const row = connRow({
+      phase: 'error',
+      error: {
+        message: '远端安装 @deepseek-ai/dsh 失败：ENOENT …',
+        kind: 'remote-cmd-failed',
+        detail: 'line-a\nline-b',
+      },
+      progress: {
+        kind: 'connect',
+        steps: [{ step: 'probe', detail: 'node / npm / pnpm / dsh', at: '2026-01-01T00:00:01.000Z' }],
+      },
+    })
+    api.state.mockReturnValue(stateResponse({}, [row]))
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+
+    // 失败入口在 badge 位；错误摘要行不出现（收敛进弹窗）
+    expect(html).toContain('>连接失败</button>')
+    expect(html).not.toContain('查看完整')
+    expect(html).not.toContain('远端安装 @deepseek-ai/dsh 失败：ENOENT …')
+
+    store.askFailedDetail(row)
+    const dialog = renderPanel(store)
+    expect(dialog).toContain('远端安装 @deepseek-ai/dsh 失败：ENOENT …')
+    expect(dialog).toContain('操作过程')
+    expect(dialog).toContain('probe · node / npm / pnpm / dsh')
+    expect(dialog).toContain('line-a')
+    expect(dialog).toContain('line-b')
     store.stopPolling()
   })
 

@@ -2,7 +2,6 @@ import { createBridgeClient } from '@dsh-plugins/shared/api'
 import {
   CONNECT_PATH,
   DELETE_PATH,
-  DISCONNECT_PATH,
   LOCAL_ROWS_PATH,
   REMOTE_INVENTORY_PATH,
   SAVE_PATH,
@@ -41,9 +40,6 @@ export const remoteApi = {
   },
   connect(id: string): Promise<{ started: boolean }> {
     return request(CONNECT_PATH, { method: 'POST', body: JSON.stringify({ id }) })
-  },
-  disconnect(id: string): Promise<{ started: boolean }> {
-    return request(DISCONNECT_PATH, { method: 'POST', body: JSON.stringify({ id }) })
   },
   /** 勾选清单随请求直传（声明式同步的目标态）。 */
   sync(

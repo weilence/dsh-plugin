@@ -1,5 +1,5 @@
 import type { ForwardHandle, SshExec } from './ssh'
-import { SshFailure, shQuote } from './ssh'
+import { SshFailure, mergedOutput, shQuote, summarizeOutput } from './ssh'
 import type { ForwardRegistry } from './forwards'
 import { createHash } from 'node:crypto'
 import { errMsg } from '@dsh-plugins/shared'
@@ -83,18 +83,44 @@ export const REMOTE_PLUGIN_FACTS_SCRIPT = [
   '}',
 ].join('\n')
 
-/** 本机 ssh 客户端的横幅行（如 OpenSSH 10 对无 post-quantum KEX 服务端的提示，
- *  首尾皆 **）：混在 stderr 里但不是远端命令的输出——报错时剔除，避免顶掉真实原因。 */
-const SSH_CLIENT_BANNER = /^\*\*.*\*\*$/
-
-/** 安装失败的详情行：两路输出合并、去空行与横幅噪声，取末几行。pnpm 的真实
- *  错误常打在 stdout（[ENOENT] 等不打 stderr），只看 stderr 会拿到空泛尾行。 */
-function installFailureDetail(stdout: string, stderr: string): string {
-  const lines = [...stdout.split(/\r?\n/), ...stderr.split(/\r?\n/)]
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !SSH_CLIENT_BANNER.test(line))
-  return lines.slice(-3).join(' ').slice(0, 300)
+/** 标记行协议：远端探查命令以 `__KEY__<值>` 单行输出多个事实（值内换行由
+ *  发送侧 tr 压平），一次建连拿全——Windows 无连接复用，必经探查从六次
+ *  建连缩成一次。 */
+function markedValues(stdout: string): Map<string, string> {
+  const values = new Map<string, string>()
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^__([A-Z]+)__(.*)$/.exec(line)
+    if (match !== null) values.set(match[1], match[2])
+  }
+  return values
 }
+
+/** 工具链探查结果（null = 缺失；错误文本不冒充版本）。 */
+export interface ToolProbe {
+  node: string | null
+  npm: string | null
+  pnpm: string | null
+}
+
+/** 解析一次性工具链探查输出；畸形输出按整体不可用处理（保守失败）。 */
+export function parseToolProbe(stdout: string): ToolProbe {
+  const values = markedValues(stdout)
+  const version = (key: string, pattern: RegExp): string | null => {
+    const value = values.get(key)
+    return value !== undefined && pattern.test(value) ? value : null
+  }
+  return {
+    node: version('NODE', /^v\d/),
+    npm: version('NPM', /^\d/),
+    pnpm: version('PNPM', /^\d/),
+  }
+}
+
+/** 经隧道问到的远端实例运行身份：ok 携带 apply 时定格的版本快照；404 =
+ *  实例运行着未带版本接口的旧插件；其余失败（HTTP 状态或网络 / 认证错误）。
+ *  语义见 host index.ts 的 instanceVersion 接线。 */
+export type InstanceVersion =
+  { ok: true; dsh: string | null; plugin: string | null } | { ok: false; http?: number; error?: string }
 
 /** 引擎的外部效应面（测试注入 fake 用；生产接线见 host index.ts）。 */
 export interface EngineDeps {
@@ -102,6 +128,8 @@ export interface EngineDeps {
   startForward(alias: string, localPort: number, remotePort: number): ForwardHandle
   freeLocalPort(): Promise<number>
   healthCheck(url: string): Promise<boolean>
+  /** 经隧道问远端实例的运行版本（token 换 Cookie 后 GET /version）。 */
+  instanceVersion(tunnelUrl: string): Promise<InstanceVersion>
   pushTar(alias: string, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
   /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
   pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
@@ -143,7 +171,9 @@ export class NotFoundError extends Error {
 interface ConnRuntime {
   phase: ConnState['phase']
   op: ConnOp | null
-  error: { message: string; kind: SshErrorKind } | null
+  /** 最近一次操作的 kind 与步骤时间线（面板 spinner 浮层 / 失败详情弹窗）。 */
+  progress: ConnState['progress']
+  error: ConnState['error']
   running: ConnState['running']
   lastSync: ConnState['lastSync']
   forward: ForwardHandle | null
@@ -153,6 +183,7 @@ function freshRuntime(): ConnRuntime {
   return {
     phase: 'idle',
     op: null,
+    progress: null,
     error: null,
     running: null,
     lastSync: { skills: null, mcp: null, plugins: null, prompts: null },
@@ -161,7 +192,10 @@ function freshRuntime(): ConnRuntime {
 }
 
 const CONNECT_POLL_INTERVAL_MS = 2_000
-const CONNECT_POLL_LIMIT_MS = 180_000
+// 就绪窗口必须覆盖完整冷启动：MCP server 串行启动且各自现场下载依赖
+// （npm / uv 各约 2 分钟，实测两个 MCP ≈ 4 分钟）——180s 会让「断开 → 重连」
+// 这种必走冷启动的路径必然超时（实际发生过），放宽到 5 分钟。
+const CONNECT_POLL_LIMIT_MS = 300_000
 const HEALTH_RETRY = 8
 const HEALTH_INTERVAL_MS = 1_000
 const OP_TIMEOUT_MS = 600_000
@@ -209,6 +243,10 @@ export class RemoteEngine {
     return {
       phase: runtime.phase,
       op: runtime.op === null ? null : { ...runtime.op },
+      progress:
+        runtime.progress === null
+          ? null
+          : { kind: runtime.progress.kind, steps: runtime.progress.steps.map((step) => ({ ...step })) },
       running: runtime.running,
       error: runtime.error,
       lastSync: {
@@ -229,10 +267,11 @@ export class RemoteEngine {
   async save(request: SaveRequest): Promise<{ id: string }> {
     await this.load()
     const previous = request.id === undefined ? undefined : this.connectionOf(request.id)
-    // save 只管基本信息；运行中修改会让转发进程锚在旧别名上——须先断开。
-    // 同步勾选不经 save（随 startSync 直传），无此限制。
+    // save 只管基本信息；运行中修改会让转发进程锚在旧别名上。没有「断开」
+    // 操作，改别名的路径是删除后重建。同步勾选不经 save（随 startSync 直传），
+    // 无此限制。
     if (previous !== undefined && this.runtimeOf(previous.id).running !== null) {
-      throw new BusyError('连接使用中不能修改基本信息，请先断开')
+      throw new BusyError('连接使用中不能修改基本信息；如需更换别名请删除连接后重建')
     }
     const ids = new Set(
       this.store.connections
@@ -254,7 +293,12 @@ export class RemoteEngine {
     await this.load()
     this.connectionOf(id)
     const runtime = this.runtimeOf(id)
-    if (runtime.op !== null || runtime.running !== null) throw new BusyError()
+    if (runtime.op !== null) throw new BusyError()
+    // 删除 = 本地全清（转发与租约随记录消失，运行中也可删）；远端实例与
+    // ~/.dsh/dsh-remote/ 产物保留，由用户自理（与 dispose 同一语义）。
+    runtime.forward?.kill()
+    runtime.forward = null
+    await this.deps.forwards.clear(id)
     this.store.connections = this.store.connections.filter((candidate) => candidate.id !== id)
     delete this.store.manifest[id]
     this.runtimes.delete(id)
@@ -268,6 +312,8 @@ export class RemoteEngine {
     const runtime = this.runtimeOf(id)
     if (runtime.op !== null) throw new BusyError()
     runtime.op = op
+    // 新操作开始即重置过程时间线（旧过程随上一操作的终态展示完它的使命）
+    runtime.progress = { kind: op.kind, steps: [] }
     runtime.error = null
     runtime.phase = phase
     return connection
@@ -292,14 +338,17 @@ export class RemoteEngine {
     runtime.phase = keepForward ? 'running' : 'error'
     runtime.error =
       error instanceof SshFailure
-        ? { message: error.message, kind: error.kind }
+        ? { message: error.message, kind: error.kind, detail: error.detail }
         : { message: errMsg(error), kind: 'unknown' }
   }
 
   private step(id: string, step: string, detail?: string): void {
     const runtime = this.runtimeOf(id)
-    if (runtime.op === null) return
-    runtime.op = { ...runtime.op, step, detail }
+    if (runtime.progress === null) return
+    runtime.progress = {
+      ...runtime.progress,
+      steps: [...runtime.progress.steps, { step, detail, at: this.deps.now() }],
+    }
   }
 
   private restPhase(runtime: ConnRuntime): 'idle' | 'running' {
@@ -308,7 +357,8 @@ export class RemoteEngine {
 
   async test(id: string): Promise<TestResponse> {
     await this.load()
-    const connection = this.beginOp(id, { kind: 'test', step: 'probe' }, 'probing')
+    const connection = this.beginOp(id, { kind: 'test' }, 'probing')
+    this.step(id, 'probe')
     const runtime = this.runtimeOf(id)
     const backTo = (response: TestResponse): TestResponse => {
       runtime.op = null
@@ -351,35 +401,47 @@ export class RemoteEngine {
   }
 
   startConnect(id: string): void {
-    const connection = this.beginOp(id, { kind: 'connect', step: 'probe-node' }, 'deploying')
+    const connection = this.beginOp(id, { kind: 'connect' }, 'deploying')
+    this.step(id, 'probe-node')
     void this.runConnect(connection)
   }
 
   /** 连接的部署段：环境探针 + dsh 版本对齐 + 本插件安装；已装齐时立即完成。
-   *  失败原样抛给 runConnect 的 catch 统一 fail（error 阶段）。 */
+   *  失败原样抛给 runConnect 的 catch 统一 fail（error 阶段）。
+   *  六项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记）
+   *  经一条标记行命令一次拿全——探查彼此无依赖，Windows（无连接复用）下
+   *  必经建连从六次缩成一次。 */
   private async ensureDeployed(id: string): Promise<void> {
     const alias = this.connectionOf(id).sshAlias
+    const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
+    const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
 
-    const node = await this.deps.exec(alias, 'node -v')
-    if (node.code !== 0)
-      throw new SshFailure('remote-cmd-failed', `远端未安装 Node（需 ≥22.19）：${node.stderr.trim()}`)
-    this.step(id, 'probe-npm', node.stdout.trim())
+    this.step(id, 'probe', 'node / npm / pnpm / dsh')
+    const probeCommand = [
+      'echo __NODE__"$(node -v 2>&1)"',
+      'echo __NPM__"$(npm -v 2>&1)"',
+      'echo __PNPM__"$(pnpm -v 2>&1)"',
+      'echo __DSH__"$(dsh -V 2>&1)"',
+      `echo __PLUGIN__"$(cat ${remoteModulePkg} 2>/dev/null | tr -d '\\n\\r')"`,
+      `(grep -q ${shQuote(REMOTE_PLUGIN_NAME)} ${remoteProfilePkg} && echo __REG__1) || echo __REG__0`,
+    ].join('; ')
+    const probe = await this.deps.exec(alias, probeCommand)
+    const tools = parseToolProbe(probe.stdout)
+    const probeDetail = mergedOutput(probe.stdout, probe.stderr)
+    if (tools.node === null)
+      throw new SshFailure('remote-cmd-failed', '远端未安装 Node（需 ≥22.19）', probeDetail)
+    if (tools.npm === null) throw new SshFailure('remote-cmd-failed', '远端未安装 npm', probeDetail)
 
-    const npm = await this.deps.exec(alias, 'npm -v')
-    if (npm.code !== 0) throw new SshFailure('remote-cmd-failed', `远端未安装 npm：${npm.stderr.trim()}`)
-    this.step(id, 'ensure-pnpm', npm.stdout.trim())
-
-    let pnpm = await this.deps.exec(alias, 'pnpm -v')
-    if (pnpm.code !== 0) {
-      await this.deps.exec(alias, 'corepack enable', { timeoutMs: 60_000 })
-      pnpm = await this.deps.exec(alias, 'pnpm -v')
-    }
-    if (pnpm.code !== 0) {
+    // pnpm 缺失不自动装（corepack enable 会写系统目录且新版 Node 不再附带）：
+    // 显式失败并指路，由用户在远端自行装好后重试。
+    if (tools.pnpm === null) {
       throw new SshFailure(
         'remote-cmd-failed',
-        '远端无 pnpm 且 corepack enable 未能提供：请手动安装 pnpm（插件安装依赖它）',
+        '远端未安装 pnpm：请在远端执行 corepack enable 或 npm install -g pnpm 后重试（插件安装依赖它）',
+        probeDetail,
       )
     }
+    this.step(id, 'ensure-pnpm', `node ${tools.node} / npm ${tools.npm} / pnpm ${tools.pnpm}`)
 
     // 远端 dsh 版本对齐本机；探测失败直接终止——npm 的 latest 标签可能落后
     // 于 next（实测 latest=0.1.7-rc.2、0.2 线在 next），回退安装会装出旧版本线，触发
@@ -392,8 +454,8 @@ export class RemoteEngine {
       )
     }
     this.step(id, 'install-dsh', wantVersion)
-    const existing = await this.deps.exec(alias, 'dsh -V')
-    if (existing.code !== 0 || existing.stdout.trim() !== wantVersion) {
+    const remoteDsh = markedValues(probe.stdout).get('DSH')
+    if (remoteDsh !== wantVersion) {
       const install = await this.deps.exec(
         alias,
         `npm install -g ${shQuote(`@deepseek-ai/dsh@${wantVersion}`)}`,
@@ -402,9 +464,11 @@ export class RemoteEngine {
         },
       )
       if (install.code !== 0) {
+        // pnpm/npm 的真实错误常打在 stdout，摘要与全文都合并两路输出
         throw new SshFailure(
           'remote-cmd-failed',
-          `远端安装 @deepseek-ai/dsh 失败：${install.stderr.trim().slice(0, 300)}`,
+          `远端安装 @deepseek-ai/dsh 失败：${summarizeOutput(install.stdout, install.stderr)}`,
+          mergedOutput(install.stdout, install.stderr),
         )
       }
     }
@@ -413,21 +477,17 @@ export class RemoteEngine {
     // 包占用，不能走 registry）；版本与 profile 登记都一致时跳过。
     this.step(id, 'install-plugin', REMOTE_PLUGIN_NAME)
     const localPluginVersion = this.deps.localPluginVersion
-    const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
-    const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
-    const installedPkg = await this.deps.exec(alias, `cat ${remoteModulePkg} 2>/dev/null || true`)
-    const registered = await this.deps.exec(
-      alias,
-      `grep -q ${shQuote(REMOTE_PLUGIN_NAME)} ${remoteProfilePkg}`,
-    )
     let remoteVersion: string | null = null
     try {
-      const parsed = JSON.parse(installedPkg.stdout) as { version?: unknown }
+      const parsed = JSON.parse(markedValues(probe.stdout).get('PLUGIN') ?? '') as {
+        version?: unknown
+      }
       remoteVersion = typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
     } catch {
       // 未安装（cat 空）或输出异常：都按未安装处理
     }
-    if (registered.code === 0 && remoteVersion !== null && remoteVersion === localPluginVersion) {
+    const registered = markedValues(probe.stdout).get('REG') === '1'
+    if (registered && remoteVersion !== null && remoteVersion === localPluginVersion) {
       this.step(id, 'verify', `已装 ${REMOTE_PLUGIN_NAME}@${remoteVersion}，跳过`)
     } else {
       const packed = await this.deps.packPlugin()
@@ -436,7 +496,7 @@ export class RemoteEngine {
       this.step(id, 'install-plugin', packed.fileName)
       const add = await this.deps.exec(
         alias,
-        `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}"`,
+        `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}" && echo __VERIFY__"$(cat ${remoteModulePkg} | tr -d '\\n\\r')"`,
         {
           timeoutMs: OP_TIMEOUT_MS,
         },
@@ -444,21 +504,24 @@ export class RemoteEngine {
       if (add.code !== 0) {
         throw new SshFailure(
           'remote-cmd-failed',
-          `远端安装 ${REMOTE_PLUGIN_NAME} 失败：${installFailureDetail(add.stdout, add.stderr)}`,
+          `远端安装 ${REMOTE_PLUGIN_NAME} 失败：${summarizeOutput(add.stdout, add.stderr)}`,
+          mergedOutput(add.stdout, add.stderr),
         )
       }
-      // 假阳性防线：add 退出码 0 不等于装上——读回 node_modules 的版本确认
+      // 假阳性防线：add 退出码 0 不等于装上——输出末尾读回的版本确认（与 add
+      //  同一条连接，多行 JSON 已压平进标记行）
       this.step(id, 'verify')
-      const settled = await this.deps.exec(alias, `cat ${remoteModulePkg}`)
       let settledVersion: string | null = null
       try {
-        const parsed = JSON.parse(settled.stdout) as { version?: unknown }
+        const parsed = JSON.parse(markedValues(add.stdout).get('VERIFY') ?? '') as {
+          version?: unknown
+        }
         settledVersion =
           typeof parsed.version === 'string' && parsed.version.length > 0 ? parsed.version : null
       } catch {
         // 读不回即视为未装上
       }
-      if (settled.code !== 0 || settledVersion === null) {
+      if (settledVersion === null) {
         throw new SshFailure(
           'remote-cmd-failed',
           `远端 ${REMOTE_PLUGIN_NAME} 安装后读不回 package.json：请重跑部署并查看远端 pnpm 输出`,
@@ -488,85 +551,105 @@ export class RemoteEngine {
       await this.ensureDeployed(id)
       runtime.phase = 'starting'
 
-      const log = `~/.dsh/dsh-remote/${id}.log`
-      const pidFile = `~/.dsh/dsh-remote/${id}.pid`
-      this.step(id, 'start', REMOTE_PROFILE)
-      // pid 文件里的实例仍在运行就复用（重试连接不再叠加新实例，token 不变）；
-      // 日志与 pid 由同一次启动写入，存活即两者一致。
-      const start = await this.deps.exec(
-        alias,
-        `pid=$(cat ${pidFile} 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo reuse:$pid; else mkdir -p ~/.dsh/dsh-remote; nohup dsh --profile ${shQuote(REMOTE_PROFILE)} --no-open --port 0 > ${log} 2>&1 & echo $! > ${pidFile}; fi`,
-        { timeoutMs: 30_000 },
-      )
-      if (start.code !== 0)
-        throw new SshFailure('remote-cmd-failed', `远端实例启动失败：${start.stderr.trim()}`)
+      // 复用实例先验明正身再接受：版本快照由实例自报（进程内 apply 时定格，
+      // 部署段事后升级磁盘换不动活进程），与本机不一致（本机已升级 / 远端是
+      // 未带版本接口的旧插件）或复用实例无响应时杀旧重启收敛一次；重启后再
+      // 不匹配按原样报错，不无限回环。
+      let restarted = false
+      let accepted:
+        | { url: string; localPort: number; remotePort: number; pid: number; forward: ForwardHandle }
+        | undefined
+      for (;;) {
+        const launched = await this.launchInstance(alias, id)
 
-      this.step(id, 'poll', '等待就绪信号')
-      const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
-      let launch: RemoteLaunch | undefined
-      for (let attempt = 0; attempt < maxAttempts && launch === undefined; attempt += 1) {
-        await this.deps.delay(CONNECT_POLL_INTERVAL_MS)
-        const grep = await this.deps.exec(alias, `grep -m1 '^dsh web: ' ${log} || true`, {
-          timeoutMs: 15_000,
+        this.step(id, 'forward', `127.0.0.1 → 远端 :${launched.launch.remotePort}`)
+        const localPort = await this.deps.freeLocalPort()
+        const forward = this.deps.startForward(alias, localPort, launched.launch.remotePort)
+        runtime.forward = forward
+        forward.onExit(() => {
+          const current = this.runtimeOf(id)
+          // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
+          void this.deps.forwards.clear(id)
+          if (current.forward === forward && current.running !== null) {
+            current.phase = 'error'
+            current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
+            current.running = null
+            current.forward = null
+          }
         })
-        launch = parseLaunchFromLog(grep.stdout)
-      }
-      if (launch === undefined) {
-        const tail = await this.deps.exec(alias, `tail -n 20 ${log} || true`)
-        throw new SshFailure(
-          'timeout',
-          `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${tail.stdout.trim().slice(-800)}`,
+
+        const url = rewriteLaunchUrl(
+          `http://127.0.0.1:${launched.launch.remotePort}/?token=${launched.launch.token}`,
+          localPort,
         )
-      }
+        if (url === undefined) throw new SshFailure('unknown', '就绪信号解析失败')
 
-      this.step(id, 'forward', `127.0.0.1 → 远端 :${launch.remotePort}`)
-      const pidText = await this.deps.exec(alias, `cat ${pidFile} || true`)
-      const pid = Number.parseInt(pidText.stdout.trim(), 10)
-      const localPort = await this.deps.freeLocalPort()
-      const forward = this.deps.startForward(alias, localPort, launch.remotePort)
-      runtime.forward = forward
-      forward.onExit(() => {
-        const current = this.runtimeOf(id)
-        // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
-        void this.deps.forwards.clear(id)
-        if (current.forward === forward && current.running !== null) {
-          current.phase = 'error'
-          current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
-          current.running = null
-          current.forward = null
+        this.step(id, 'health', `http://127.0.0.1:${localPort}/`)
+        let healthy = false
+        for (let attempt = 0; attempt < HEALTH_RETRY && !healthy; attempt += 1) {
+          await this.deps.delay(HEALTH_INTERVAL_MS)
+          healthy = await this.deps.healthCheck(`http://127.0.0.1:${localPort}/`)
         }
-      })
+        if (!healthy) {
+          forward.kill()
+          runtime.forward = null
+          // 复用实例健康检查不过 = 实例病了（旧就绪行还在、HTTP 不应答）——重启
+          // 自愈一次；新启动的实例失败属于环境 / 转发问题，重启无益。
+          if (restarted || !launched.reused)
+            throw new SshFailure(
+              'unreachable',
+              '端口转发健康检查失败：本机未能经隧道取到任何 HTTP 响应（检查远端 sshd 的 AllowTcpForwarding 是否放行 -L）',
+            )
+          restarted = true
+          this.step(id, 'restart', '复用实例无响应')
+          await this.stopInstance(alias, id)
+          continue
+        }
 
-      this.step(id, 'health', `http://127.0.0.1:${localPort}/`)
-      let healthy = false
-      for (let attempt = 0; attempt < HEALTH_RETRY && !healthy; attempt += 1) {
-        await this.deps.delay(HEALTH_INTERVAL_MS)
-        healthy = await this.deps.healthCheck(`http://127.0.0.1:${localPort}/`)
-      }
-      if (!healthy) {
+        this.step(id, 'version', '核验实例版本')
+        const version = await this.deps.instanceVersion(url)
+        let mismatch: string
+        if (version.ok) {
+          if (
+            version.dsh === this.deps.localDshVersion &&
+            (this.deps.localPluginVersion === null || version.plugin === this.deps.localPluginVersion)
+          ) {
+            accepted = { url, localPort, remotePort: launched.launch.remotePort, pid: launched.pid, forward }
+            break
+          }
+          mismatch = `实例 dsh ${version.dsh ?? '?'} / 插件 ${version.plugin ?? '?'}，本机 dsh ${this.deps.localDshVersion ?? '?'} / 插件 ${this.deps.localPluginVersion ?? '?'}`
+        } else if (version.http === 404) {
+          mismatch = '实例运行着未带版本接口的旧插件'
+        } else {
+          forward.kill()
+          runtime.forward = null
+          // 认证 / 服务端错误重启解决不了：显式失败带原因，不盲目回环
+          throw new SshFailure(
+            'unknown',
+            `无法确认远端实例版本：${version.error ?? `版本接口 HTTP ${String(version.http)}`}`,
+          )
+        }
         forward.kill()
         runtime.forward = null
-        throw new SshFailure(
-          'unreachable',
-          '端口转发健康检查失败：本机未能经隧道取到任何 HTTP 响应（检查远端 sshd 的 AllowTcpForwarding 是否放行 -L）',
-        )
+        if (restarted) throw new SshFailure('unknown', `远端实例重启后版本仍不匹配（${mismatch}）`)
+        restarted = true
+        this.step(id, 'restart', '版本不匹配，重启远端实例')
+        await this.stopInstance(alias, id)
       }
 
-      const url = rewriteLaunchUrl(`http://127.0.0.1:${launch.remotePort}/?token=${launch.token}`, localPort)
-      if (url === undefined) throw new SshFailure('unknown', '就绪信号解析失败')
       runtime.running = {
-        url,
-        localPort,
-        remotePort: launch.remotePort,
-        pid: Number.isInteger(pid) ? pid : 0,
+        url: accepted.url,
+        localPort: accepted.localPort,
+        remotePort: accepted.remotePort,
+        pid: accepted.pid,
         since: this.deps.now(),
       }
       // 转发进程与内存句柄可能同时幸存于宿主重启——租约落盘供下次 load 清扫
-      if (forward.pid !== null) {
+      if (accepted.forward.pid !== null) {
         await this.deps.forwards.record(id, {
-          pid: forward.pid,
-          localPort,
-          remotePort: launch.remotePort,
+          pid: accepted.forward.pid,
+          localPort: accepted.localPort,
+          remotePort: accepted.remotePort,
           at: this.deps.now(),
         })
       }
@@ -576,13 +659,94 @@ export class RemoteEngine {
     }
   }
 
-  startDisconnect(id: string): void {
-    const connection = this.beginOp(id, { kind: 'disconnect', step: 'stop-forward' }, 'stopping')
-    void this.runDisconnect(connection)
+  /** 启动段：start（pid 存活即复用候选）+ poll 就绪行。复用候选是否被接受由
+   *  调用方在版本判定后决定（不匹配则杀旧重来，见 runConnect）。 */
+  private async launchInstance(
+    alias: string,
+    id: string,
+  ): Promise<{ launch: RemoteLaunch; pid: number; reused: boolean }> {
+    const log = `~/.dsh/dsh-remote/${id}.log`
+    const pidFile = `~/.dsh/dsh-remote/${id}.pid`
+    this.step(id, 'start', REMOTE_PROFILE)
+    // pid 文件里的实例仍在运行就复用（重试连接不再叠加新实例，token 不变）；
+    // 日志与 pid 由同一次启动写入，存活即两者一致。
+    const start = await this.deps.exec(
+      alias,
+      `pid=$(cat ${pidFile} 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo reuse:$pid; else mkdir -p ~/.dsh/dsh-remote; nohup dsh --profile ${shQuote(REMOTE_PROFILE)} --no-open --port 0 > ${log} 2>&1 & echo $! > ${pidFile}; fi`,
+      { timeoutMs: 30_000 },
+    )
+    if (start.code !== 0)
+      throw new SshFailure(
+        'remote-cmd-failed',
+        `远端实例启动失败：${start.stderr.trim()}`,
+        mergedOutput('', start.stderr),
+      )
+
+    this.step(id, 'poll', '等待就绪信号')
+    // 轮询整体在远端有界循环：一次建连等到就绪或窗口耗尽（Windows 无连接复
+    //  用，拆成每 2s 一条 grep 意味着上百次建连）。本地兜底超时 = 循环上限 +
+    // 建连余量；就算本地提前断开，远端循环有界自灭不泄漏进程。pid 附带在同
+    // 一条连接的输出里。
+    const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
+    const poll = await this.deps.exec(
+      alias,
+      [
+        `for i in $(seq 1 ${maxAttempts}); do`,
+        `line=$(grep -m1 '^dsh web: ' ${log} 2>/dev/null) && { echo "$line";`,
+        `echo __PID__"$(cat ${pidFile} 2>/dev/null || true)"; exit 0; };`,
+        `sleep ${CONNECT_POLL_INTERVAL_MS / 1000};`,
+        'done;',
+        'exit 1',
+      ].join(' '),
+      { timeoutMs: CONNECT_POLL_LIMIT_MS + 60_000 },
+    )
+    const launch = poll.code === 0 ? parseLaunchFromLog(poll.stdout) : undefined
+    if (launch === undefined) {
+      const tail = await this.deps.exec(alias, `tail -n 20 ${log} || true`)
+      throw new SshFailure(
+        'timeout',
+        `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${tail.stdout.trim().slice(-800)}`,
+        mergedOutput(tail.stdout, tail.stderr),
+      )
+    }
+    const pid = Number.parseInt(markedValues(poll.stdout).get('PID') ?? '', 10)
+    return { launch, pid: Number.isInteger(pid) ? pid : 0, reused: start.stdout.includes('reuse:') }
   }
 
-  /** 宿主卸载插件（含退出）时杀掉全部本地转发；远端实例不动（仍在远端运行，
-   *  下次连接按 pid 复用）。租约清空是尽力而为（进程退出不等异步写完成），
+  /** 杀远端实例（版本不匹配 / 复用实例无响应时的收敛动作）：先核验 pid 身份
+   *  ——远端重启后死 pid 会被系统复用，盲目 kill 会误杀无关进程；SIGTERM 后
+   *  有界等待退出（MCP server 挨个收尾，不等会让新旧实例并行），超时 SIGKILL；
+   *  pid 清除、日志截断——旧就绪行必须清掉，否则下次 poll 秒命中死实例的旧
+   *  token。子进程一并补杀：SIGTERM 不传播，孤儿 MCP 与下次启动的依赖下载抢
+   *  缓存锁与带宽。 */
+  private async stopInstance(alias: string, id: string): Promise<void> {
+    const pidFile = `~/.dsh/dsh-remote/${id}.pid`
+    const log = `~/.dsh/dsh-remote/${id}.log`
+    const stop = await this.deps.exec(
+      alias,
+      [
+        `pid=$(cat ${pidFile} 2>/dev/null);`,
+        `if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep -q dsh; then`,
+        `kill "$pid"; pkill -P "$pid" 2>/dev/null;`,
+        `for i in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done;`,
+        `kill -9 "$pid" 2>/dev/null;`,
+        'fi;',
+        `rm -f ${pidFile};`,
+        `: > ${log} 2>/dev/null || true`,
+      ].join(' '),
+      { timeoutMs: 30_000 },
+    )
+    if (stop.code !== 0)
+      throw new SshFailure(
+        'remote-cmd-failed',
+        // 摘要走横幅剔除：本机 ssh 客户端对远端 sshd 打 post-quantum 警告污染 stderr
+        `远端实例停止失败：${summarizeOutput('', stop.stderr)}`,
+        mergedOutput('', stop.stderr),
+      )
+  }
+
+  /** 宿主卸载插件（含退出）时杀掉全部本地转发；远端实例不动（常驻远端由用户
+   *  自理，下次连接按 pid 复用）。租约清空是尽力而为（进程退出不等异步写完成），
    *  漏掉的由下次 load 的清扫兜底（死 pid 直接清记录）。 */
   dispose(): void {
     for (const runtime of this.runtimes.values()) {
@@ -590,30 +754,6 @@ export class RemoteEngine {
       runtime.forward = null
     }
     void this.deps.forwards.clearAll()
-  }
-
-  private async runDisconnect(connection: RemoteConnection): Promise<void> {
-    const id = connection.id
-    try {
-      const runtime = this.runtimeOf(id)
-      runtime.forward?.kill()
-      runtime.forward = null
-      await this.deps.forwards.clear(id)
-
-      this.step(id, 'stop-remote')
-      const pidFile = `~/.dsh/dsh-remote/${id}.pid`
-      const stop = await this.deps.exec(
-        connection.sshAlias,
-        `pid=$(cat ${pidFile} 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then kill "$pid" && rm -f ${pidFile} ~/.dsh/dsh-remote/${id}.log; else rm -f ${pidFile}; fi`,
-        { timeoutMs: 30_000 },
-      )
-      if (stop.code !== 0)
-        throw new SshFailure('remote-cmd-failed', `远端实例停止失败：${stop.stderr.trim()}`)
-      runtime.running = null
-      this.settle(id, 'idle')
-    } catch (error) {
-      this.fail(id, error)
-    }
   }
 
   /** 远端一个 skills 根的技能内容指纹：find|sha256 管线一次取整根文件摘要，
@@ -790,7 +930,8 @@ export class RemoteEngine {
           : kind === 'plugins'
             ? 'sync-plugins'
             : 'sync-prompts'
-    this.beginOp(id, { kind: kindOfOp, step: kind === 'skills' ? 'scan' : 'read-local' }, restPhase)
+    this.beginOp(id, { kind: kindOfOp }, restPhase)
+    this.step(id, kind === 'skills' ? 'scan' : 'read-local')
     const selected = new Set(names)
     void (async () => {
       const runtime = this.runtimeOf(id)
@@ -905,7 +1046,11 @@ export class RemoteEngine {
         { stdin: renderPatchDoc(doc) },
       )
       if (write.code !== 0)
-        throw new SshFailure('remote-cmd-failed', `远端 patch 写入失败：${write.stderr.trim()}`)
+        throw new SshFailure(
+          'remote-cmd-failed',
+          `远端 patch 写入失败：${write.stderr.trim()}`,
+          mergedOutput('', write.stderr),
+        )
     }
 
     this.store.manifest[id] = { ...this.manifestOf(id), mcp: installed }
@@ -966,7 +1111,8 @@ export class RemoteEngine {
       if (install.code !== 0) {
         throw new SshFailure(
           'remote-cmd-failed',
-          `远端安装 ${row.name} 失败：${installFailureDetail(install.stdout, install.stderr)}`,
+          `远端安装 ${row.name} 失败：${summarizeOutput(install.stdout, install.stderr)}`,
+          mergedOutput(install.stdout, install.stderr),
         )
       }
       installed.push(row.name)
@@ -1003,7 +1149,8 @@ export class RemoteEngine {
         if (write.code !== 0) {
           throw new SshFailure(
             'remote-cmd-failed',
-            `远端提示词写入失败：${write.stderr.trim().slice(0, 200)}`,
+            `远端提示词写入失败：${write.stderr.trim()}`,
+            mergedOutput('', write.stderr),
           )
         }
         pushed = true

@@ -7,8 +7,46 @@
 .actionCluster {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
   justify-content: flex-end;
+}
+
+/* 操作状态入口（spinner / 失败详情）与动作按钮同排中心线对齐。 */
+.opSpinWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
+/* 过程时间线浮层：官方 MenuSurface 材质之上的面板样式（照 dsh-models 用量
+ *  面板——背景材质与圆角交由 MenuSurface，Windows 半透明填充靠毛玻璃成立）；
+ *  z-index 1100 高于设置弹窗（1000），body portal 定位由 useAnchoredPosition
+ *  供给 fixed 坐标。 */
+.opFlyout {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: min(280px, 100vw - 24px);
+  max-width: min(440px, 100vw - 24px);
+  padding: 14px 16px;
+  border: 0;
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
+  box-shadow: var(--dsw-elevation-prominent);
+  color: var(--dsw-alias-label-secondary);
+  cursor: default;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* useAnchoredPosition 实测尺寸前的隐藏占位（与官方浮层一致的 measure pass）。 */
+.measure {
+  visibility: hidden;
+  left: 0;
+  top: 0;
 }
 
 .dangerZone {
@@ -17,4 +55,86 @@
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px dashed var(--dsw-alias-border-secondary);
+}
+
+/* error 阶段的「连接失败」入口（spinner 的同位替代）：错误色文字按钮，点击开详情弹窗。 */
+.failedBadge {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-state-error-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 操作步骤时间线（spinner hover 浮层与失败详情弹窗共用）。 */
+.opLog {
+  min-width: 200px;
+}
+
+.opLogTitle {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.opLogList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.opLogList li {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.opLogAt {
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* step / detail 是 host 事实（probe-node、版本号），等宽呈现辅助对齐扫读。 */
+.opLogStep {
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+/* 失败详情弹窗的错误全文（报障复制目标，保留行结构与滚动）。 */
+.opLogPre {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  font-family: var(--ds-font-family-code);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.failedBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.failedBody .error {
+  margin: 0;
 }

@@ -28,7 +28,7 @@ export const DELETE_PATH = '/dsh-remote/delete'
 export const TEST_PATH = '/dsh-remote/test'
 export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
 export const CONNECT_PATH = '/dsh-remote/connect'
-export const DISCONNECT_PATH = '/dsh-remote/disconnect'
+export const VERSION_PATH = '/dsh-remote/version'
 export const SYNC_PATH = '/dsh-remote/sync'
 
 /** 非本地（registry 形态）插件的远端安装方式：本地打包传输 / 远端自行 npm 下载。
@@ -50,16 +50,29 @@ export interface RemoteConnection {
 export type SshErrorKind =
   'auth-failed' | 'unreachable' | 'remote-cmd-failed' | 'timeout' | 'local-tool-missing' | 'unknown'
 
-/** 连接生命周期阶段。 */
-export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running' | 'stopping' | 'error'
+/** 连接生命周期阶段（无「断开」操作：本地转发随宿主退出或意外中断消失，
+ *  远端实例常驻由用户自理）。 */
+export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running' | 'error'
 
-/** 进行中的操作（互斥：op 非空时拒绝新操作）。 */
+/** 进行中的操作（互斥：op 非空时拒绝新操作）。文字进度不在此——面板用
+ *  spinner 呈现进行中，过程细节见 progress 时间线。 */
 export interface ConnOp {
-  kind: 'test' | 'connect' | 'disconnect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
-  /** 当前步骤（连接的部署段 probe-node/install-dsh…、启动段 start/poll/forward…）。 */
-  step?: string
-  /** 步骤的补充说明（版本号、插件名等）。 */
+  kind: 'test' | 'connect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
+}
+
+/** 操作步骤时间线的一项（进行中 hover 浮层与失败详情弹窗共用）。 */
+export interface OpStep {
+  /** 步骤名（host 侧事实，如 probe-node / push，原样展示不翻译）。 */
+  step: string
+  /** 步骤补充说明（版本号、插件名等）。 */
   detail?: string
+  at: string
+}
+
+/** 最近一次操作的记录；下一次操作开始时清空，成功失败都保留至彼时。 */
+export interface ConnProgress {
+  kind: ConnOp['kind']
+  steps: OpStep[]
 }
 
 /** running 阶段的事实（token URL 由启动日志解析而来）。 */
@@ -67,7 +80,7 @@ export interface ConnRunning {
   url: string
   localPort: number
   remotePort: number
-  /** 远端实例 pid（断开时 kill 用）。 */
+  /** 远端实例 pid（版本不符或实例无响应时重启用）。 */
   pid: number
   since: string
 }
@@ -76,9 +89,12 @@ export interface ConnRunning {
 export interface ConnState {
   phase: ConnPhase
   op: ConnOp | null
+  /** 最近一次操作的 kind 与步骤时间线（进行中浮层 / 失败详情弹窗用）。 */
+  progress: ConnProgress | null
   running: ConnRunning | null
-  /** 最近一次操作的错误；同步失败时连接仍可处于 running。 */
-  error: { message: string; kind: SshErrorKind } | null
+  /** 最近一次操作的错误（message 为单行摘要；detail 为完整输出，面板「查看完整」
+   *  弹窗用）；同步失败时连接仍可处于 running。 */
+  error: { message: string; kind: SshErrorKind; detail?: string } | null
   /** 最近一次各同步的结果摘要（面板展示用；同步只新增/覆盖，skipped = 已一致跳过）。 */
   lastSync: {
     skills: { at: string; pushed: number; skipped: number } | null

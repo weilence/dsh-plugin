@@ -3,7 +3,13 @@ export { ConfirmDialog, type ConfirmDialogProps } from './ConfirmDialog'
 export { MenuButton, type MenuButtonItem } from './MenuButton'
 export { PickList, type PickItem } from './PickList'
 export { ToneChip, toneStyles, type Tone } from './tone'
-export { ExpandableCard, type ExpandableCardInfoItem, type ExpandableCardProps } from './ExpandableCard'
+export {
+  ErrorDetailDialog,
+  ExpandableCard,
+  type ExpandableCardErrorDetail,
+  type ExpandableCardInfoItem,
+  type ExpandableCardProps,
+} from './ExpandableCard'
 export { CardList, type CardListProps } from './CardList'
 export { MetaItem } from './MetaItem'
 export { Panel } from './Panel'

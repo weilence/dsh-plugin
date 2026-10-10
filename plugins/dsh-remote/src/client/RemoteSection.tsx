@@ -1,5 +1,12 @@
-import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  Button,
+  MenuSurface,
+  StateDot,
+  Toast,
+  useAnchoredPosition,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
@@ -11,7 +18,7 @@ import {
   type PillData,
 } from '@dsh-plugins/client-ui'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConnOp, ConnRow } from '../shared'
+import type { ConnOp, ConnProgress, ConnRow } from '../shared'
 import { REMOTE_PROFILE } from '../shared'
 import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
@@ -33,18 +40,100 @@ const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone:
   deploying: { key: 'phase.deploying', tone: 'warn' },
   starting: { key: 'phase.starting', tone: 'warn' },
   running: { key: 'phase.running', tone: 'ok' },
-  stopping: { key: 'phase.stopping', tone: 'warn' },
   error: { key: 'phase.error', tone: 'err' },
 }
 
 const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   test: 'op.test',
   connect: 'op.connect',
-  disconnect: 'op.disconnect',
   'sync-skills': 'op.sync-skills',
   'sync-mcp': 'op.sync-mcp',
   'sync-plugins': 'op.sync-plugins',
   'sync-prompts': 'op.sync-prompts',
+}
+
+/** error 阶段的入口文案按最近一次操作的类别取（progress 在 op 清空后仍保留）。 */
+const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
+  test: 'failed.test',
+  connect: 'failed.connect',
+  'sync-skills': 'failed.sync',
+  'sync-mcp': 'failed.sync',
+  'sync-plugins': 'failed.sync',
+  'sync-prompts': 'failed.sync',
+}
+
+/** 操作步骤时间线（spinner 的 hover 浮层与失败详情弹窗共用）。 */
+function StepTimeline(props: { progress: ConnProgress; title: string }) {
+  return (
+    <div className={local.opLog}>
+      <p className={local.opLogTitle}>{props.title}</p>
+      <ol className={local.opLogList}>
+        {props.progress.steps.map((step, index) => (
+          <li key={index}>
+            <span className={local.opLogAt}>{new Date(step.at).toLocaleTimeString()}</span>
+            {/* step / detail 是 host 侧事实（如 probe-node、版本号），原样展示不翻译 */}
+            <span className={local.opLogStep}>
+              {step.step}
+              {step.detail !== undefined ? ` · ${step.detail}` : ''}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+/** 进行中的 spinner + hover 过程浮层。浮层视觉与定位照 dsh-models 用量面板
+ *  （官方 MenuSurface 材质 + useAnchoredPosition + body portal，z-index 1100
+ *  高于设置弹窗的 1000）；触发为 hover——移出后留 250ms grace 供指针移入面板。 */
+function OpHoverCard(props: { progress: ConnProgress; title: string }) {
+  const anchor = useRef<HTMLSpanElement>(null)
+  const surface = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const grace = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pos = useAnchoredPosition({
+    open,
+    anchorRef: anchor,
+    panelRef: surface,
+    side: 'bottom',
+    align: 'end',
+    gap: 8,
+    margin: 12,
+  })
+  const show = (): void => {
+    if (grace.current !== null) clearTimeout(grace.current)
+    setOpen(true)
+  }
+  const hide = (): void => {
+    if (grace.current !== null) clearTimeout(grace.current)
+    grace.current = setTimeout(() => setOpen(false), 250)
+  }
+  useEffect(
+    () => () => {
+      if (grace.current !== null) clearTimeout(grace.current)
+    },
+    [],
+  )
+  return (
+    <span ref={anchor} className={local.opSpinWrap} onPointerEnter={show} onPointerLeave={hide}>
+      <StateDot state="ongoing" size={16} />
+      {open
+        ? createPortal(
+            <MenuSurface
+              ref={surface}
+              role="status"
+              className={[local.opFlyout, pos === null ? local.measure : ''].filter(Boolean).join(' ')}
+              style={pos ?? undefined}
+              onPointerEnter={show}
+              onPointerLeave={hide}
+            >
+              <StepTimeline progress={props.progress} title={props.title} />
+            </MenuSurface>,
+            document.body,
+          )
+        : null}
+    </span>
+  )
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
@@ -70,11 +159,13 @@ export function RemoteSection(props: RemoteSectionProps) {
 
   const connections = state.list?.connections ?? []
   const env = state.list?.env
-  const { syncing, deleting, connectPrompt } = state
+  const { syncing, deleting, connectPrompt, failedDetail } = state
   const syncTarget = syncing === null ? undefined : connections.find((row) => row.id === syncing.id)
   const deleteTarget = deleting === null ? undefined : connections.find((row) => row.id === deleting.id)
   const connectTarget =
     connectPrompt === null ? undefined : connections.find((row) => row.id === connectPrompt.id)
+  const failedTarget =
+    failedDetail === null ? undefined : connections.find((row) => row.id === failedDetail.id)
 
   return (
     <Panel title={t('panel.title')}>
@@ -160,6 +251,27 @@ export function RemoteSection(props: RemoteSectionProps) {
           onClose={() => store.askSync(null)}
         />
       ) : null}
+      {failedTarget !== undefined ? (
+        <Dialog
+          title={t(FAILED_LABEL_KEYS[failedTarget.state.progress?.kind ?? 'connect'])}
+          closeLabel={t('close')}
+          onClose={() => store.askFailedDetail(null)}
+        >
+          <div className={local.failedBody}>
+            {failedTarget.state.error !== null ? (
+              <p className={styles.error} role="alert">
+                {failedTarget.state.error.message}
+              </p>
+            ) : null}
+            {failedTarget.state.progress !== null ? (
+              <StepTimeline progress={failedTarget.state.progress} title={t('card.opLog.title')} />
+            ) : null}
+            {failedTarget.state.error?.detail !== undefined && failedTarget.state.error.detail.length > 0 ? (
+              <pre className={local.opLogPre}>{failedTarget.state.error.detail}</pre>
+            ) : null}
+          </div>
+        </Dialog>
+      ) : null}
       {connectTarget !== undefined ? (
         <Dialog
           title={t('connect.title')}
@@ -177,7 +289,7 @@ export function RemoteSection(props: RemoteSectionProps) {
               <Button
                 variant="primary"
                 onClick={() => {
-                  // 连接是长操作：随即关窗，进度由卡片 op pill 呈现，连接后用户重点一次菜单
+                  // 连接是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现，连接后用户重点一次菜单
                   store.askConnect(null)
                   void store.connect(connectTarget.id)
                 }}
@@ -219,14 +331,21 @@ function connectionCard(
   const testResult = state.testResult?.id === row.id ? state.testResult.result : null
 
   const phase = PHASE_PILL_KEYS[row.state.phase]
-  const pills: PillData[] = [{ text: t(phase.key), tone: phase.tone }]
-  if (op !== null) {
-    pills.push({
-      // op.step 是 host 侧事实（如 probe-node），原样拼接不翻译
-      text: `${t(OP_LABEL_KEYS[op.kind])}${op.step !== undefined ? ` · ${op.step}` : ''}`,
-      tone: 'warn',
-    })
-  }
+  // 进行中与失败态：文字进度 pill 全部让位（spinner 表进行中、失败入口表终态），
+  // 过程细节一律经 progress 时间线呈现（hover / 点击详情）。
+  const failed = row.state.phase === 'error' && row.state.op === null
+  const pills: PillData[] = opBusy || failed ? [] : [{ text: t(phase.key), tone: phase.tone }]
+
+  // 操作状态入口（spinner / 失败详情）占按钮区最左位，与动作按钮中心线对齐。
+  // 过程浮层见 OpHoverCard（官方 MenuSurface，z-1100 在设置弹窗之上）。
+  const opIndicator =
+    op !== null && row.state.progress !== null ? (
+      <OpHoverCard progress={row.state.progress} title={t(OP_LABEL_KEYS[op.kind])} />
+    ) : failed ? (
+      <button type="button" className={local.failedBadge} onClick={() => store.askFailedDetail(row)}>
+        {t(FAILED_LABEL_KEYS[row.state.progress?.kind ?? 'connect'])}
+      </button>
+    ) : null
 
   const action = (
     label: string,
@@ -240,10 +359,7 @@ function connectionCard(
 
   const actions =
     row.state.phase === 'running' && running !== null
-      ? [
-          action(t('action.open'), () => window.open(running.url, '_blank'), { variant: 'primary' }),
-          action(t('op.disconnect'), () => void store.disconnect(row.id)),
-        ]
+      ? [action(t('action.open'), () => window.open(running.url, '_blank'), { variant: 'primary' })]
       : [
           action(t('action.test'), () => void store.test(row.id)),
           action(t('op.connect'), () => void store.connect(row.id), { variant: 'primary' }),
@@ -325,9 +441,24 @@ function connectionCard(
               : (testResult.error?.message ?? t('card.probeFailed')),
           })}`
         : ''),
-    error: row.state.error?.message,
+    // 连接失败的摘要与全文都收敛进「连接失败」详情弹窗（actions 区入口）；同步失败
+    // （连接仍在 running）保持摘要行 + 查看完整机制。
+    error: failed ? undefined : row.state.error?.message,
+    errorDetail:
+      !failed &&
+      row.state.error !== null &&
+      row.state.error.detail !== undefined &&
+      row.state.error.detail.length > 0
+        ? {
+            text: row.state.error.detail,
+            title: t('card.errorDetail.title'),
+            expandLabel: t('card.errorDetail.expand'),
+            closeLabel: t('close'),
+          }
+        : undefined,
     actions: (
       <div className={local.actionCluster}>
+        {opIndicator}
         {actions}
         {/* skills / MCP / 提示词同步仅需 ssh 可达，全阶段常驻；插件安装依赖连接部署出的
             远端 dsh，未连接时引导先连接 */}
@@ -351,8 +482,7 @@ function connectionCard(
           size="sm"
           variant="ghost"
           className={styles.dangerGhost}
-          disabled={busy || opBusy || row.state.running !== null}
-          title={row.state.running !== null ? t('card.deleteBlocked') : undefined}
+          disabled={busy || opBusy}
           onClick={() => store.askDelete(row)}
         >
           {t('delete')}

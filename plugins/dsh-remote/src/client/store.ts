@@ -31,6 +31,8 @@ export interface RemoteState {
   syncing: { id: string; kind: SyncKind } | null
   /** 未连接时点「同步插件」的引导目标（插件安装依赖连接部署出的远端 dsh）。 */
   connectPrompt: ConnRow | null
+  /** 失败详情弹窗的目标连接（「连接失败」badge 点击打开）。 */
+  failedDetail: ConnRow | null
 }
 
 const INITIAL: RemoteState = {
@@ -46,12 +48,13 @@ const INITIAL: RemoteState = {
   deleting: null,
   syncing: null,
   connectPrompt: null,
+  failedDetail: null,
 }
 
 const FAST_POLL_MS = 1_200
 const SLOW_POLL_MS = 6_000
 
-const TRANSIENT_PHASES = new Set(['probing', 'deploying', 'starting', 'stopping'])
+const TRANSIENT_PHASES = new Set(['probing', 'deploying', 'starting'])
 
 function anyBusy(connections: readonly ConnRow[]): boolean {
   return connections.some((row) => row.state.op !== null || TRANSIENT_PHASES.has(row.state.phase))
@@ -238,6 +241,10 @@ export class RemoteStore {
     this.set({ connectPrompt: row })
   }
 
+  askFailedDetail(row: ConnRow | null): void {
+    this.set({ failedDetail: row })
+  }
+
   dismissNotice(): void {
     this.set({ notice: null })
   }
@@ -302,10 +309,6 @@ export class RemoteStore {
 
   connect(id: string): Promise<void> {
     return this.run(id, () => remoteApi.connect(id))
-  }
-
-  disconnect(id: string): Promise<void> {
-    return this.run(id, () => remoteApi.disconnect(id))
   }
 
   sync(id: string, kind: SyncKind, names: string[], registryInstall?: RegistryPluginInstall): Promise<void> {

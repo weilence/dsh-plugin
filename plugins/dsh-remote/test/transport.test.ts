@@ -50,6 +50,7 @@ function row(running: ConnRunning | null, state: Partial<ConnState> = {}, id = '
     state: {
       phase: running === null ? 'idle' : 'running',
       op: null,
+      progress: null,
       running,
       error: null,
       lastSync: { skills: null, mcp: null, plugins: null, prompts: null },
@@ -114,14 +115,13 @@ describe('RemoteTransportService', () => {
     expect(load).not.toHaveBeenCalled()
   })
 
-  it('入口保留所有连接，并区分测试中的 probing、操作忙、连接中与断开', async () => {
+  it('入口保留所有连接，并区分测试中的 probing、操作忙、连接中与错误', async () => {
     const target = { port: 12345, url: 'http://127.0.0.1:12345/?token=launch-secret' }
     const rows = [
       row(null, {}, 'idle'),
       row(running(target), { phase: 'probing', op: { kind: 'test' } }, 'test'),
       row(running(target), { op: { kind: 'sync-skills' } }, 'sync'),
       row(running(target), { phase: 'deploying', op: { kind: 'connect' } }, 'connect'),
-      row(running(target), { phase: 'stopping', op: { kind: 'disconnect' } }, 'disconnect'),
       row(null, { phase: 'error', error: { kind: 'unreachable', message: 'ssh refused' } }, 'error'),
     ]
     const { service } = transport(rows)
@@ -130,7 +130,6 @@ describe('RemoteTransportService', () => {
       { id: 'test', reason: 'busy', detail: 'test' },
       { id: 'sync', reason: 'busy', detail: 'sync-skills' },
       { id: 'connect', reason: 'connecting', detail: undefined },
-      { id: 'disconnect', reason: 'stopping', detail: undefined },
       { id: 'error', reason: 'error', detail: 'ssh refused' },
     ])
     const fetch = vi.fn()

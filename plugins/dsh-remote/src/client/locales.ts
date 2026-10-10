@@ -33,12 +33,10 @@ export const zh = {
   'phase.deploying': '部署中',
   'phase.starting': '启动中',
   'phase.running': '运行中',
-  'phase.stopping': '断开中',
   'phase.error': '错误',
 
   'op.test': '测试连接',
   'op.connect': '连接',
-  'op.disconnect': '断开',
   'op.sync-skills': '同步 Skills',
   'op.sync-mcp': '同步 MCP',
   'op.sync-plugins': '同步插件',
@@ -58,8 +56,13 @@ export const zh = {
   'card.probeDetail': 'node {node} / npm {npm} / dsh {dsh}',
   'card.probeNoDsh': '未装',
   'card.probeFailed': '失败',
+  'card.errorDetail.title': '完整错误详情',
+  'card.errorDetail.expand': '查看完整',
+  'card.opLog.title': '操作过程',
+  'failed.connect': '连接失败',
+  'failed.sync': '同步失败',
+  'failed.test': '测试失败',
   'card.syncMenu': '同步 ▾',
-  'card.deleteBlocked': '先断开连接再删除',
 
   'lastSync.skills': '上次 Skills 同步：推送 {pushed}',
   'lastSync.mcp': '上次 MCP 同步：{count} 行',
@@ -76,7 +79,7 @@ export const zh = {
 
   'delete.title': '删除连接',
   'delete.body':
-    '确认删除「{label}」（{alias}）？远端产物（~/.dsh/dsh-remote/ 运行目录、已装插件与已下发配置）会保留。',
+    '确认删除「{label}」（{alias}）？只清除本机记录与端口转发；远端实例会继续在后台运行，已装插件与已下发配置保留。',
 
   'notice.connected': '已连接「{label}」——点卡片上的「打开」进入远端页面',
   'notice.created': '已创建连接',
@@ -189,12 +192,10 @@ export const en: { [Key in RemoteKey]: string } = {
   'phase.deploying': 'Deploying',
   'phase.starting': 'Starting',
   'phase.running': 'Running',
-  'phase.stopping': 'Disconnecting',
   'phase.error': 'Error',
 
   'op.test': 'Test connection',
   'op.connect': 'Connect',
-  'op.disconnect': 'Disconnect',
   'op.sync-skills': 'Sync Skills',
   'op.sync-mcp': 'Sync MCP',
   'op.sync-plugins': 'Sync plugins',
@@ -214,8 +215,13 @@ export const en: { [Key in RemoteKey]: string } = {
   'card.probeDetail': 'node {node} / npm {npm} / dsh {dsh}',
   'card.probeNoDsh': 'not installed',
   'card.probeFailed': 'failed',
+  'card.errorDetail.title': 'Full error detail',
+  'card.errorDetail.expand': 'Show full',
+  'card.opLog.title': 'Operation log',
+  'failed.connect': 'Connection failed',
+  'failed.sync': 'Sync failed',
+  'failed.test': 'Test failed',
   'card.syncMenu': 'Sync ▾',
-  'card.deleteBlocked': 'Disconnect before deleting',
 
   'lastSync.skills': 'Last Skills sync: pushed {pushed}',
   'lastSync.mcp': 'Last MCP sync: {count} rows',
@@ -232,7 +238,7 @@ export const en: { [Key in RemoteKey]: string } = {
 
   'delete.title': 'Delete connection',
   'delete.body':
-    'Delete "{label}" ({alias})? Remote artifacts (the ~/.dsh/dsh-remote/ working directory, installed plugins, and delivered configuration) are kept.',
+    'Delete "{label}" ({alias})? Only the local record and port forwarding are removed; the remote instance keeps running in the background, with installed plugins and delivered configuration kept.',
 
   'notice.connected': 'Connected to "{label}" — click "Open" on the card to enter the remote page',
   'notice.created': 'Connection created',

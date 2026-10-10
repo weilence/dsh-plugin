@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { RowDragHandlers } from './drag'
+import { Dialog } from './Dialog'
 import { Pill, type PillData } from './Pill'
 import shared from './shared.module.css'
 import styles from './ExpandableCard.module.css'
@@ -8,6 +9,24 @@ import styles from './ExpandableCard.module.css'
 export interface ExpandableCardInfoItem {
   label: string
   value: ReactNode
+}
+
+/** 错误详情弹窗素材：全文与文案（共享组件不内嵌文案，由调用方传入）。 */
+export interface ExpandableCardErrorDetail {
+  /** 完整错误输出（多行原文）。 */
+  text: string
+  title: string
+  expandLabel: string
+  closeLabel: string
+}
+
+/** 错误详情弹窗：错误行「查看完整」打开的内容（ExpandableCard 内部挂载）。 */
+export function ErrorDetailDialog(props: ExpandableCardErrorDetail & { onClose(): void }) {
+  return (
+    <Dialog title={props.title} closeLabel={props.closeLabel} onClose={props.onClose}>
+      <pre className={shared.errorPre}>{props.text}</pre>
+    </Dialog>
+  )
 }
 
 /**
@@ -25,6 +44,8 @@ export interface ExpandableCardProps {
   note?: ReactNode
   /** 错误行（错误色，最多两行截断）。 */
   error?: string
+  /** 错误行的完整详情（传入即获得「查看完整」弹窗机制；不传则行为不变）。 */
+  errorDetail?: ExpandableCardErrorDetail
   info?: readonly ExpandableCardInfoItem[]
   path?: ReactNode
   /** 行头右侧动作区（阻止冒泡，不触发展开）。 */
@@ -43,6 +64,7 @@ export function ExpandableCard(props: ExpandableCardProps) {
   // draggable 让位给划选；mousedown 的同步 flush 保证属性在拖拽阈值前
   // 已落 DOM，从行头其余区域按下照常拖拽。
   const [dragArmed, setDragArmed] = useState(true)
+  const [errorDetailOpen, setErrorDetailOpen] = useState(false)
   return (
     <section
       className={[
@@ -113,9 +135,24 @@ export function ExpandableCard(props: ExpandableCardProps) {
           ) : null}
           {props.note !== undefined ? <p className={shared.rowWhen}>{props.note}</p> : null}
           {props.error !== undefined && props.error.length > 0 ? (
-            <p className={shared.rowErrText} title={props.error} data-drag-skip>
-              {props.error}
-            </p>
+            <div className={shared.rowErr}>
+              <p className={shared.rowErrText} title={props.error} data-drag-skip>
+                {props.error}
+              </p>
+              {props.errorDetail !== undefined ? (
+                <button
+                  type="button"
+                  className={shared.rowErrMore}
+                  onClick={(event) => {
+                    // 入口点击只开弹窗，不触发行展开 / 收起
+                    event.stopPropagation()
+                    setErrorDetailOpen(true)
+                  }}
+                >
+                  {props.errorDetail.expandLabel}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {props.info !== undefined && props.info.length > 0 ? (
             <div className={styles.info}>
@@ -144,6 +181,9 @@ export function ExpandableCard(props: ExpandableCardProps) {
         </span>
       </header>
       {props.open ? <div className={styles.body}>{props.children}</div> : null}
+      {errorDetailOpen && props.errorDetail !== undefined ? (
+        <ErrorDetailDialog {...props.errorDetail} onClose={() => setErrorDetailOpen(false)} />
+      ) : null}
     </section>
   )
 }

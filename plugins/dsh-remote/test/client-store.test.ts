@@ -34,6 +34,7 @@ function connRow(id: string, state: Partial<ConnRow['state']> = {}): ConnRow {
     state: {
       phase: 'idle',
       op: null,
+      progress: null,
       running: null,
       error: null,
       lastSync: { skills: null, mcp: null, plugins: null, prompts: null },

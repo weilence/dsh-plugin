@@ -15,9 +15,37 @@ export class SshFailure extends Error {
   constructor(
     readonly kind: SshErrorKind,
     message: string,
+    /** 完整输出详情（面板「查看完整」弹窗的数据源）；message 是单行摘要。 */
+    readonly detail?: string,
   ) {
     super(message)
   }
+}
+
+/** 本机 ssh 客户端的横幅行（如 OpenSSH 10 对无 post-quantum KEX 服务端的提示，
+ *  首尾皆 **）：混在 stderr 里但不是远端命令的输出——报错时剔除，避免顶掉真实原因。 */
+const SSH_CLIENT_BANNER = /^\*\*.*\*\*$/
+
+/** 错误详情全文的字符上限：超出保尾部（报错根因通常在末尾）并标明截去的量。 */
+const DETAIL_CAP = 16 * 1024
+
+/** 两路输出合并为干净行序列：去空行与 ssh 客户端横幅噪声。 */
+function cleanLines(stdout: string, stderr: string): string[] {
+  return [...stdout.split(/\r?\n/), ...stderr.split(/\r?\n/)]
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !SSH_CLIENT_BANNER.test(line))
+}
+
+/** 两路输出的单行摘要（错误行 / toast 用）：末 3 行拼接，300 字符封顶。 */
+export function summarizeOutput(stdout: string, stderr: string): string {
+  return cleanLines(stdout, stderr).slice(-3).join(' ').slice(0, 300)
+}
+
+/** 两路输出的完整详情（「查看完整」弹窗用）：保行结构，超长截头保尾。 */
+export function mergedOutput(stdout: string, stderr: string): string {
+  const text = cleanLines(stdout, stderr).join('\n')
+  if (text.length <= DETAIL_CAP) return text
+  return `…（输出超长，已截去前 ${text.length - DETAIL_CAP} 字符）\n${text.slice(-DETAIL_CAP)}`
 }
 
 /** 单引号 shell 转义（远端命令内嵌时使用）。 */
@@ -80,10 +108,16 @@ function classify(code: number | null, stderr: string, spawnError?: NodeJS.Errno
   return new SshFailure(
     'remote-cmd-failed',
     stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`,
+    mergedOutput('', stderr),
   )
 }
 
 // 宿主侧受信代码直接 spawn（不经模型沙箱），认证完全复用用户 OpenSSH 配置。
+// 不做 ControlMaster 连接复用：实测在宿主环境里连接 poll 的长会话两次挂死
+// （就绪行早已写入日志、slave 却等不到数据直到本地超时），同形态独立复现
+// 未成功——宿主进程环境的差异不可穷尽，按确定性优先移除；建连开销已由
+// 「探查合并 + poll 远端有界循环」的批量执行路径消化（必经连接 ~9 次 → 3 次）。
+
 /** ssh 命令执行：连接级失败抛 SshFailure，命令级失败原样返回 code/stderr。 */
 export const sshExec: SshExec = (alias, command, options) =>
   new Promise<SshResult>((resolve, reject) => {

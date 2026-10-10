@@ -46,7 +46,6 @@ function connectionInfo(row: ConnRow): RemoteTransportConnection {
   let detail = error?.message.replace(/([?&]token=)[^&\s]+/g, '$1[token]')
   const token = running?.url.match(/[?&]token=([^&]+)/)?.[1]
   if (token && detail) detail = detail.replaceAll(token, '[token]')
-  if (phase === 'stopping' || op?.kind === 'disconnect') return { ...info, reason: 'stopping' }
   if (phase === 'deploying' || phase === 'starting' || op?.kind === 'connect') {
     return { ...info, reason: 'connecting' }
   }
@@ -105,6 +104,30 @@ async function readResponse(response: Response): Promise<unknown> {
     throw new Error(`远端接口失败（HTTP ${response.status}）${detail}`)
   }
   return result
+}
+
+/** 经隧道用启动 token 换宿主 browser-auth 的 authority 绑定 Cookie：GET 隧道
+ *  根 URL 应答 303 + `./`，Cookie 名绑定完整 authority（含端口）。连接判定问
+ *  实例版本（engine）与会话传输（本文件）共用这一交换。 */
+export async function exchangeTunnelCookie(url: URL, signal: AbortSignal): Promise<string> {
+  const authentication = await fetch(url, { method: 'GET', redirect: 'manual', signal })
+  await authentication.body?.cancel()
+  if (authentication.status !== 303 || authentication.headers.get('location') !== './') {
+    throw new Error(`远端启动 token 换取 Cookie 失败（HTTP ${authentication.status}）`)
+  }
+  const name = `dsh-auth-${createHash('sha256').update(url.host).digest('base64url')}`
+  const cookies = authentication.headers.getSetCookie().filter((cookie) => cookie.startsWith(`${name}=`))
+  if (cookies.length !== 1) throw new Error('远端认证没有返回唯一的 authority 绑定 Cookie')
+  const [cookie, ...attributes] = cookies[0].split(';')
+  if (
+    !cookie ||
+    !new RegExp(`^${name}=[A-Za-z0-9_.-]+$`).test(cookie) ||
+    attributes.some((attribute) => /^\s*domain\s*=/i.test(attribute)) ||
+    !attributes.some((attribute) => /^\s*path=\/$/i.test(attribute))
+  ) {
+    throw new Error('远端认证 Cookie 的格式或作用域无效')
+  }
+  return cookie
 }
 
 /** 复用插件唯一的引擎；Cookie 仅驻留在单次请求中，不能跨连接或重连复用。 */
@@ -175,26 +198,9 @@ export class RemoteTransportService extends Service implements RemoteTransport {
     let postStarted = false
     try {
       assertUnchanged()
-      const authentication = await fetch(url, { method: 'GET', redirect: 'manual', signal })
-      await authentication.body?.cancel()
+      const cookie = await exchangeTunnelCookie(url, signal)
       assertUnchanged()
-      if (authentication.status !== 303 || authentication.headers.get('location') !== './') {
-        throw new Error(`远端启动 token 换取 Cookie 失败（HTTP ${authentication.status}）`)
-      }
-      // 宿主 browser-auth 的 Cookie 名称绑定完整 authority（含端口），不接受其他 Cookie。
-      const name = `dsh-auth-${createHash('sha256').update(url.host).digest('base64url')}`
-      const cookies = authentication.headers.getSetCookie().filter((cookie) => cookie.startsWith(`${name}=`))
-      if (cookies.length !== 1) throw new Error('远端认证没有返回唯一的 authority 绑定 Cookie')
-      const [cookie, ...attributes] = cookies[0].split(';')
-      if (
-        !cookie ||
-        !new RegExp(`^${name}=[A-Za-z0-9_.-]+$`).test(cookie) ||
-        attributes.some((attribute) => /^\s*domain\s*=/i.test(attribute)) ||
-        !attributes.some((attribute) => /^\s*path=\/$/i.test(attribute))
-      ) {
-        throw new Error('远端认证 Cookie 的格式或作用域无效')
-      }
-      sessionCookie = cookie.slice(name.length + 1)
+      sessionCookie = cookie.slice(cookie.indexOf('=') + 1)
       const endpoint = new URL(path, url.origin)
       assertUnchanged()
       postStarted = true

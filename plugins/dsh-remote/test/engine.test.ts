@@ -1,7 +1,7 @@
 /**
  * 连接引擎：fake ssh / 转发 / 扫描依赖上的全链集成——save/test/connect
- * （含部署段：环境装配 / tgz 推送 / 版本对比）/disconnect/三类同步
- * （一致跳过 / 覆盖 / 未勾选不动 / 不删除远端）/互斥。
+ * （含部署段：环境装配 / tgz 推送 / 版本对比 / 实例版本判定与重启回环）
+ * /三类同步（一致跳过 / 覆盖 / 未勾选不动 / 不删除远端）/互斥/删除。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -10,7 +10,13 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { BusyError, RemoteEngine, REMOTE_PLUGIN_FACTS_SCRIPT, type EngineDeps } from '../src/engine'
+import {
+  BusyError,
+  RemoteEngine,
+  REMOTE_PLUGIN_FACTS_SCRIPT,
+  type EngineDeps,
+  type InstanceVersion,
+} from '../src/engine'
 import type { ForwardHandle, SshResult } from '../src/ssh'
 import { ForwardRegistry } from '../src/forwards'
 import { emptyPatchDoc, parsePatchDoc, renderPatchDoc, upsertInsertRow } from '../src/patchDoc'
@@ -30,16 +36,23 @@ const OK: SshResult = { code: 0, stdout: '', stderr: '' }
 const hex = (char: string): string => char.repeat(64)
 
 /** 部署段直通脚本：远端已装齐且版本一致（与 makeDeps 缺省版本对齐）——
- *  连接测试不关心装配细节时前置它，让流程直达启动段。 */
+ *  连接测试不关心装配细节时前置它，让流程直达启动段。六项事实一次探查返回。 */
 function deployReady(command: string): SshResult | undefined {
-  if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-  if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-  if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-  if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
-  if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
-    return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
-  if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
+  if (command.includes('__NODE__')) {
+    return {
+      code: 0,
+      stdout:
+        '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n' +
+        '__PLUGIN__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n__REG__1\n',
+      stderr: '',
+    }
+  }
   return undefined
+}
+
+/** 就绪轮询命中：launch 行 + 同连接附带的 pid。 */
+function launchResult(): SshResult {
+  return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n__PID__4242\n', stderr: '' }
 }
 
 interface FakeOptions {
@@ -64,6 +77,11 @@ interface FakeOptions {
   localDshVersion?: string | null
   /** 本插件版本（部署版本对比目标）；缺省 0.1.0。 */
   localPluginVersion?: string | null
+  /** 经隧道问到的实例版本；函数形式按判定次序变化（回环用例），缺省与本机
+   *  版本一致（复用直连）。 */
+  instanceVersion?: InstanceVersion | ((attempt: number) => InstanceVersion)
+  /** 健康检查结果；函数形式按尝试次序变化（自愈回环用例），缺省恒 true。 */
+  healthCheck?: (attempt: number) => boolean
 }
 
 function makeDeps(options: FakeOptions = {}) {
@@ -73,12 +91,26 @@ function makeDeps(options: FakeOptions = {}) {
   const packedRoots: string[] = []
   let forwardKilled = 0
   let packCount = 0
+  let versionAttempt = 0
+  let healthAttempt = 0
   const deps: EngineDeps = {
     async exec(alias, command, execOptions) {
       calls.push({ alias, command, stdin: execOptions?.stdin })
       const scripted = options.respond?.(command)
       if (scripted instanceof Promise) return scripted
       return scripted ?? OK
+    },
+    async instanceVersion() {
+      versionAttempt += 1
+      const scripted = options.instanceVersion
+      if (scripted === undefined) {
+        return {
+          ok: true as const,
+          dsh: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
+          plugin: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
+        }
+      }
+      return typeof scripted === 'function' ? scripted(versionAttempt) : scripted
     },
     startForward(alias, localPort, remotePort): ForwardHandle {
       return {
@@ -90,7 +122,10 @@ function makeDeps(options: FakeOptions = {}) {
       }
     },
     freeLocalPort: async () => 19999,
-    healthCheck: async () => true,
+    async healthCheck() {
+      healthAttempt += 1
+      return options.healthCheck === undefined ? true : options.healthCheck(healthAttempt)
+    },
     async pushTar(alias, localRoot, remoteRoot, names) {
       tarPushes.push({ alias, localRoot, remoteRoot, names })
     },
@@ -208,18 +243,24 @@ describe('RemoteEngine', () => {
   it('connect 部署段：未装 → 打包推送 tgz 并安装（web profile），verify 读回版本', async () => {
     makeEngine({
       respond: (command) => {
-        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-        if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
-        // 安装前探查（带 2>/dev/null 后缀）读不到包：未装
-        if (command.includes('node_modules/@weilence/dsh-remote/package.json 2>/dev/null')) return OK
-        // verify 读回：装上了 0.1.0
-        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
-          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        if (command.includes('__NODE__')) {
+          // 插件未装：PLUGIN 空、REG 0
+          return {
+            code: 0,
+            stdout:
+              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n__PLUGIN__\n__REG__0\n',
+            stderr: '',
+          }
         }
+        if (command.includes('dsh plugin --profile') && command.includes(' add ')) {
+          // add 同条连接附带 verify 读回：装上了 0.1.0
+          return {
+            code: 0,
+            stdout: '__VERIFY__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n',
+            stderr: '',
+          }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -232,9 +273,14 @@ describe('RemoteEngine', () => {
     expect(state.running).not.toBeNull()
     expect(state.error).toBeNull()
     const commands = fake.calls.map((call) => call.command)
-    expect(commands).toContain(
-      'dsh plugin --profile \'web\' add "$HOME/.dsh/dsh-remote/payload/weilence-dsh-remote-0.1.0.tgz"',
-    )
+    expect(
+      commands.some(
+        (command) =>
+          command.includes('dsh plugin --profile') &&
+          command.includes(' add ') &&
+          command.includes('__VERIFY__'),
+      ),
+    ).toBe(true)
     expect(fake.packCount()).toBe(1)
     expect(fake.filePushes).toEqual([
       {
@@ -252,9 +298,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -272,11 +316,18 @@ describe('RemoteEngine', () => {
   it('connect 部署段：add 成功但读不回版本 → error（假阳性防线）', async () => {
     makeEngine({
       respond: (command) => {
-        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-        if (command === 'dsh -V') return { code: 0, stdout: '0.1.7-rc.2\n', stderr: '' }
-        return undefined // 两次 cat 都空：未装 + 装后读不回
+        if (command.includes('__NODE__')) {
+          // 插件未装：PLUGIN 空、REG 0
+          return {
+            code: 0,
+            stdout:
+              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n__PLUGIN__\n__REG__0\n',
+            stderr: '',
+          }
+        }
+        // add 成功但同条连接读不回（VERIFY 空）
+        if (command.includes('dsh plugin --profile') && command.includes(' add ')) return OK
+        return undefined
       },
     })
     await engine.save(saveRequest())
@@ -291,16 +342,23 @@ describe('RemoteEngine', () => {
   it('connect 部署段：远端 dsh 版本与本机不一致 → npm 装对齐版本', async () => {
     makeEngine({
       respond: (command) => {
-        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
-        if (command === 'dsh -V') return { code: 0, stdout: '0.1.0\n', stderr: '' }
-        if (command.includes('node_modules/@weilence/dsh-remote/package.json'))
-          return { code: 0, stdout: '{"name":"@weilence/dsh-remote","version":"0.1.0"}\n', stderr: '' }
-        if (command.includes('grep -q ')) return { code: 0, stdout: '', stderr: '' }
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        if (command.includes('__NODE__')) {
+          return {
+            code: 0,
+            stdout:
+              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.0\n' +
+              '__PLUGIN__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n__REG__1\n',
+            stderr: '',
+          }
         }
+        if (command.includes('dsh plugin --profile') && command.includes(' add ')) {
+          return {
+            code: 0,
+            stdout: '__VERIFY__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n',
+            stderr: '',
+          }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -318,9 +376,14 @@ describe('RemoteEngine', () => {
     makeEngine({
       localDshVersion: null,
       respond: (command) => {
-        if (command === 'node -v') return { code: 0, stdout: 'v22.19.0\n', stderr: '' }
-        if (command === 'npm -v') return { code: 0, stdout: '10.8.2\n', stderr: '' }
-        if (command === 'pnpm -v') return { code: 0, stdout: '10.12.0\n', stderr: '' }
+        if (command.includes('__NODE__')) {
+          return {
+            code: 0,
+            stdout:
+              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n__PLUGIN__\n__REG__0\n',
+            stderr: '',
+          }
+        }
         return undefined
       },
     })
@@ -337,7 +400,14 @@ describe('RemoteEngine', () => {
   it('connect 部署段：远端缺 node → error 阶段（remote-cmd-failed）', async () => {
     makeEngine({
       respond: (command) => {
-        if (command === 'node -v') return { code: 127, stdout: '', stderr: 'bash: node: command not found' }
+        if (command.includes('__NODE__')) {
+          return {
+            code: 0,
+            stdout:
+              '__NODE__bash: node: command not found\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__\n__PLUGIN__\n__REG__0\n',
+            stderr: '',
+          }
+        }
         return undefined
       },
     })
@@ -348,6 +418,32 @@ describe('RemoteEngine', () => {
     expect(state.phase).toBe('error')
     expect(state.error).toMatchObject({ kind: 'remote-cmd-failed' })
     expect(state.error?.message).toContain('Node')
+  })
+
+  it('connect 部署段：远端缺 pnpm → error 并指路手动安装（不做 corepack 自动启用）', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('__NODE__')) {
+          return {
+            code: 0,
+            stdout:
+              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__bash: pnpm: command not found\n__DSH__\n__PLUGIN__\n__REG__0\n',
+            stderr: '',
+          }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('error')
+    expect(state.error).toMatchObject({ kind: 'remote-cmd-failed' })
+    expect(state.error?.message).toContain('npm install -g pnpm')
+    // 不尝试 corepack，也不推进到 dsh 安装
+    expect(fake.calls.some((call) => call.command.includes('corepack'))).toBe(false)
+    expect(fake.calls.some((call) => call.command.includes('npm install -g'))).toBe(false)
   })
 
   const REMOTE_PATCH = `# 远端手写注释
@@ -372,10 +468,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
-        if (command.includes('.pid')) return { code: 0, stdout: '4242\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
       skills: [
@@ -411,9 +504,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
       globalPrompt: null,
@@ -434,16 +525,14 @@ describe('RemoteEngine', () => {
     expect(fake.forwardCount()).toBe(0)
   })
 
-  it('转发租约：connect 落盘、disconnect 清除、新引擎 load 清扫上个生命周期遗留', async () => {
+  it('转发租约：connect 落盘、删除连接清除、新引擎 load 清扫上个生命周期遗留', async () => {
     // 宿主重启会清空内存运行态但 ssh 子进程可能存活——租约让面板的 idle
     // 与本机进程不再各说各话（现场：面板 idle + 隧道端口仍在应答 401）
     makeEngine({
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -457,9 +546,11 @@ describe('RemoteEngine', () => {
       'dev-box': { pid: 4242, localPort: 19999, remotePort: 4321, at: '2027-01-01T00:00:00.000Z' },
     })
 
-    engine.startDisconnect('dev-box')
-    await waitFor(() => engine.stateOf('dev-box').phase === 'idle')
+    // 删除 = 本地全清（运行中也可删）：转发与租约一并消失，远端实例不动
+    await engine.remove('dev-box')
+    expect(fake.forwardCount()).toBe(1)
     expect(JSON.parse(await readFile(leasePath, 'utf8'))).toEqual({})
+    await engine.save(saveRequest())
 
     // 模拟上个宿主生命周期遗留：租约在、进程归属未知——load 时核验后杀掉
     await writeFile(
@@ -490,10 +581,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
-        if (command.includes('.pid')) return { code: 0, stdout: '4242\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -510,16 +598,13 @@ describe('RemoteEngine', () => {
     expect(fake.forwardCount()).toBe(1) // 重连杀掉了旧转发
   })
 
-  it('connect：远端实例仍存活时复用（不叠加新 nohup 实例）', async () => {
+  it('connect：远端实例仍存活且版本一致时复用（不叠加新 nohup 实例）', async () => {
     makeEngine({
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('kill -0')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
-        if (command.includes('.pid')) return { code: 0, stdout: '4242\n', stderr: '' }
+        if (command.includes('echo reuse:')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
     })
@@ -529,6 +614,9 @@ describe('RemoteEngine', () => {
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
     expect(engine.stateOf('dev-box').running).toMatchObject({ pid: 4242, remotePort: 4321 })
+    // 复用直连：不杀实例（无 stopInstance 命令）、只建一次转发
+    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(false)
+    expect(fake.forwardCount()).toBe(0)
   })
 
   it('connect：token 行迟迟不出现 → timeout 错误并附日志尾部', async () => {
@@ -549,28 +637,148 @@ describe('RemoteEngine', () => {
     expect(state.error?.message).toContain('boom')
   })
 
-  it('disconnect：杀本地转发 + 远端 kill + 回 idle', async () => {
+  it('connect：复用实例自报版本落后 → 杀旧重启收敛（一轮回环）', async () => {
+    // 场景：本机 dsh 已升级，部署段把磁盘升到新版本，但活实例进程还是旧代码
+    // ——实例经 /version 自报旧版本，不匹配 → 杀旧（身份核验 + 子进程补杀 +
+    // pid 清除 + 日志截断）→ 新启动加载新磁盘 → 二轮判定通过。
+    let startCount = 0
     makeEngine({
+      localDshVersion: '0.2.0',
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
+        if (command.includes('echo reuse:')) {
+          startCount += 1
+          return startCount === 1
+            ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+            : { code: 0, stdout: '', stderr: '' }
         }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
-      skills: [],
+      instanceVersion: (attempt) =>
+        attempt === 1
+          ? { ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }
+          : { ok: true, dsh: '0.2.0', plugin: '0.1.0' },
     })
     await engine.save(saveRequest())
     engine.startConnect('dev-box')
     await waitFor(
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
-    engine.startDisconnect('dev-box')
-    await waitFor(() => engine.stateOf('dev-box').phase === 'idle')
-    expect(fake.forwardCount()).toBe(1)
-    expect(fake.calls.some((call) => call.command.includes('kill "$pid"'))).toBe(true)
-    expect(engine.stateOf('dev-box').running).toBeNull()
+    expect(engine.stateOf('dev-box').running).toMatchObject({ pid: 4242 })
+    const stop = fake.calls.find((call) => call.command.includes('ps -p'))
+    expect(stop?.command).toContain('pkill -P "$pid"')
+    expect(stop?.command).toContain('rm -f')
+    expect(stop?.command).toContain(': >')
+    // 真实 bash 语法校验全部远端命令：join(' ') 拼接缺分号只在真 shell 暴露
+    // （实际发生过 stopInstance 的 fi 后缺分号 → bash -c 整条拒绝执行，mock
+    //  全绿——单元测试不解析 shell，语法防线只能靠 bash -n）
+    if (process.platform !== 'win32') {
+      for (const call of fake.calls) {
+        const check = spawnSync('bash', ['-n', '-c', call.command])
+        expect(check.status, call.command.slice(0, 80)).toBe(0)
+      }
+    }
+  })
+
+  it('connect：实例未带版本接口（旧插件 404）→ 视为不匹配重启一轮', async () => {
+    let startCount = 0
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('echo reuse:')) {
+          startCount += 1
+          return startCount === 1
+            ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+            : { code: 0, stdout: '', stderr: '' }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      instanceVersion: (attempt) =>
+        attempt === 1 ? { ok: false, http: 404 } : { ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(true)
+  })
+
+  it('connect：版本接口非 404 失败（如认证 401）→ 显式报错，不盲目重启', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('echo reuse:')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      instanceVersion: { ok: false, http: 401 },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('无法确认远端实例版本')
+    expect(engine.stateOf('dev-box').error?.message).toContain('401')
+    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(false)
+  })
+
+  it('connect：重启后版本仍不匹配 → 报错终止，不无限回环', async () => {
+    let startCount = 0
+    makeEngine({
+      localDshVersion: '0.2.0',
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('echo reuse:')) {
+          startCount += 1
+          return startCount === 1
+            ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+            : { code: 0, stdout: '', stderr: '' }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      instanceVersion: () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('重启后版本仍不匹配')
+    // 只杀过一次（二轮判定失败即终止）
+    expect(fake.calls.filter((call) => call.command.includes('ps -p'))).toHaveLength(1)
+  })
+
+  it('connect：复用实例健康检查不过 → 视为实例病了，重启自愈一轮', async () => {
+    let startCount = 0
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('echo reuse:')) {
+          startCount += 1
+          return startCount === 1
+            ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+            : { code: 0, stdout: '', stderr: '' }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      // 第一轮 8 次健康检查全不过（旧就绪行还在、实例不应答），第二轮通过
+      healthCheck: (attempt) => attempt > 8,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(true)
+    // 病实例的转发被丢弃后重建（两次 kill：丢弃 + fail 无关……此处只验证成功）
+    expect(engine.stateOf('dev-box').running).toMatchObject({ localPort: 19999 })
   })
 
   it('save：运行中改基本信息被拒（同步勾选不经 save，直传 startSync）', async () => {
@@ -578,9 +786,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes("grep -m1 '^dsh web: '")) {
-          return { code: 0, stdout: 'dsh web: http://127.0.0.1:4321/?token=tok43\n', stderr: '' }
-        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
       skills: [],
@@ -830,10 +1036,47 @@ describe('RemoteEngine', () => {
     await engine.save(saveRequest())
     engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
-    const message = engine.stateOf('dev-box').error?.message ?? ''
+    const failure = engine.stateOf('dev-box').error
+    const message = failure?.message ?? ''
     expect(message).toContain('远端安装 @weilence/dsh-mcp 失败')
     expect(message).toContain('ENOENT')
     expect(message).not.toContain('store now, decrypt later')
+    // detail 携带合并两路输出后的完整原文（「查看完整」弹窗的数据源）
+    const detail = failure?.detail ?? ''
+    expect(detail).toContain('[ENOENT] ENOENT: no such file or directory')
+    expect(detail).toContain('dsh: plugin command failed')
+    expect(detail).not.toContain('store now, decrypt later')
+  })
+
+  it('sync plugins：安装失败输出超长 → detail 保尾部并标明截去的量', async () => {
+    makeEngine({
+      profilePatch: PLUGIN_PATCH,
+      profileDeps: { '@weilence/dsh-mcp': 'link:D:/Code/dsh-plugins/plugins/dsh-mcp' },
+      respond: (command) => {
+        if (command.includes('dsh plugin --profile') && command.includes(' add ')) {
+          return {
+            code: 254,
+            stdout: `${'x'.repeat(20 * 1024)}\ntail-root-cause\n`,
+            stderr: '',
+          }
+        }
+        if (command.startsWith('cat ~/.dsh/profiles/web/package.json')) {
+          return {
+            code: 0,
+            stdout: '{"dsh":{"profile":{"bundles":["@deepseek-ai/dsh-base"]}}}\n',
+            stderr: '',
+          }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startSync('dev-box', 'plugins', ['@weilence/dsh-mcp'])
+    await waitFor(() => engine.stateOf('dev-box').op === null)
+    const detail = engine.stateOf('dev-box').error?.detail ?? ''
+    expect(detail).toContain('tail-root-cause')
+    expect(detail).toContain('已截去前 ')
+    expect(detail.length).toBeLessThan(20 * 1024 + 200)
   })
 
   it('sync plugins：本地传输按内容指纹比对——版本同但内容变 → 重装', async () => {

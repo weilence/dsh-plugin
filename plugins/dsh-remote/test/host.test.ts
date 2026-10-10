@@ -142,6 +142,7 @@ async function makeHarness(): Promise<Harness> {
     startForward: () => ({ kill() {}, onExit() {}, pid: 4242 }),
     freeLocalPort: async () => 19999,
     healthCheck: async () => true,
+    instanceVersion: async () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
     pushTar: async () => {},
     pushFile: async () => {},
     readLocalLayers: async () => [],
@@ -325,7 +326,6 @@ describe('dsh-remote 路由', () => {
         vi.spyOn(harness.engine, 'test'),
         vi.spyOn(harness.engine, 'remoteInventory'),
         vi.spyOn(harness.engine, 'startConnect'),
-        vi.spyOn(harness.engine, 'startDisconnect'),
         vi.spyOn(harness.engine, 'startSync'),
       ]
       harness.rejectRequests(status)
@@ -337,7 +337,6 @@ describe('dsh-remote 路由', () => {
         ['POST', '/dsh-remote/test'],
         ['POST', '/dsh-remote/remote-inventory'],
         ['POST', '/dsh-remote/connect'],
-        ['POST', '/dsh-remote/disconnect'],
         ['POST', '/dsh-remote/sync'],
       ]
       for (const [method, path] of routes) {

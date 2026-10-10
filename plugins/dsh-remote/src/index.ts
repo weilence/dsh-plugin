@@ -27,18 +27,18 @@ import {
 import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { ForwardRegistry } from './forwards'
-import { RemoteTransportService } from './transport'
-import { sshExec, startSshForward, tarOverSsh, SshFailure } from './ssh'
+import { RemoteTransportService, exchangeTunnelCookie } from './transport'
+import { sshExec, startSshForward, tarOverSsh, SshFailure, mergedOutput, summarizeOutput } from './ssh'
 import {
   CONNECT_PATH,
   DELETE_PATH,
-  DISCONNECT_PATH,
   LOCAL_ROWS_PATH,
   REMOTE_INVENTORY_PATH,
   SAVE_PATH,
   STATE_PATH,
   SYNC_PATH,
   TEST_PATH,
+  VERSION_PATH,
   type LocalRowsResponse,
   type LocalSkillRow,
   type OpRequest,
@@ -58,9 +58,11 @@ async function probeTool(command: string, args: string[]): Promise<boolean> {
   })
 }
 
-// 本机 dsh 运行时版本（远端部署对齐目标）：必须经宿主运行时解析取包（平台
-// 包不经 node_modules 供给，静态目录探测落空）；取不到回 null，部署段据此
-// 中止——不回退安装 latest 的论证见 engine ensureDeployed。
+// 本机 dsh 运行时版本（远端部署对齐目标 + /version 上报值），模块加载时取一次：
+// 必须经宿主运行时解析取包（平台包不经 node_modules 供给，静态目录探测落空）；
+// 也是快照——getDshRuntimeVersion 运行时读磁盘，远端实例进程里晚读会被连接的
+// 部署段升级污染。取不到回 null，部署段据此中止——不回退安装 latest 的论证见
+// engine ensureDeployed。
 const localDshVersion: string | null = await import('@deepseek-ai/dsh-app-boot')
   .then((boot) => boot.getDshRuntimeVersion())
   .catch(() => null)
@@ -70,8 +72,11 @@ function pluginPackageRoot(): string {
   return dirname(dirname(fileURLToPath(import.meta.url)))
 }
 
-/** 本插件版本（远端部署版本对比目标）；读不到回 null（部署侧退化为每次重装）。 */
-function localPluginVersion(): string | null {
+/** 本插件版本，模块加载时定格（远端部署版本对比目标 + /version 上报值）。
+ *  必须是快照：远端实例进程里运行时读磁盘会被连接的部署段升级污染——报出
+ *  「新版本」而实际跑着旧代码；模块加载即进程启动，此刻磁盘 = 加载的代码。
+ *  读不到回 null（部署侧退化为每次重装）。 */
+const localPluginVersion: string | null = (() => {
   try {
     const manifest = JSON.parse(readFileSync(join(pluginPackageRoot(), 'package.json'), 'utf8')) as {
       version?: unknown
@@ -80,7 +85,7 @@ function localPluginVersion(): string | null {
   } catch {
     return null
   }
-}
+})()
 
 /**
  * 本地组装任意插件包根的 tgz（npm tarball 布局：package/ 前缀）。整目录拷贝
@@ -172,7 +177,11 @@ async function pushFile(
     timeoutMs: 120_000,
   })
   if (pushed.code !== 0)
-    throw new SshFailure('remote-cmd-failed', `推送 ${fileName} 失败：${pushed.stderr.trim().slice(0, 200)}`)
+    throw new SshFailure(
+      'remote-cmd-failed',
+      `推送 ${fileName} 失败：${summarizeOutput('', pushed.stderr)}`,
+      mergedOutput('', pushed.stderr),
+    )
 }
 
 function makeEngine(ctx: Context): RemoteEngine {
@@ -200,6 +209,31 @@ function makeEngine(ctx: Context): RemoteEngine {
         return false
       }
     },
+    // 经隧道问远端实例的运行身份：token 换 Cookie 后 GET /version（apply 时
+    // 定格的快照）。404 = 实例运行着未带该接口的旧插件；其余失败回错误原文，
+    // 由引擎按「无法判定」显式失败（不盲目重启）。
+    instanceVersion: async (tunnelUrl) => {
+      try {
+        const url = new URL(tunnelUrl)
+        const signal = AbortSignal.timeout(15_000)
+        const cookie = await exchangeTunnelCookie(url, signal)
+        const response = await fetch(new URL(VERSION_PATH, url.origin), {
+          redirect: 'manual',
+          signal,
+          headers: { cookie, 'sec-fetch-site': 'same-origin', origin: url.origin },
+        })
+        if (response.status === 404) return { ok: false as const, http: 404 }
+        if (!response.ok) return { ok: false as const, http: response.status }
+        const body = (await response.json()) as { dsh?: unknown; plugin?: unknown }
+        return {
+          ok: true as const,
+          dsh: typeof body.dsh === 'string' ? body.dsh : null,
+          plugin: typeof body.plugin === 'string' ? body.plugin : null,
+        }
+      } catch (error) {
+        return { ok: false as const, error: errMsg(error) }
+      }
+    },
     pushTar: tarOverSsh,
     pushFile,
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
@@ -224,7 +258,7 @@ function makeEngine(ctx: Context): RemoteEngine {
       }
     },
     localDshVersion,
-    localPluginVersion: localPluginVersion(),
+    localPluginVersion,
     packPlugin,
     packPackage,
     forwards: new ForwardRegistry(dshHomePath()),
@@ -439,34 +473,42 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
     'dsh-remote: remote-inventory bridge',
   )
 
-  const fire = (path: string, ignite: (id: string) => void, label: string): void => {
-    ctx.effect(
-      () =>
-        ctx.webServer.register({
-          kind: 'exact',
-          path,
-          handler: async (req: IncomingMessage, res: ServerResponse) => {
-            try {
-              if (!guard(req, res, 'POST')) return
-              const id = await connIdOf(req)
-              await engine.load()
-              engine.connectionOf(id)
-              ignite(id)
-              const row = engine.rows().find((candidate) => candidate.id === id)
-              writeJson(res, 200, { started: true, state: row?.state ?? null })
-            } catch (error) {
-              writeJson(res, statusOf(error), {
-                error: errMsg(error),
-              })
-            }
-          },
-        }),
-      label,
-    )
-  }
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: CONNECT_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!guard(req, res, 'POST')) return
+            const id = await connIdOf(req)
+            await engine.load()
+            engine.connectionOf(id)
+            engine.startConnect(id)
+            const row = engine.rows().find((candidate) => candidate.id === id)
+            writeJson(res, 200, { started: true, state: row?.state ?? null })
+          } catch (error) {
+            writeJson(res, statusOf(error), { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-remote: connect bridge',
+  )
 
-  fire(CONNECT_PATH, (id) => engine.startConnect(id), 'dsh-remote: connect bridge')
-  fire(DISCONNECT_PATH, (id) => engine.startDisconnect(id), 'dsh-remote: disconnect bridge')
+  // 实例运行身份上报（连接的版本判定用）：两个值都是模块加载时定格的快照——
+  // 远端实例进程里此刻磁盘 = 加载的代码；运行时读会被连接的部署段升级污染。
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: VERSION_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          if (!guard(req, res, 'GET')) return
+          writeJson(res, 200, { dsh: localDshVersion, plugin: localPluginVersion })
+        },
+      }),
+    'dsh-remote: version bridge',
+  )
 
   ctx.effect(
     () =>
