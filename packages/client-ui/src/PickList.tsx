@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import shared from './shared.module.css'
 import { ToneChip } from './tone'
 
@@ -21,11 +22,15 @@ export interface PickItem {
 
 export function PickList(props: {
   items: readonly PickItem[]
+  /** 空清单的占位内容（文案归调用方本地化）；缺省且清单为空时不渲染。 */
+  empty?: ReactNode
   picked: ReadonlySet<string>
   onToggle(key: string): void
 }) {
-  const { items, picked, onToggle } = props
-  if (items.length === 0) return null
+  const { items, empty, picked, onToggle } = props
+  if (items.length === 0) {
+    return empty === undefined ? null : <p className={shared.pickEmpty}>{empty}</p>
+  }
   return (
     <ul className={shared.pickList}>
       {items.map((item) => (

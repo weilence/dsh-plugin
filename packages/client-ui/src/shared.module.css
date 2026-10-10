@@ -197,6 +197,18 @@
   gap: 6px;
 }
 
+/* 空清单占位（PickItem 的 empty 内容外套）：虚线框表示「此处本有列表」。 */
+.pickEmpty {
+  margin: 0;
+  padding: 16px;
+  border: 0.5px dashed var(--dsw-alias-border-l3);
+  border-radius: 9px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .pickRow {
   border: 0.5px solid var(--dsw-alias-border-l3);
   border-radius: 9px;

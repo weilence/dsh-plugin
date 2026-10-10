@@ -396,7 +396,7 @@ export function SyncDialog(props: {
             </label>
           ) : null}
           {rows.length === 0 ? (
-            <p className={local.hint}>{t(KIND_EMPTY_KEYS[kind])}</p>
+            <PickList items={[]} empty={t(KIND_EMPTY_KEYS[kind])} picked={pickedOfKind} onToggle={toggle} />
           ) : (
             <>
               <p className={local.hint}>{summaryParts.join(' · ')}</p>
@@ -414,16 +414,12 @@ export function SyncDialog(props: {
                   />
                 </span>
               </div>
-              {visibleRows.length === 0 ? (
-                // 全部条目已一致且被隐藏：给空态占位说明，不留无解释的空白
-                <p className={local.hint}>{t('sync.allHidden')}</p>
-              ) : (
-                <PickList
-                  items={visibleRows.map((entry) => entry.view(t))}
-                  picked={pickedOfKind}
-                  onToggle={toggle}
-                />
-              )}
+              <PickList
+                items={visibleRows.map((entry) => entry.view(t))}
+                empty={t('sync.allHidden')}
+                picked={pickedOfKind}
+                onToggle={toggle}
+              />
             </>
           )}
         </div>
