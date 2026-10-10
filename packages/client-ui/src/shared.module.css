@@ -186,18 +186,15 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* 勾选清单（PickList）：候选行 = 最左垂直居中的 checkbox + 标题 / 元
-   信息列；长清单自身滚动，操作按钮留在滚动区外；右侧留 4px 给滚动条。 */
+/* 勾选清单（PickList）：候选行 = 最左垂直居中的 checkbox + 标题 / 元信息列。
+   不自设高度与滚动——清单随所在弹窗的滚动容器走，避免出现第二根滚动条。 */
 .pickList {
   margin: 0;
-  padding: 0 4px 0 0;
+  padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: min(50vh, 440px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .pickRow {
@@ -225,6 +222,12 @@
   line-height: 17px;
   color: var(--dsw-alias-label-secondary);
   overflow-wrap: anywhere;
+}
+
+/* 行尾状态徽标（PickItem.tag）的占位：与标题同行、不随长标题换行拉开。 */
+.pickTag {
+  margin-left: 6px;
+  white-space: nowrap;
 }
 
 .pickNote {

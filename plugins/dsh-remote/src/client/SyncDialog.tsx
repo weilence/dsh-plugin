@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Dialog, IssueList, PickList, SelectField, type PickItem } from '@dsh-plugins/client-ui'
+import { Dialog, IssueList, PickList, type PickItem } from '@dsh-plugins/client-ui'
+import shared from '@dsh-plugins/client-ui/styles'
 import { errMsg } from '@dsh-plugins/shared'
 import {
   mcpStatus,
@@ -379,26 +380,26 @@ export function SyncDialog(props: {
               ]}
             />
           ) : null}
-          {kind === 'plugins' ? <p className={local.hint}>{t('sync.pluginsHint')}</p> : null}
           {kind === 'plugins' ? (
-            <SelectField
-              label={t('sync.registryInstallLabel')}
-              value={draft.registryPluginInstall}
-              options={[
-                { value: 'remote', label: t('sync.registryInstall.remote') },
-                { value: 'push', label: t('sync.registryInstall.push') },
-              ]}
-              onChange={(registryPluginInstall) => patch({ registryPluginInstall })}
-            />
+            <label className={local.installRow}>
+              <span className={local.installLabel}>{t('sync.registryInstallLabel')}</span>
+              <select
+                className={shared.select}
+                value={draft.registryPluginInstall}
+                onChange={(event) =>
+                  patch({ registryPluginInstall: event.target.value as RegistryPluginInstall })
+                }
+              >
+                <option value="remote">{t('sync.registryInstall.remote')}</option>
+                <option value="push">{t('sync.registryInstall.push')}</option>
+              </select>
+            </label>
           ) : null}
           {rows.length === 0 ? (
             <p className={local.hint}>{t(KIND_EMPTY_KEYS[kind])}</p>
           ) : (
             <>
-              <p className={local.hint}>
-                {summaryParts.join(' · ')}
-                {t('sync.summarySuffix')}
-              </p>
+              <p className={local.hint}>{summaryParts.join(' · ')}</p>
               <div className={local.syncToolbar}>
                 <label className={local.checkAll}>
                   <input type="checkbox" checked={allVisiblePicked} onChange={toggleAll} />

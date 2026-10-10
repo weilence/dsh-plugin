@@ -36,3 +36,20 @@
 .hideSameText {
   user-select: none;
 }
+
+/* 非本地插件安装方式：label 与下拉同行，不占整行宽度。 */
+.installRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.installRow select {
+  width: auto;
+}
+
+.installLabel {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}

@@ -112,24 +112,19 @@ export const zh = {
   'kind.prompts': '提示词',
 
   'sync.title': '同步到「{label}」：{kind}',
-  'sync.desc.skills':
-    '列表为本机两个用户级根的技能：勾选项推送到远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  'sync.desc.mcp':
-    '列表为本机两层 patch 的 MCP 声明：勾选项写入远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  'sync.desc.plugins':
-    '列表为本机已装插件：勾选项安装 / 升级到远端（已一致的自动跳过）；未勾选与远端独有条目不受影响，不会删除远端内容。',
-  'sync.desc.prompts':
-    '全局提示词为单文件（用户级 AGENTS.md，与「全局提示词」面板管理同一文件）：勾选即推送到远端（内容一致自动跳过）；未勾选不动，不会删除远端文件。远端实例在下一次尚未开始的模型步骤读取新内容。',
+  'sync.desc.skills': '勾选项推送到远端；未勾选不动，不删除远端内容。',
+  'sync.desc.mcp': '勾选项写入远端 patch；未勾选不动，不删除远端内容。',
+  'sync.desc.plugins': '勾选项安装 / 升级到远端；未勾选不动，不删除远端内容。',
+  'sync.desc.prompts': '勾选即推送到远端 AGENTS.md；未勾选不动，不删除远端文件。',
   'sync.busy': '同步中…',
   'sync.unavailable': '本机清单不可用（当前宿主未提供 profileContext），无法选择同步内容。',
   'sync.loadingInventory': '正在读取远端清单并与本机比对…',
   'sync.inventoryError':
     '远端清单读取失败（{reason}；宿主为旧版时重启宿主可解）：无法逐条比对，以下按「无法比对」展示；确认后将按勾选推送 / 覆盖（只新增 / 覆盖，不删除远端内容）。',
   'sync.unknownReason': '未知原因',
-  'sync.pluginsHint': '本地路径安装（link / file）的插件永远本地打包传输；npm 依赖形态按下面的选项。',
   'sync.registryInstallLabel': '非本地插件安装方式',
-  'sync.registryInstall.remote': '远端下载（远端 npm 拉取，需已发布）',
-  'sync.registryInstall.push': '本地传输（打包本机实体推送，无需发布）',
+  'sync.registryInstall.remote': '远端 npm 下载',
+  'sync.registryInstall.push': '本地打包传输',
   'sync.empty.skills': '本机两个用户级根（~/.dsh/skills、~/.agents/skills）没有可发现的技能。',
   'sync.empty.mcp': '本机没有可同步的 MCP 声明。',
   'sync.empty.plugins': '本机没有可同步的插件（两层 patch 行与 bundles 激活清单均为空）。',
@@ -138,7 +133,6 @@ export const zh = {
   'sync.summarySame': '{count} 项已一致（{state}）',
   'sync.hidden': '已隐藏',
   'sync.forceHint': '勾选即强制重推',
-  'sync.summarySuffix': '——勾选才会同步，默认全部不勾。',
   'sync.hideSame': '隐藏已一致条目（{count}）',
   'sync.selectAll': '全选',
   'sync.remoteMcp': '远端：{summary}',
@@ -264,13 +258,13 @@ export const en: { [Key in RemoteKey]: string } = {
 
   'sync.title': 'Sync to "{label}": {kind}',
   'sync.desc.skills':
-    'The list shows skills from the two user-level local roots: picked items are pushed to the remote (identical ones are skipped automatically); unpicked and remote-only items are untouched and nothing on the remote is deleted.',
+    'Picked items are pushed to the remote; unpicked ones are untouched and nothing is deleted.',
   'sync.desc.mcp':
-    'The list shows MCP declarations from the two user patch layers: picked items are written to the remote (identical ones are skipped automatically); unpicked and remote-only items are untouched and nothing on the remote is deleted.',
+    'Picked items are written to the remote patch; unpicked ones are untouched and nothing is deleted.',
   'sync.desc.plugins':
-    'The list shows installed local plugins: picked items are installed / upgraded on the remote (identical ones are skipped automatically); unpicked and remote-only items are untouched and nothing on the remote is deleted.',
+    'Picked items are installed / upgraded on the remote; unpicked ones are untouched and nothing is deleted.',
   'sync.desc.prompts':
-    'The global prompt is a single file (the user-level AGENTS.md, the same file the "Global prompt" panel manages): picking it pushes it to the remote (identical content is skipped automatically); unpicked means untouched and the remote file is never deleted. The remote instance reads the new content on the next model step that has not started yet.',
+    'Picking pushes the remote AGENTS.md; unpicked means untouched and the file is never deleted.',
   'sync.busy': 'Syncing…',
   'sync.unavailable':
     'The local inventory is unavailable (this host provides no profileContext); sync contents cannot be selected.',
@@ -278,11 +272,9 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.inventoryError':
     'Reading the remote inventory failed ({reason}; restarting an older host may fix it): per-item comparison is unavailable, everything below is shown as "unverifiable"; confirming pushes / overwrites the picked items (add / overwrite only, nothing on the remote is deleted).',
   'sync.unknownReason': 'unknown reason',
-  'sync.pluginsHint':
-    'Locally installed plugins (link / file) are always packed and transferred locally; npm-shaped dependencies follow the option below.',
-  'sync.registryInstallLabel': 'Install method for non-local plugins',
-  'sync.registryInstall.remote': 'Remote download (remote npm pull; must be published)',
-  'sync.registryInstall.push': 'Local transfer (pack and push the local copy; no publishing needed)',
+  'sync.registryInstallLabel': 'Install method (non-local plugins)',
+  'sync.registryInstall.remote': 'Remote npm download',
+  'sync.registryInstall.push': 'Local pack & push',
   'sync.empty.skills':
     'No discoverable skills in the two user-level local roots (~/.dsh/skills, ~/.agents/skills).',
   'sync.empty.mcp': 'No local MCP declarations to sync.',
@@ -294,7 +286,6 @@ export const en: { [Key in RemoteKey]: string } = {
   'sync.summarySame': '{count} already identical ({state})',
   'sync.hidden': 'hidden',
   'sync.forceHint': 'pick to force re-push',
-  'sync.summarySuffix': ' — only picked items sync; nothing is picked by default.',
   'sync.hideSame': 'Hide identical items ({count})',
   'sync.selectAll': 'Select all',
   'sync.remoteMcp': 'remote: {summary}',

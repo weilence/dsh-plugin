@@ -43,6 +43,11 @@ export function PickList(props: {
                 {item.titleMeta !== undefined ? (
                   <span className={shared.pickMeta}> · {item.titleMeta}</span>
                 ) : null}
+                {item.tag !== undefined ? (
+                  <span className={shared.pickTag}>
+                    <ToneChip tone="ok">{item.tag}</ToneChip>
+                  </span>
+                ) : null}
               </span>
               {(item.lines ?? []).map((line, index) => (
                 <span key={index} className={shared.pickMeta}>
@@ -55,7 +60,6 @@ export function PickList(props: {
                 </span>
               ))}
               {item.problem !== undefined ? <span className={shared.pickProblem}>{item.problem}</span> : null}
-              {item.tag !== undefined ? <ToneChip tone="ok">{item.tag}</ToneChip> : null}
             </span>
           </label>
         </li>
