@@ -1,19 +1,10 @@
 import { createBridgeClient } from '@dsh-plugins/shared/api'
-import {
-  SWITCH_SET_PATH,
-  SWITCH_STATE_PATH,
-  type SearchSwitchSetRequest,
-  type SearchSwitchSetResponse,
-  type SearchSwitchView,
-} from '../shared'
+import { ENDPOINT_STATUS_PATH, type EndpointStatusView } from '../shared'
 
 const { request } = createBridgeClient('x-dsh-zhipu-tools')
 
-export const switchApi = {
-  state(): Promise<SearchSwitchView> {
-    return request(SWITCH_STATE_PATH)
-  },
-  set(requestBody: SearchSwitchSetRequest): Promise<SearchSwitchSetResponse> {
-    return request(SWITCH_SET_PATH, { method: 'POST', body: JSON.stringify(requestBody) })
+export const endpointApi = {
+  status(): Promise<EndpointStatusView> {
+    return request(ENDPOINT_STATUS_PATH)
   },
 }

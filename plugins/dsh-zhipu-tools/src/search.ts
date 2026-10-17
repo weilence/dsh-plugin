@@ -1,13 +1,7 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { WebError } from '@deepseek-ai/dsh-web'
-import type {
-  WebSearchProvider,
-  WebSearchRequest,
-  WebSearchResult,
-  WebSearchSource,
-} from '@deepseek-ai/dsh-web'
+import type { WebSearchResult, WebSearchSource } from '@deepseek-ai/dsh-web'
 
-export const ZHIPU_SEARCH_PROVIDER_ID = 'zhipu'
 const SEARCH_URL = 'https://open.bigmodel.cn/api/mcp/web_search_prime/mcp'
 const TOOL_NAMES = new Set(['web_search_prime', 'webSearchPrime'])
 const REQUEST_TIMEOUT_MS = 30_000
@@ -110,51 +104,47 @@ export function parseSearchResult(result: {
   return { sources: data.map(sourceFrom), truncated: false }
 }
 
-export function createZhipuSearchProvider(
-  resolveKey: () => Promise<string>,
-  endpoint = SEARCH_URL,
-): WebSearchProvider {
-  return {
-    id: ZHIPU_SEARCH_PROVIDER_ID,
-    available: () => true,
-    async search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResult> {
-      if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED')
-      const key = await resolveKey()
-      if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED')
-      const client = new Client({ name: 'dsh-zhipu-tools', version: '0.1.0' })
-      const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
-        requestInit: { headers: { Authorization: `Bearer ${key}` }, redirect: 'error' },
-      })
-      try {
-        await client.connect(transport, { signal, timeout: REQUEST_TIMEOUT_MS })
-        const { tools } = await client.listTools(undefined, { signal, timeout: REQUEST_TIMEOUT_MS })
-        const candidates = tools.filter((tool) => TOOL_NAMES.has(tool.name))
-        if (candidates.length !== 1) {
-          throw searchError(`智谱搜索工具发现失败：期望一个搜索工具，实际找到 ${candidates.length} 个`)
-        }
-        const tool = candidates[0]!
-        const querySchema = tool.inputSchema.properties?.search_query
-        if (
-          !tool.inputSchema.required?.includes('search_query') ||
-          typeof querySchema !== 'object' ||
-          querySchema === null ||
-          Array.isArray(querySchema) ||
-          (querySchema as Record<string, unknown>).type !== 'string'
-        ) {
-          throw searchError(`智谱搜索工具 ${tool.name} 的 search_query 参数不符合预期`)
-        }
-        const result = await client.callTool(
-          { name: tool.name, arguments: { search_query: request.query } },
-          { signal, timeout: REQUEST_TIMEOUT_MS, toolDefinition: tool },
-        )
-        return parseSearchResult(result)
-      } catch (error) {
-        if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED', { cause: error })
-        if (error instanceof WebError) throw error
-        throw searchError(`智谱搜索请求失败：${String(error)}`, error)
-      } finally {
-        await client.close()
+/** 一次智谱联网搜索：入参是查询串，返回 web 服务同构的来源列表。 */
+export type ZhipuSearch = (query: string, signal?: AbortSignal) => Promise<WebSearchResult>
+
+export function createZhipuSearch(resolveKey: () => Promise<string>, endpoint = SEARCH_URL): ZhipuSearch {
+  return async (query, signal): Promise<WebSearchResult> => {
+    if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED')
+    const key = await resolveKey()
+    if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED')
+    const client = new Client({ name: 'dsh-zhipu-tools', version: '0.1.0' })
+    const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
+      requestInit: { headers: { Authorization: `Bearer ${key}` }, redirect: 'error' },
+    })
+    try {
+      await client.connect(transport, { signal, timeout: REQUEST_TIMEOUT_MS })
+      const { tools } = await client.listTools(undefined, { signal, timeout: REQUEST_TIMEOUT_MS })
+      const candidates = tools.filter((tool) => TOOL_NAMES.has(tool.name))
+      if (candidates.length !== 1) {
+        throw searchError(`智谱搜索工具发现失败：期望一个搜索工具，实际找到 ${candidates.length} 个`)
       }
-    },
+      const tool = candidates[0]!
+      const querySchema = tool.inputSchema.properties?.search_query
+      if (
+        !tool.inputSchema.required?.includes('search_query') ||
+        typeof querySchema !== 'object' ||
+        querySchema === null ||
+        Array.isArray(querySchema) ||
+        (querySchema as Record<string, unknown>).type !== 'string'
+      ) {
+        throw searchError(`智谱搜索工具 ${tool.name} 的 search_query 参数不符合预期`)
+      }
+      const result = await client.callTool(
+        { name: tool.name, arguments: { search_query: query } },
+        { signal, timeout: REQUEST_TIMEOUT_MS, toolDefinition: tool },
+      )
+      return parseSearchResult(result)
+    } catch (error) {
+      if (signal?.aborted) throw new WebError('智谱搜索已取消', 'WEB_ABORTED', { cause: error })
+      if (error instanceof WebError) throw error
+      throw searchError(`智谱搜索请求失败：${String(error)}`, error)
+    } finally {
+      await client.close()
+    }
   }
 }

@@ -1,52 +1,29 @@
-import type { SearchSwitchView } from '../shared'
+import { KEY_REFS, type EndpointStatusView } from '../shared'
 import type { ZhipuT } from './locales'
 
-/** 开关的展示投影：纯函数，供面板渲染与单测共用；文案经 t 取词，Host 原因原样透传。 */
-export interface SwitchDisplay {
-  checked: boolean
-  disabled: boolean
-  switchTitle: string | undefined
-  waiting: boolean
-  providerText: string
-  sourceText: string
-  effectText: string
-  hint: string | null
+/** 端点面板的展示投影：纯函数，供面板渲染与单测共用；文案经 t 取词，Host 原因原样透传。 */
+export interface EndpointDisplay {
+  /** 填入内置设置的完整地址（null = 端点未监听）。 */
+  urlText: string | null
+  /** 填进内置密钥栏的 API 密钥（null = 端点未在监听）。 */
+  tokenText: string | null
+  listenText: string
+  credentialText: string
+  /** 凭据解析故障原文（无故障为 null）。 */
+  credentialHint: string | null
+  mcpText: string
 }
 
-export function projectSwitch(
-  t: ZhipuT,
-  view: SearchSwitchView,
-  pending: boolean | null,
-  busy: boolean,
-): SwitchDisplay {
-  const checked = pending ?? view.active
-  const waiting = pending !== null && view.active !== pending
-  const disabled = busy || !view.editable
-  const providerText = view.effectiveProvider ?? view.fileProvider ?? t('provider.unconfigured')
-  const sourceText =
-    view.effectiveProvider !== undefined
-      ? view.effectiveProvider === view.fileProvider || view.fileProvider === null
-        ? t('source.runtime')
-        : t('source.runtimeUnequal', {
-            provider: view.fileProvider ?? t('source.fileUnconfigured'),
-          })
-      : t('source.fileOnly')
-  const effectText = waiting ? t('effect.waiting') : view.hotApply ? t('effect.hot') : t('effect.restart')
-  // reason 是 Host 给出的不可编辑原因（errMsg 原文），不翻译。
-  let hint: string | null = view.reason
-  if (waiting) {
-    hint = view.hotApply ? t('hint.settlingHot') : t('hint.settlingRestart')
-  } else if (view.editable && view.active) {
-    hint = t('hint.uninstall')
-  }
+export function projectEndpoint(t: ZhipuT, view: EndpointStatusView): EndpointDisplay {
   return {
-    checked,
-    disabled,
-    switchTitle: view.editable ? undefined : (view.reason ?? t('hint.notEditable')),
-    waiting,
-    providerText,
-    sourceText,
-    effectText,
-    hint,
+    urlText: view.baseUrl,
+    tokenText: view.token,
+    listenText: view.baseUrl === null ? t('status.down') : t('status.listening', { port: String(view.port) }),
+    credentialText: view.credential.configured
+      ? t('credential.ok')
+      : t('credential.missing', { refs: KEY_REFS.join(' / ') }),
+    // failure 是 Host 给出的解析故障原文（errMsg），不翻译。
+    credentialHint: view.credential.failure ?? null,
+    mcpText: view.mcp.map((item) => `${item.server} ${item.mounted ? '✓' : '✗'}`).join('　'),
   }
 }

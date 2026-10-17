@@ -1,39 +1,31 @@
 import { errMsg } from '@dsh-plugins/shared'
-import { switchApi } from './api'
-import type { SearchSwitchView } from '../shared'
+import { endpointApi } from './api'
+import type { EndpointStatusView } from '../shared'
 import type { ZhipuT } from './locales'
 
-export interface SearchSwitchState {
+export interface EndpointState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   notice: string | null
-  view: SearchSwitchView | null
-  busy: boolean
-  /** 刚写入、宿主尚未应用的目标值；结算后清空。 */
-  pending: boolean | null
+  view: EndpointStatusView | null
 }
 
-const INITIAL: SearchSwitchState = {
+const INITIAL: EndpointState = {
   status: 'idle',
   error: null,
   notice: null,
   view: null,
-  busy: false,
-  pending: null,
 }
 
-/** 写入后等待 HMR 生效的补偿刷新延迟。 */
-const SETTLE_DELAYS_MS = [1200, 4000] as const
-
-export class SearchSwitchStore {
-  private snapshot: SearchSwitchState = INITIAL
+export class EndpointStore {
+  private snapshot: EndpointState = INITIAL
   private readonly listeners = new Set<() => void>()
   private refreshGeneration = 0
 
-  // notice 是写入瞬间的即显 Toast：事件时间取词，不跨语言切换存活。
+  // notice 是复制成功的即显 Toast：事件时间取词，不跨语言切换存活。
   constructor(private readonly t: ZhipuT) {}
 
-  getSnapshot = (): SearchSwitchState => this.snapshot
+  getSnapshot = (): EndpointState => this.snapshot
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
@@ -42,7 +34,7 @@ export class SearchSwitchStore {
     }
   }
 
-  private set(patch: Partial<SearchSwitchState>): void {
+  private set(patch: Partial<EndpointState>): void {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
   }
@@ -54,17 +46,11 @@ export class SearchSwitchStore {
   refresh(): Promise<void> {
     const generation = ++this.refreshGeneration
     if (this.snapshot.status === 'idle') this.set({ status: 'loading' })
-    return switchApi
-      .state()
+    return endpointApi
+      .status()
       .then((view) => {
         if (generation !== this.refreshGeneration) return
-        const settled = this.snapshot.pending !== null && view.active === this.snapshot.pending
-        this.set({
-          status: 'ready',
-          error: null,
-          view,
-          ...(settled ? { pending: null } : {}),
-        })
+        this.set({ status: 'ready', error: null, view })
       })
       .catch((error: unknown) => {
         if (generation !== this.refreshGeneration) return
@@ -72,34 +58,25 @@ export class SearchSwitchStore {
       })
   }
 
-  /** 开 / 关。写入成功后补偿刷新覆盖宿主应用窗口；失败返回 false。 */
-  async setEnabled(enabled: boolean): Promise<boolean> {
-    this.set({ busy: true, error: null, notice: null })
+  /** 复制端点地址或 API 密钥：成功即显 Toast，失败清掉旧提示并把原样错误留在面板错误行。 */
+  async copyUrl(): Promise<void> {
+    await this.copyToClipboard(this.snapshot.view?.baseUrl, 'notice.copied')
+  }
+
+  async copyToken(): Promise<void> {
+    await this.copyToClipboard(this.snapshot.view?.token, 'notice.copiedKey')
+  }
+
+  private async copyToClipboard(
+    value: string | null | undefined,
+    noticeKey: 'notice.copied' | 'notice.copiedKey',
+  ): Promise<void> {
+    if (value === undefined || value === null) return
     try {
-      const outcome = await switchApi.set({ enabled })
-      const action = enabled ? this.t('action.enabled') : this.t('action.disabled')
-      const hint = outcome.written
-        ? this.t('notice.written', { scope: outcome.scope, action })
-        : this.t('notice.idle', { action })
-      this.set({ pending: enabled, notice: hint })
-      await this.refresh()
-      SETTLE_DELAYS_MS.forEach((delay, index) => {
-        const isLast = index === SETTLE_DELAYS_MS.length - 1
-        setTimeout(() => {
-          void this.refresh().then(() => {
-            // 末次刷新仍未追上（无 HMR 需重启 / 被更高层覆盖）：按实际状态展示。
-            if (isLast && this.snapshot.pending === enabled && !this.snapshot.busy) {
-              this.set({ pending: null })
-            }
-          })
-        }, delay)
-      })
-      return true
+      await navigator.clipboard.writeText(value)
+      this.set({ notice: this.t(noticeKey) })
     } catch (error) {
-      this.set({ error: errMsg(error), pending: null })
-      return false
-    } finally {
-      this.set({ busy: false })
+      this.set({ error: errMsg(error), notice: null })
     }
   }
 }

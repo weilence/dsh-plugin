@@ -3,8 +3,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { SearchSwitchSection, type SearchSwitchSectionInjected } from './SearchSwitchSection'
-import { SearchSwitchStore } from './store'
+import { EndpointSection, type EndpointSectionInjected } from './EndpointSection'
+import { EndpointStore } from './store'
 import { NS, en, zh } from './locales'
 
 export const inject: string[] = ['slots', 'locale']
@@ -14,20 +14,20 @@ export function apply(ctx: ClientContext) {
   // store 即显 notice 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
   // 框架标准 seat（每个语言切换换新引用）。
   const t = ctx.locale.bind(NS)
-  const store = new SearchSwitchStore(t)
-  const injected: SearchSwitchSectionInjected = { store }
+  const store = new EndpointStore(t)
+  const injected: EndpointSectionInjected = { store }
 
-  // 开关挂自家 bundle 详情页（keyed by 包名）：装了插件点开卡片即见开关，
-  // 不再占设置页一级导航。
+  // 端点面板挂自家 bundle 详情页（keyed by 包名）：装了插件点开卡片即见，
+  // 不占设置页一级导航。
   ctx.slots.inject('plugins.bundle.config', () => {
     return ctx.slots.register(
       {
         name: 'plugins.bundle.config',
         key: '@weilence/dsh-zhipu-tools',
         locale: NS,
-        inject: (): SearchSwitchSectionInjected => injected,
+        inject: (): EndpointSectionInjected => injected,
       },
-      SearchSwitchSection,
+      EndpointSection,
     )
   })
 }

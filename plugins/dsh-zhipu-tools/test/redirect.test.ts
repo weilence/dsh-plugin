@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 import { afterEach, expect, it } from 'vitest'
-import { createZhipuSearchProvider } from '../src/search'
+import { createZhipuSearch } from '../src/search'
 
 const servers: ReturnType<typeof createServer>[] = []
 
@@ -41,8 +41,8 @@ it('携带 Bearer 凭据的 MCP 请求不跟随重定向', async () => {
     }),
   )
 
-  const provider = createZhipuSearchProvider(async () => 'only-for-source', `${source}/mcp`)
-  await expect(provider.search({ query: '安全测试' })).rejects.toThrow()
+  const search = createZhipuSearch(async () => 'only-for-source', `${source}/mcp`)
+  await expect(search('安全测试')).rejects.toThrow()
   expect(initialAuthorization).toBe('Bearer only-for-source')
   expect(targetRequests).toBe(0)
 })

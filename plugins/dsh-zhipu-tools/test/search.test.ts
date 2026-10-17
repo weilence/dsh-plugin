@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createZhipuSearchProvider, parseSearchResult } from '../src/search'
+import { createZhipuSearch, parseSearchResult } from '../src/search'
 
 const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
@@ -124,12 +124,12 @@ describe('智谱搜索结果解析', () => {
   })
 })
 
-describe('智谱搜索提供者', () => {
+describe('智谱搜索核心', () => {
   it('每次读取凭据、发现工具并传递取消信号，连接关闭后不保留状态', async () => {
     const resolveKey = vi.fn().mockResolvedValue('test-key')
-    const provider = createZhipuSearchProvider(resolveKey)
+    const search = createZhipuSearch(resolveKey)
     const signal = new AbortController().signal
-    const output = await provider.search({ query: '测试', maxResults: 8 }, signal)
+    const output = await search('测试', signal)
     expect(output.sources).toEqual([])
     expect(resolveKey).toHaveBeenCalledOnce()
     expect(mocks.transport).toHaveBeenCalledWith(
@@ -146,27 +146,27 @@ describe('智谱搜索提供者', () => {
   })
 
   it('接受服务端文档中的驼峰工具名，拒绝缺失、重复或不兼容的参数 schema', async () => {
-    const provider = createZhipuSearchProvider(async () => 'test-key')
+    const search = createZhipuSearch(async () => 'test-key')
     mocks.listTools.mockResolvedValueOnce({ tools: [{ ...searchTool, name: 'webSearchPrime' }] })
-    await provider.search({ query: 'ok' })
+    await search('ok')
     expect(mocks.callTool.mock.calls[0]?.[0].name).toBe('webSearchPrime')
     mocks.listTools.mockResolvedValueOnce({ tools: [] })
-    await expect(provider.search({ query: 'missing' })).rejects.toThrow('找到 0 个')
+    await expect(search('missing')).rejects.toThrow('找到 0 个')
     mocks.listTools.mockResolvedValueOnce({ tools: [searchTool, { ...searchTool, name: 'webSearchPrime' }] })
-    await expect(provider.search({ query: 'duplicate' })).rejects.toThrow('找到 2 个')
+    await expect(search('duplicate')).rejects.toThrow('找到 2 个')
     mocks.listTools.mockResolvedValueOnce({ tools: [{ ...searchTool, inputSchema: { type: 'object' } }] })
-    await expect(provider.search({ query: 'schema' })).rejects.toThrow('search_query 参数')
+    await expect(search('schema')).rejects.toThrow('search_query 参数')
     expect(mocks.close).toHaveBeenCalledTimes(4)
   })
 
   it('上游失败不回退至其他搜索，已取消时不发起连接', async () => {
-    const provider = createZhipuSearchProvider(async () => 'test-key')
+    const search = createZhipuSearch(async () => 'test-key')
     mocks.callTool.mockRejectedValueOnce(new Error('网络断开'))
-    await expect(provider.search({ query: '失败' })).rejects.toThrow('网络断开')
+    await expect(search('失败')).rejects.toThrow('网络断开')
     expect(mocks.close).toHaveBeenCalledOnce()
     const controller = new AbortController()
     controller.abort()
-    await expect(provider.search({ query: '取消' }, controller.signal)).rejects.toMatchObject({
+    await expect(search('取消', controller.signal)).rejects.toMatchObject({
       code: 'WEB_ABORTED',
     })
     expect(mocks.connect).toHaveBeenCalledOnce()

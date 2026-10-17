@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
-  "version": "0.1.0",
-  "description": "Switch the DeepSeek Harness web_search backend to Zhipu and mount Zhipu search / reader MCP tools.",
+  "version": "0.2.0",
+  "description": "Expose a local DeepSeek-compatible web search endpoint backed by Zhipu, plus Zhipu search / reader MCP tools.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -57,21 +57,16 @@
     "zai-coding-cn",
     "mcp",
     "web-search",
+    "endpoint",
     "quota"
   ],
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.0-rc.2 <0.3.0"
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
-  },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.4 <5.0.0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-mcp-client": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-web": ">=0.2.0-rc.2 <0.3.0"
   },
   "dependencies": {
     "@deepseek-ai/cosmokit": "catalog:",
@@ -79,14 +74,13 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
-    "@deepseek-ai/cordis-plugin-loader": "catalog:",
-    "@deepseek-ai/dsh-app-boot": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
+    "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-mcp-client": "catalog:",
     "@deepseek-ai/dsh-web": "catalog:",
