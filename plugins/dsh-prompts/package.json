@@ -48,7 +48,7 @@
   ],
   "engines": {
     "node": ">=20",
-    "dsh": ">=0.2.0-rc.2 <0.3.0"
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
   },
   "publishConfig": {
     "access": "public",
@@ -63,11 +63,6 @@
     "url": "https://github.com/weilence/dsh-plugins/issues"
   },
   "homepage": "https://github.com/weilence/dsh-plugins/tree/develop/plugins/dsh-prompts#readme",
-  "peerDependencies": {
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-home-paths": ">=0.2.0-rc.2 <0.3.0",
-    "@deepseek-ai/dsh-system-prompt": ">=0.2.0-rc.2 <0.3.0"
-  },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",

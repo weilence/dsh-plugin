@@ -18,6 +18,7 @@
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
     "prettier": "catalog:"
   }
 }

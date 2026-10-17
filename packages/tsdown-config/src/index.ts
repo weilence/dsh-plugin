@@ -74,6 +74,9 @@ const PLATFORM_CLIENT_EXTERNALS = [
   '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
+// host 基座 external：@deepseek-ai/* 平台包一律外置（运行期由宿主供给，与 client
+// 的显式名单同理——client 名录受宿主 seed 表限制须精确，host 模块解析供给全部平台包，
+// 通配即可）。插件不声明 peerDependencies 后 tsdown 不再按 peer 自动外置，须在此兜底。
 export function defineDshPluginConfig(options: DshPluginBuildOptions) {
   const { id, client, host } = options
 
@@ -91,7 +94,8 @@ export function defineDshPluginConfig(options: DshPluginBuildOptions) {
     sourcemap: false,
     clean: false,
     deps: {
-      neverBundle: (specifier: string) => hostExternalSet.has(specifier),
+      neverBundle: (specifier: string) =>
+        specifier.startsWith('@deepseek-ai/') || hostExternalSet.has(specifier),
       onlyBundle: host?.bundle,
     },
   }
