@@ -1,39 +1,26 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFile, stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
-import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+// Type-only：ctx.configEditor 的 Context 声明合并（dsh-config-editor 契约类型）。
+import type {} from '@deepseek-ai/dsh-config-editor'
 // Type-only：ctx.webServer 的 Context 声明合并（host-webserver 契约类型）。
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { errMsg } from '@dsh-plugins/shared'
-import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
-import { writeTextAtomic } from '@dsh-plugins/shared/patch'
-import { upsertWebSearchConfig } from './apply-config'
-import { startEndpointServer } from './endpoint'
+import { HttpError, isExpectedHost, isTrustedFetch, writeJson } from '@dsh-plugins/shared/http'
+import { ZhipuFetchProvider, ZhipuSearchProvider } from './providers'
 import { createZhipuReader } from './reader'
 import { createZhipuSearch } from './search'
 import {
   APPLY_WEB_CONFIG_PATH,
-  ENDPOINT_STATUS_PATH,
+  FETCH_PROVIDER_ID,
   KEY_REFS,
-  type ApplyWebConfigBody,
-  type EndpointStatusView,
+  SEARCH_PROVIDER_ID,
+  STATUS_PATH,
+  type StatusView,
 } from './shared'
 
-export const inject: string[] = ['credentials', 'webServer']
-
-/** 运行中的端点句柄；启动失败时为 undefined，失败原因进状态视图。 */
-interface EndpointRuntime {
-  baseUrl: string
-  port: number
-  close: () => Promise<void>
-}
-
-/** 宿主 profile 上下文里本插件需要的面（profileContext 由宿主提供）。 */
-interface ProfileContextView {
-  patchPath?: string
-}
+export const inject: string[] = ['credentials', 'web', 'webServer', 'configEditor']
 
 export async function apply(ctx: Context) {
   // 缺席才尝试次选；首选解析失败时继续搜索会悄然切换账户和计费凭据。
@@ -49,7 +36,7 @@ export async function apply(ctx: Context) {
     return { key: null, failure: undefined }
   }
 
-  // 搜索与网页阅读共用一把凭据、同一种失败语义；端点鉴权也验收它。
+  // 搜索与网页阅读共用一把凭据、同一种失败语义。
   const requireKey = async (): Promise<string> => {
     const { key, failure } = await resolveKey()
     if (failure) throw new WebError(failure, 'WEB_PROVIDER_ERROR')
@@ -61,63 +48,68 @@ export async function apply(ctx: Context) {
   const search = createZhipuSearch(requireKey)
   const read = createZhipuReader(requireKey)
 
-  // 端点是面板地址的事实源：启动失败不拖垮插件（状态路由照常），
-  // 原因原样进面板；状态文件损坏这类须人工介入的故障明确报出。
-  let endpoint: EndpointRuntime | undefined
-  let endpointFailure: string | null = null
-  try {
-    const server = await startEndpointServer({
-      stateFile: dshHomePath('dsh-zhipu-tools.json'),
-      resolveExpectedKey: requireKey,
-      search,
-      read,
-    })
-    endpoint = server
-    ctx.effect(() => () => void server.close(), 'dsh-zhipu-tools: endpoint server')
-  } catch (error) {
-    endpointFailure = errMsg(error)
-    ctx.logger.error(`dsh-zhipu-tools: 搜索端点启动失败（面板可查看原因）: ${endpointFailure}`)
+  // available() 须同步且不发网络：凭据在场性用快照表达，状态路由每次读取时刷新。
+  let credentialReady = false
+  async function probeCredential(): Promise<{ key: string | null; failure: string | undefined }> {
+    const resolved = await resolveKey()
+    credentialReady = resolved.key !== null
+    return resolved
   }
 
-  const { key: apiKey, failure } = await resolveKey()
-  if (failure !== undefined) {
-    ctx.logger.error(`dsh-zhipu-tools: ${failure}，智谱能力保持不可用`)
-  } else if (apiKey === null) {
-    ctx.logger.error('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱能力保持不可用')
-  }
-
-  // profile patch 的并发基线：status 返回 mtime，apply 带回校验；缺 ENOENT 即 null（基线关闭）。
-  async function patchMtime(): Promise<number | null> {
-    const patchPath = profilePatchPath(ctx)
-    if (patchPath === undefined) return null
-    try {
-      return (await stat(patchPath)).mtimeMs
-    } catch {
-      return null
+  // 注册随本插件 fiber 生灭：HMR 重载自动换新，卸载即从注册表消失。
+  ctx.effect(() => {
+    const disposeSearch = ctx.web.registerSearchProvider(
+      new ZhipuSearchProvider(search, () => credentialReady),
+    )
+    const disposeFetch = ctx.web.registerFetchProvider(new ZhipuFetchProvider(read, () => credentialReady))
+    return () => {
+      disposeSearch()
+      disposeFetch()
     }
+  }, 'dsh-zhipu-tools: web providers')
+
+  const { key: apiKey, failure } = await probeCredential()
+  if (failure !== undefined) {
+    ctx.logger.error(`dsh-zhipu-tools: ${failure}，智谱 provider 保持不可用`)
+  } else if (apiKey === null) {
+    ctx.logger.error('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱 provider 保持不可用')
+  }
+
+  // 一键写入：web 行点名本插件的两个 provider；旧版按钮写过的 web-deepseek-api
+  // 覆盖行清掉回退部署默认。走官方 configEditor：文件锁、HMR 串行、schema 校验、
+  // home 层覆盖检测、原子写与失败回滚全部白拿，不手写 patch 文件。
+  async function applyWebConfig(): Promise<void> {
+    const entries = ctx.configEditor.entries()
+    const legacy = entries.find((entry) => entry.options.id === 'web-deepseek-api')
+    const web = entries.find((entry) => entry.options.id === 'web')
+    if (web === undefined) throw new HttpError(409, 'web 插件行不可寻址，无法写入 provider 选择')
+    if (legacy !== undefined) {
+      // next 与 inherited 相等即 configEditor 的官方清除语义：行的 config 删除，行本身可消。
+      await ctx.configEditor.edit(legacy, (_current, inherited) => inherited)
+    }
+    await ctx.configEditor.edit(web, (current) => ({
+      ...current,
+      searchProvider: SEARCH_PROVIDER_ID,
+      fetchProvider: FETCH_PROVIDER_ID,
+    }))
   }
 
   ctx.effect(() => {
     const disposeStatus = ctx.webServer.register({
       kind: 'exact',
-      path: ENDPOINT_STATUS_PATH,
+      path: STATUS_PATH,
       handler: async (req: IncomingMessage, res: ServerResponse) => {
         if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET' || !isTrustedFetch(req)) {
           writeJson(res, 403, { error: 'forbidden' })
           return
         }
-        // 凭据每次现查：补配后无需重启即反映到面板。
-        const { key, failure: credentialFailure } = await resolveKey()
-        const view: EndpointStatusView = {
-          baseUrl: endpoint?.baseUrl ?? null,
-          port: endpoint?.port ?? null,
-          failure: endpointFailure,
+        // 凭据每次现查：顺带刷新 provider 的 available() 快照，补配后无需重启。
+        const { key, failure: credentialFailure } = await probeCredential()
+        const view: StatusView = {
           credential: {
             configured: key !== null,
             failure: credentialFailure,
           },
-          fetchBackend: 'zhipu-reader',
-          patchMtimeMs: await patchMtime(),
         }
         writeJson(res, 200, view as unknown as Record<string, unknown>)
       },
@@ -131,25 +123,7 @@ export async function apply(ctx: Context) {
             throw new HttpError(403, 'forbidden')
           }
           if (req.method !== 'POST') throw new HttpError(405, '仅接受 POST')
-          if (endpoint === undefined) throw new HttpError(409, '端点未在监听，无法写入配置')
-          const patchPath = profilePatchPath(ctx)
-          if (patchPath === undefined) throw new HttpError(500, '无法定位 profile patch 文件路径')
-          const body = (await readJsonBody(req)) as ApplyWebConfigBody
-          const current = await patchMtime()
-          if (
-            typeof body.expectedMtimeMs === 'number' &&
-            current !== null &&
-            body.expectedMtimeMs !== current
-          ) {
-            throw new HttpError(409, 'patch 配置文件已被外部修改，请刷新面板后重试')
-          }
-          let text: string | null = null
-          try {
-            text = await readFile(patchPath, 'utf8')
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-          }
-          await writeTextAtomic(patchPath, upsertWebSearchConfig(text, endpoint.baseUrl))
+          await applyWebConfig()
           writeJson(res, 200, { ok: true })
         } catch (error) {
           if (error instanceof HttpError) {
@@ -165,11 +139,4 @@ export async function apply(ctx: Context) {
       disposeApply()
     }
   }, 'dsh-zhipu-tools: panel routes')
-}
-
-/** profile patch 文件路径（profileContext 由宿主装配，未就绪时 apply 不可用）。 */
-function profilePatchPath(ctx: Context): string | undefined {
-  const profile = ctx.get('profileContext') as ProfileContextView | undefined
-  const patchPath = profile?.patchPath
-  return typeof patchPath === 'string' && patchPath.length > 0 ? patchPath : undefined
 }

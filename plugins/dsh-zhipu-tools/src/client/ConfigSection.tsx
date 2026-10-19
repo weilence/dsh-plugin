@@ -3,21 +3,21 @@ import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Panel } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
-import type { EndpointStore } from './store'
-import { projectEndpoint } from './view'
+import type { ConfigStore } from './store'
+import { projectConfig } from './view'
 import type { NS } from './locales'
 
 /** 注册方注入面（client/index.ts 装配，slot inject 回调提供）。 */
-export interface EndpointSectionInjected {
-  store: EndpointStore
+export interface ConfigSectionInjected {
+  store: ConfigStore
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
-export type EndpointSectionProps = PropsRuntime<'plugins.bundle.config'> &
+export type ConfigSectionProps = PropsRuntime<'plugins.bundle.config'> &
   PropsLocale<typeof NS> &
-  InjectFace<EndpointSectionInjected>
+  InjectFace<ConfigSectionInjected>
 
-export function EndpointSection(props: EndpointSectionProps) {
+export function ConfigSection(props: ConfigSectionProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   useEffect(() => {
@@ -26,9 +26,7 @@ export function EndpointSection(props: EndpointSectionProps) {
   useEffect(() => () => store.dismissNotice(), [store])
 
   const view = state.view
-  const display = view === null ? null : projectEndpoint(t, view)
-  // 写入的前置条件：端点在监听且智谱凭据在场；原因经状态行展示。
-  const applyReady = view !== null && view.baseUrl !== null && view.credential.configured
+  const display = view === null ? null : projectConfig(t, view)
 
   return (
     <Panel>
@@ -44,14 +42,13 @@ export function EndpointSection(props: EndpointSectionProps) {
       {view === null || display === null ? null : (
         <>
           <div className={shared.fieldWide}>
-            <span className={shared.label}>{t('endpoint.label')}</span>
-            <div className={shared.toolbar}>
-              {/* 端点地址是内置设置要填的值：code 字体行保持可选中。 */}
-              <p className={shared.hintLine}>{display.urlText}</p>
-            </div>
+            <span className={shared.label}>{t('credential.label')}</span>
+            {/* 值行保持可选中复制（缺席提示里的引用名可能被引用）。 */}
+            <p className={shared.hintLine}>{display.credentialText}</p>
           </div>
           <div className={shared.toolbar}>
-            <Button disabled={!applyReady} onClick={() => void store.apply()}>
+            {/* 写入的前置条件是智谱凭据在场；缺失原因已在上方凭据行展示。 */}
+            <Button disabled={!view.credential.configured} onClick={() => void store.apply()}>
               {t('apply.label')}
             </Button>
           </div>
@@ -61,14 +58,11 @@ export function EndpointSection(props: EndpointSectionProps) {
               {state.applyError}
             </div>
           ) : null}
-          {display.statusText !== null ? <p className={shared.hint}>{display.statusText}</p> : null}
-          {/* failure 是 Host 给出的端点启动失败原文（errMsg），不翻译。 */}
-          {view.failure !== null ? (
+          {display.credentialHint !== null ? (
             <div className={shared.error} role="alert">
-              {view.failure}
+              {display.credentialHint}
             </div>
           ) : null}
-          {display.credentialHint !== null ? <p className={shared.hint}>{display.credentialHint}</p> : null}
         </>
       )}
     </Panel>

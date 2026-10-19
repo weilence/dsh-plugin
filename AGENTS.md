@@ -36,7 +36,9 @@
 
 ## 两层用户 patch 约定
 
-写用户层配置的插件（dsh-mcp / dsh-zhipu-tools；dsh-remote 在远端做同类合并）共用这一机制：
+写用户层配置的插件分两条路径：dsh-mcp（与在远端做同类合并的 dsh-remote）直接编辑两层用户 patch；dsh-zhipu-tools 经宿主 `ctx.configEditor` 写入（文件锁、schema 校验、原子写等由官方保障，见插件内 AGENTS.md）。
+
+直接编辑 patch 的插件共用这一机制：
 
 - 写入目标是两层用户 patch：profile 层 `<profile>/cordis.patch.yml` 与 home 层 `$DSH_HOME/cordis.patch.yml`，按官方语义 fold（后层覆盖前层；bundle / `--patch` 引入的行只读）；patch 行的 `config` 是整体替换，不做深合并。
 - patch 文件编辑一律保留用户注释与无关行（Document / 行级 round-trip），不走字符串拼接重建。

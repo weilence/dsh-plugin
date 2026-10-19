@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
   "version": "0.2.0",
-  "description": "Expose a local DeepSeek-compatible web search endpoint backed by Zhipu.",
+  "description": "Expose Zhipu web search and page reader as dsh-web providers, selectable with one click.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -56,7 +56,7 @@
     "bigmodel",
     "zai-coding-cn",
     "web-search",
-    "endpoint",
+    "provider",
     "quota"
   ],
   "engines": {
@@ -78,8 +78,8 @@
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/dsh-config-editor": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
-    "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-web": "catalog:",
     "@dsh-plugins/client-ui": "workspace:*",
@@ -93,7 +93,6 @@
     "react-dom": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:",
-    "yaml": "^2.9.0"
+    "vitest": "catalog:"
   }
 }
