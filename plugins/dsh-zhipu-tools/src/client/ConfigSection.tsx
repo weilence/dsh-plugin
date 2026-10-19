@@ -1,11 +1,12 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Panel } from '@dsh-plugins/client-ui'
+import { Panel, Pill } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import type { ConfigStore } from './store'
 import { projectConfig } from './view'
 import type { NS } from './locales'
+import styles from './ConfigSection.module.css'
 
 /** 注册方注入面（client/index.ts 装配，slot inject 回调提供）。 */
 export interface ConfigSectionInjected {
@@ -23,7 +24,6 @@ export function ConfigSection(props: ConfigSectionProps) {
   useEffect(() => {
     if (state.status === 'idle') void store.refresh()
   }, [store, state.status])
-  useEffect(() => () => store.dismissNotice(), [store])
 
   const view = state.view
   const display = view === null ? null : projectConfig(t, view)
@@ -35,32 +35,43 @@ export function ConfigSection(props: ConfigSectionProps) {
           {state.error}
         </div>
       ) : null}
-      {state.notice !== null ? (
-        <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
-      ) : null}
       {state.status === 'loading' ? <div className={shared.loading}>{t('loading')}</div> : null}
       {view === null || display === null ? null : (
         <>
-          <div className={shared.fieldWide}>
-            <span className={shared.label}>{t('credential.label')}</span>
-            {/* 值行保持可选中复制（缺席提示里的引用名可能被引用）。 */}
-            <p className={shared.hintLine}>{display.credentialText}</p>
+          {/* 行式布局对齐官方 Web search 卡片：左文案右开关，下随一行辅助说明。 */}
+          <div className={styles.feature}>
+            <div className={styles.toggleRow}>
+              <label className={styles.toggleMain}>
+                <span>{t('switch.label')}</span>
+                {/* 开关受控于服务端状态：凭据缺失不禁用（关闭方向仍合法），
+                    开启被拒的原文渲染在下方错误行。 */}
+                <Switch
+                  checked={view.enabled}
+                  label={t('switch.label')}
+                  disabled={state.pending}
+                  onChange={(next) => void store.toggle(next)}
+                />
+              </label>
+              {/* 凭据徽标仅在不可用时出现（正常不出声）；在 label 外，点击不切换开关。 */}
+              {display.credentialBadge !== null ? (
+                <Pill
+                  text={display.credentialBadge.text}
+                  tone={display.credentialBadge.tone}
+                  title={display.credentialTitle ?? undefined}
+                />
+              ) : null}
+            </div>
+            <p className={shared.hint}>{t('switch.hint')}</p>
           </div>
-          <div className={shared.toolbar}>
-            {/* 写入的前置条件是智谱凭据在场；缺失原因已在上方凭据行展示。 */}
-            <Button disabled={!view.credential.configured} onClick={() => void store.apply()}>
-              {t('apply.label')}
-            </Button>
-          </div>
-          {/* apply 失败原文渲染在动作按钮旁，不随 Toast 消失。 */}
-          {state.applyError !== null ? (
+          {/* toggle 失败原文渲染在开关旁，不随任何弹层消失。 */}
+          {state.toggleError !== null ? (
             <div className={shared.error} role="alert">
-              {state.applyError}
+              {state.toggleError}
             </div>
           ) : null}
-          {display.credentialHint !== null ? (
+          {display.failureText !== null ? (
             <div className={shared.error} role="alert">
-              {display.credentialHint}
+              {display.failureText}
             </div>
           ) : null}
         </>

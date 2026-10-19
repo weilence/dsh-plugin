@@ -7,16 +7,16 @@ import type {} from '@deepseek-ai/dsh-config-editor'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { errMsg } from '@dsh-plugins/shared'
-import { HttpError, isExpectedHost, isTrustedFetch, writeJson } from '@dsh-plugins/shared/http'
+import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { ZhipuFetchProvider, ZhipuSearchProvider } from './providers'
 import { createZhipuReader } from './reader'
 import { createZhipuSearch } from './search'
 import {
-  APPLY_WEB_CONFIG_PATH,
   FETCH_PROVIDER_ID,
   KEY_REFS,
   SEARCH_PROVIDER_ID,
   STATUS_PATH,
+  WEB_CONFIG_PATH,
   type StatusView,
 } from './shared'
 
@@ -75,16 +75,29 @@ export async function apply(ctx: Context) {
     ctx.logger.error('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱 provider 保持不可用')
   }
 
-  // 一键写入：web 行点名本插件的两个 provider；旧版按钮写过的 web-deepseek-api
-  // 覆盖行清掉回退部署默认。走官方 configEditor：文件锁、HMR 串行、schema 校验、
-  // home 层覆盖检测、原子写与失败回滚全部白拿，不手写 patch 文件。
-  async function applyWebConfig(): Promise<void> {
+  // 开关判定对齐官方 Web search 卡片的成对语义：web 行生效选择两键都点名本插件
+  // 才算开启（profile 覆盖非空以覆盖为准，否则取下层组合值；混合态按关闭展示）。
+  function webEnabled(): boolean {
+    const row = ctx.configEditor.configuration().find((item) => item.entry.options.id === 'web')
+    if (row === undefined) return false
+    const effective = Object.keys(row.override).length > 0 ? row.override : row.inherited
+    return effective.searchProvider === SEARCH_PROVIDER_ID && effective.fetchProvider === FETCH_PROVIDER_ID
+  }
+
+  // 开关写入走官方 configEditor：文件锁、HMR 串行、schema 校验、home 层覆盖检测、
+  // 原子写与失败回滚全部白拿，不手写 patch 文件。
+  async function setWebConfig(enabled: boolean): Promise<void> {
     const entries = ctx.configEditor.entries()
-    const legacy = entries.find((entry) => entry.options.id === 'web-deepseek-api')
     const web = entries.find((entry) => entry.options.id === 'web')
     if (web === undefined) throw new HttpError(409, 'web 插件行不可寻址，无法写入 provider 选择')
+    if (!enabled) {
+      // 关闭即清除用户层覆盖、回退部署默认选择——不把官方 provider id 写死进用户 patch。
+      await ctx.configEditor.edit(web, (_current, inherited) => inherited)
+      return
+    }
+    const legacy = entries.find((entry) => entry.options.id === 'web-deepseek-api')
     if (legacy !== undefined) {
-      // next 与 inherited 相等即 configEditor 的官方清除语义：行的 config 删除，行本身可消。
+      // 旧版按钮写过的 web-deepseek-api 覆盖行：next 与 inherited 相等即官方清除语义。
       await ctx.configEditor.edit(legacy, (_current, inherited) => inherited)
     }
     await ctx.configEditor.edit(web, (current) => ({
@@ -110,21 +123,45 @@ export async function apply(ctx: Context) {
             configured: key !== null,
             failure: credentialFailure,
           },
+          enabled: webEnabled(),
         }
         writeJson(res, 200, view as unknown as Record<string, unknown>)
       },
     })
-    const disposeApply = ctx.webServer.register({
+    const disposeSet = ctx.webServer.register({
       kind: 'exact',
-      path: APPLY_WEB_CONFIG_PATH,
+      path: WEB_CONFIG_PATH,
       handler: async (req: IncomingMessage, res: ServerResponse) => {
         try {
           if (!isExpectedHost(req, ctx.webServer.host) || !isTrustedFetch(req)) {
             throw new HttpError(403, 'forbidden')
           }
           if (req.method !== 'POST') throw new HttpError(405, '仅接受 POST')
-          await applyWebConfig()
-          writeJson(res, 200, { ok: true })
+          const body = (await readJsonBody(req)) as { enabled?: unknown }
+          if (typeof body?.enabled !== 'boolean') {
+            throw new HttpError(400, '请求体需要布尔字段 enabled')
+          }
+          // 开启基于已确认的事实：凭据缺席明确拒绝（关闭不需要凭据）。
+          if (body.enabled) {
+            const { key, failure: credentialFailure } = await probeCredential()
+            if (key === null) {
+              throw new HttpError(
+                409,
+                credentialFailure ?? `智谱凭据未配置（${KEY_REFS.join(' / ')}），无法开启`,
+              )
+            }
+          }
+          await setWebConfig(body.enabled)
+          // 响应即写入后的最新状态：凭据现查 + 生效选择现算，客户端无需二次读取。
+          const { key, failure: credentialFailure } = await probeCredential()
+          const view: StatusView = {
+            credential: {
+              configured: key !== null,
+              failure: credentialFailure,
+            },
+            enabled: webEnabled(),
+          }
+          writeJson(res, 200, view as unknown as Record<string, unknown>)
         } catch (error) {
           if (error instanceof HttpError) {
             writeJson(res, error.status, { error: error.message })
@@ -136,7 +173,7 @@ export async function apply(ctx: Context) {
     })
     return () => {
       disposeStatus()
-      disposeApply()
+      disposeSet()
     }
   }, 'dsh-zhipu-tools: panel routes')
 }

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { APPLY_WEB_CONFIG_PATH, STATUS_PATH, type StatusView } from '../src/shared'
+import { STATUS_PATH, WEB_CONFIG_PATH, type StatusView } from '../src/shared'
 import { apply } from '../src/index'
 
 interface CapturedResponse {
@@ -13,12 +13,18 @@ interface CapturedResponse {
 function fakeReq(
   path: string,
   method: string,
+  body: unknown = {},
   headers: Record<string, string | string[] | undefined> = {},
 ): IncomingMessage {
+  const payload = Buffer.from(JSON.stringify(body))
+  const stream = (async function* () {
+    yield payload
+  })()
   return {
     url: path,
     method,
     headers: { host: '127.0.0.1', ...headers },
+    [Symbol.asyncIterator]: () => stream[Symbol.asyncIterator](),
   } as unknown as IncomingMessage
 }
 
@@ -79,11 +85,24 @@ const desktopRows = (): EntrySpec[] => [
   },
 ]
 
+const enabledRows = (): EntrySpec[] => [
+  {
+    id: 'web',
+    current: { searchProvider: 'zhipu-search-api', fetchProvider: 'zhipu-fetch-api' },
+    inherited: { searchProvider: 'deepseek-official', fetchProvider: 'http' },
+  },
+]
+
 async function makeHarness(
   resolve: (name: string) => Promise<unknown>,
   options: { entries?: EntrySpec[]; editError?: (id: string) => Error | undefined } = {},
 ): Promise<{
-  request(path: string, method?: string, headers?: Record<string, string>): Promise<CapturedResponse>
+  request(
+    path: string,
+    method?: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<CapturedResponse>
   errors: string[]
   edits: EditCall[]
   searchProviders: string[]
@@ -100,6 +119,12 @@ async function makeHarness(
 
   const configEditor = {
     entries: () => [...rows.keys()].map((id) => ({ options: { id, name: `@deepseek-ai/dsh-${id}` } })),
+    configuration: () =>
+      [...rows.entries()].map(([id, row]) => ({
+        entry: { options: { id, name: `@deepseek-ai/dsh-${id}` } },
+        inherited: structuredClone(row.inherited ?? {}),
+        override: structuredClone(row.current ?? {}),
+      })),
     edit: async (
       entry: { options: { id: string } },
       change: (
@@ -113,7 +138,13 @@ async function makeHarness(
       const current = structuredClone(row?.current ?? {})
       const inherited = structuredClone(row?.inherited ?? {})
       const next = change(current, inherited)
-      rows.set(entry.options.id, { id: entry.options.id, current: next, inherited: row?.inherited ?? {} })
+      // 模拟官方「相等即清除」：next 深等于 inherited 时行的覆盖清空。
+      const cleared = JSON.stringify(next) === JSON.stringify(inherited)
+      rows.set(entry.options.id, {
+        id: entry.options.id,
+        current: cleared ? {} : next,
+        inherited: row?.inherited ?? {},
+      })
       edits.push({ id: entry.options.id, current, inherited, next })
     },
   }
@@ -160,11 +191,11 @@ async function makeHarness(
   await apply(ctx as never)
 
   return {
-    request: async (path, method = 'GET', headers = {}) => {
+    request: async (path, method = 'GET', body = undefined, headers = {}) => {
       const handler = registrations.get(path)
       if (handler === undefined) throw new Error(`路由未注册：${path}`)
       const { res, done } = fakeRes()
-      await handler(fakeReq(path, method, headers), res)
+      await handler(fakeReq(path, method, body, headers), res)
       return done
     },
     errors,
@@ -198,11 +229,31 @@ describe('provider 注册', () => {
 })
 
 describe('状态路由', () => {
-  it('凭据在场：返回已配置', async () => {
-    const harness = await makeHarness(resolveWithKey)
+  it('凭据在场且覆盖层两键都点名本插件：enabled 为 true', async () => {
+    const harness = await makeHarness(resolveWithKey, { entries: enabledRows() })
     const capture = await harness.request(STATUS_PATH)
     expect(capture.status).toBe(200)
-    expect(capture.body).toEqual({ credential: { configured: true } })
+    expect(capture.body).toEqual({ credential: { configured: true }, enabled: true })
+  })
+
+  it('覆盖层点名官方 provider：enabled 为 false', async () => {
+    const harness = await makeHarness(resolveWithKey)
+    const view = (await harness.request(STATUS_PATH)).body as unknown as StatusView
+    expect(view.enabled).toBe(false)
+  })
+
+  it('混合态（只点名一键）按关闭展示', async () => {
+    const harness = await makeHarness(resolveWithKey, {
+      entries: [
+        {
+          id: 'web',
+          current: { searchProvider: 'zhipu-search-api', fetchProvider: 'http' },
+          inherited: { searchProvider: 'deepseek-official', fetchProvider: 'http' },
+        },
+      ],
+    })
+    const view = (await harness.request(STATUS_PATH)).body as unknown as StatusView
+    expect(view.enabled).toBe(false)
   })
 
   it('凭据缺席与解析故障：面板给缺失事实，故障原文透传', async () => {
@@ -220,17 +271,17 @@ describe('状态路由', () => {
   it('仅接受同源 GET：POST 或跨站标记拒 403', async () => {
     const harness = await makeHarness(async () => undefined)
     expect((await harness.request(STATUS_PATH, 'POST')).status).toBe(403)
-    const capture = await harness.request(STATUS_PATH, 'GET', { 'sec-fetch-site': 'cross-site' })
+    const capture = await harness.request(STATUS_PATH, 'GET', undefined, { 'sec-fetch-site': 'cross-site' })
     expect(capture.status).toBe(403)
   })
 })
 
-describe('写入路由 apply-web-config', () => {
-  it('成功：先清 web-deepseek-api 覆盖行（next=inherited 即官方清除语义），再写 web 行点名两个 provider', async () => {
+describe('开关路由 web-config', () => {
+  it('开启成功：先清 web-deepseek-api 覆盖行（next=inherited 即官方清除语义），再写 web 行点名两个 provider，响应即最新状态', async () => {
     const harness = await makeHarness(resolveWithKey)
-    const capture = await harness.request(APPLY_WEB_CONFIG_PATH, 'POST')
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: true })
     expect(capture.status).toBe(200)
-    expect(capture.body).toEqual({ ok: true })
+    expect(capture.body).toEqual({ credential: { configured: true }, enabled: true })
     expect(harness.edits).toHaveLength(2)
 
     const [legacy, web] = harness.edits
@@ -245,23 +296,46 @@ describe('写入路由 apply-web-config', () => {
     })
   })
 
+  it('开启但凭据缺席：明确 409，不做任何写入', async () => {
+    const harness = await makeHarness(async () => undefined)
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: true })
+    expect(capture.status).toBe(409)
+    expect(JSON.stringify(capture.body)).toContain('智谱凭据未配置')
+    expect(harness.edits).toHaveLength(0)
+  })
+
+  it('关闭成功：web 行 next=inherited 触发官方清除，回退部署默认，响应 enabled=false', async () => {
+    const harness = await makeHarness(resolveWithKey, { entries: enabledRows() })
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: false })
+    expect(capture.status).toBe(200)
+    expect(capture.body).toEqual({ credential: { configured: true }, enabled: false })
+    expect(harness.edits).toHaveLength(1)
+    const [web] = harness.edits
+    expect(web?.id).toBe('web')
+    expect(web?.next).toEqual(web?.inherited)
+  })
+
+  it('关闭不需要凭据：凭据缺席也成功', async () => {
+    const harness = await makeHarness(async () => undefined, { entries: enabledRows() })
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: false })
+    expect(capture.status).toBe(200)
+    expect(capture.body).toEqual({ credential: { configured: false }, enabled: false })
+  })
+
+  it('请求体缺 enabled 或非布尔：400', async () => {
+    const harness = await makeHarness(resolveWithKey)
+    expect((await harness.request(WEB_CONFIG_PATH, 'POST', {})).status).toBe(400)
+    expect((await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: 'yes' })).status).toBe(400)
+  })
+
   it('web 行缺失：明确 409，不做任何写入', async () => {
     const harness = await makeHarness(resolveWithKey, {
       entries: desktopRows().filter((row) => row.id !== 'web'),
     })
-    const capture = await harness.request(APPLY_WEB_CONFIG_PATH, 'POST')
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: true })
     expect(capture.status).toBe(409)
     expect(JSON.stringify(capture.body)).toContain('不可寻址')
     expect(harness.edits).toHaveLength(0)
-  })
-
-  it('旧版 web-deepseek-api 行已不存在：只写 web 行，无异常', async () => {
-    const harness = await makeHarness(resolveWithKey, {
-      entries: desktopRows().filter((row) => row.id !== 'web-deepseek-api'),
-    })
-    const capture = await harness.request(APPLY_WEB_CONFIG_PATH, 'POST')
-    expect(capture.status).toBe(200)
-    expect(harness.edits.map((edit) => edit.id)).toEqual(['web'])
   })
 
   it('configEditor 拒绝（home 层覆盖等）：原文透传，web 行不被触碰', async () => {
@@ -273,7 +347,7 @@ describe('写入路由 apply-web-config', () => {
             )
           : undefined,
     })
-    const capture = await harness.request(APPLY_WEB_CONFIG_PATH, 'POST')
+    const capture = await harness.request(WEB_CONFIG_PATH, 'POST', { enabled: true })
     expect(capture.status).toBe(500)
     expect(JSON.stringify(capture.body)).toContain('overridden by a home patch')
     // 被拒的 edit 不留记录：web 行从未被触碰。
@@ -282,8 +356,13 @@ describe('写入路由 apply-web-config', () => {
 
   it('信任边界：跨站标记拒 403，非 POST 拒 405', async () => {
     const harness = await makeHarness(async () => undefined)
-    const crossSite = await harness.request(APPLY_WEB_CONFIG_PATH, 'POST', { 'sec-fetch-site': 'cross-site' })
+    const crossSite = await harness.request(
+      WEB_CONFIG_PATH,
+      'POST',
+      { enabled: true },
+      { 'sec-fetch-site': 'cross-site' },
+    )
     expect(crossSite.status).toBe(403)
-    expect((await harness.request(APPLY_WEB_CONFIG_PATH, 'GET')).status).toBe(405)
+    expect((await harness.request(WEB_CONFIG_PATH, 'GET')).status).toBe(405)
   })
 })

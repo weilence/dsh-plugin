@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "智谱 Web 搜索",
-    "description": "把智谱联网搜索与网页阅读注册为 web_search / web_fetch 的可选 provider，面板一键接入。"
+    "description": "把智谱联网搜索与网页阅读注册为 web_search / web_fetch 的可选 provider，面板开关一键启停。"
   }
 }

@@ -1,22 +1,22 @@
 import { errMsg } from '@dsh-plugins/shared'
 import { configApi } from './api'
 import type { StatusView } from '../shared'
-import type { ZhipuT } from './locales'
 
 export interface ConfigState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
-  notice: string | null
-  /** apply 失败原文（渲染在按钮旁；成功或下次重试时清空）。 */
-  applyError: string | null
+  /** 开关写入失败原文（渲染在开关旁；成功或下次重试时清空）。 */
+  toggleError: string | null
+  /** 开关写入进行中（进行中开关拒绝输入）。 */
+  pending: boolean
   view: StatusView | null
 }
 
 const INITIAL: ConfigState = {
   status: 'idle',
   error: null,
-  notice: null,
-  applyError: null,
+  toggleError: null,
+  pending: false,
   view: null,
 }
 
@@ -24,9 +24,6 @@ export class ConfigStore {
   private snapshot: ConfigState = INITIAL
   private readonly listeners = new Set<() => void>()
   private refreshGeneration = 0
-
-  // notice 是写入成功的即显 Toast：事件时间取词，不跨语言切换存活。
-  constructor(private readonly t: ZhipuT) {}
 
   getSnapshot = (): ConfigState => this.snapshot
 
@@ -40,10 +37,6 @@ export class ConfigStore {
   private set(patch: Partial<ConfigState>): void {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
-  }
-
-  dismissNotice(): void {
-    if (this.snapshot.notice !== null) this.set({ notice: null })
   }
 
   refresh(): Promise<void> {
@@ -61,15 +54,20 @@ export class ConfigStore {
       })
   }
 
-  /** 一键把 web 行的 provider 选择改写到本插件：成功即显 Toast；失败原文留在按钮旁。 */
-  async apply(): Promise<void> {
-    if (this.snapshot.view === null) return
-    this.set({ applyError: null })
+  /**
+   * 切换智谱搜索开关：成功以响应的最新状态视图为准（开关状态只认服务端事实，
+   * 开关本身就是结果，不弹提示）；失败原文留在开关旁，开关保持原状态。
+   */
+  async toggle(enabled: boolean): Promise<void> {
+    if (this.snapshot.view === null || this.snapshot.pending) return
+    this.set({ pending: true, toggleError: null })
     try {
-      await configApi.applyWebConfig()
-      this.set({ notice: this.t('notice.applied'), applyError: null })
+      const view = await configApi.setWebConfig({ enabled })
+      this.set({ toggleError: null, view })
     } catch (error) {
-      this.set({ applyError: errMsg(error) })
+      this.set({ toggleError: errMsg(error) })
+    } finally {
+      this.set({ pending: false })
     }
   }
 }

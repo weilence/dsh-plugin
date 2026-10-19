@@ -8,10 +8,9 @@ export type ZhipuT = TranslateNS<typeof NS>
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
   loading: '正在读取状态…',
-  'credential.label': '智谱凭据',
-  'apply.label': '写入 Web 搜索配置',
-  'notice.applied': '已写入内置 Web 搜索配置，改动即时生效',
-  'credential.ok': '已配置',
+  'switch.label': 'Web 搜索走智谱',
+  'switch.hint': '开启后 web_search 与 web_fetch 经智谱执行；关闭恢复部署默认的搜索实现。',
+  'credential.badge.missing': '未配置',
   'credential.missing': '未配置（{refs}）',
 } as const
 
@@ -19,10 +18,10 @@ export type ZhipuKey = keyof typeof zh
 
 export const en: { [Key in ZhipuKey]: string } = {
   loading: 'Reading the state…',
-  'credential.label': 'Zhipu credential',
-  'apply.label': 'Apply Web search config',
-  'notice.applied': 'Web search config written; effective immediately',
-  'credential.ok': 'Configured',
+  'switch.label': 'Route web search through Zhipu',
+  'switch.hint':
+    'When on, web_search and web_fetch run through Zhipu; when off, the deployment defaults apply.',
+  'credential.badge.missing': 'Not configured',
   'credential.missing': 'Not configured ({refs})',
 }
 

@@ -1,0 +1,27 @@
+/* 接入面板私有样式：行式布局对齐官方 Web search 卡片（feature / toggleRow），
+   只用宿主暴露的 dsw-* 设计变量；行内辅助文案复用 client-ui 的 shared.hint。 */
+
+.feature {
+  display: grid;
+  gap: 6px;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsh-alias-label-primary);
+}
+
+/* 行内可点击主区（文案 + 开关）：徽标在 label 外，点击徽标不切换开关。 */
+.toggleMain {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1 1 auto;
+  min-width: 0;
+  cursor: pointer;
+}

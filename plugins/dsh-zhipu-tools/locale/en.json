@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Zhipu web search",
-    "description": "Registers Zhipu web search and page reader as web_search / web_fetch providers, applied with one click."
+    "description": "Registers Zhipu web search and page reader as web_search / web_fetch providers, toggled with one switch."
   }
 }
