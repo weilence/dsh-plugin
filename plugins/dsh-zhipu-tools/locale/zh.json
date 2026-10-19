@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "智谱搜索端点",
-    "description": "提供本地 DeepSeek 兼容搜索端点（填入内置 Web 搜索设置即经智谱搜索），并挂载智谱搜索 / 网页阅读 MCP 工具。"
+    "description": "本地 DeepSeek 兼容搜索端点：填入内置 Web 搜索设置，web_search / web_fetch 即走智谱。"
   }
 }

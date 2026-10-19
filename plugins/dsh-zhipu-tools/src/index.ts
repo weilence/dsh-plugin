@@ -1,57 +1,38 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { readFile, stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 // Type-only：ctx.webServer 的 Context 声明合并（host-webserver 契约类型）。
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import * as mcpClient from '@deepseek-ai/dsh-mcp-client'
-import type { StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import { WebError } from '@deepseek-ai/dsh-web'
 import { errMsg } from '@dsh-plugins/shared'
-import { isExpectedHost, isTrustedFetch, writeJson } from '@dsh-plugins/shared/http'
+import { HttpError, isExpectedHost, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
+import { writeTextAtomic } from '@dsh-plugins/shared/patch'
+import { upsertWebSearchConfig } from './apply-config'
 import { startEndpointServer } from './endpoint'
 import { createZhipuReader } from './reader'
 import { createZhipuSearch } from './search'
-import { ENDPOINT_STATUS_PATH, KEY_REFS, type EndpointStatusView } from './shared'
+import {
+  APPLY_WEB_CONFIG_PATH,
+  ENDPOINT_STATUS_PATH,
+  KEY_REFS,
+  type ApplyWebConfigBody,
+  type EndpointStatusView,
+} from './shared'
 
-export const inject: string[] = ['credentials', 'tools', 'webServer']
-
-// serverName → 模型侧工具名 mcp__<serverName>__<rawName>；
-// 须匹配 in-box 的 /^[A-Za-z0-9_-]{1,32}$/ 且全局唯一。
-interface McpServerSpec {
-  serverName: string
-  url: string
-  callTimeoutMs: number
-}
-
-// 搜索 MCP 与端点搜索并存：前者向模型暴露 search_query 之外的域过滤、
-// 时效等参数，后者只承接官方 web_search 的简化入参。
-const MCP_SERVERS: readonly McpServerSpec[] = [
-  {
-    serverName: 'zhipu_search',
-    url: 'https://open.bigmodel.cn/api/mcp/web_search_prime/mcp',
-    callTimeoutMs: 30_000,
-  },
-  {
-    serverName: 'zhipu_reader',
-    url: 'https://open.bigmodel.cn/api/mcp/web_reader/mcp',
-    callTimeoutMs: 60_000,
-  },
-]
-
-// 只取挂载所需的三个导出；整个命名空间传给 ctx.plugin 可能把 Config 误当配置 schema。
-const MCP_CLIENT_PLUGIN = {
-  name: mcpClient.name,
-  inject: mcpClient.inject,
-  apply: mcpClient.apply,
-}
+export const inject: string[] = ['credentials', 'webServer']
 
 /** 运行中的端点句柄；启动失败时为 undefined，失败原因进状态视图。 */
 interface EndpointRuntime {
   baseUrl: string
   port: number
-  token: string
   close: () => Promise<void>
+}
+
+/** 宿主 profile 上下文里本插件需要的面（profileContext 由宿主提供）。 */
+interface ProfileContextView {
+  patchPath?: string
 }
 
 export async function apply(ctx: Context) {
@@ -68,7 +49,7 @@ export async function apply(ctx: Context) {
     return { key: null, failure: undefined }
   }
 
-  // 搜索与网页阅读共用一把凭据、同一种失败语义。
+  // 搜索与网页阅读共用一把凭据、同一种失败语义；端点鉴权也验收它。
   const requireKey = async (): Promise<string> => {
     const { key, failure } = await resolveKey()
     if (failure) throw new WebError(failure, 'WEB_PROVIDER_ERROR')
@@ -80,13 +61,14 @@ export async function apply(ctx: Context) {
   const search = createZhipuSearch(requireKey)
   const read = createZhipuReader(requireKey)
 
-  // 端点是面板地址的事实源：启动失败不拖垮插件（MCP 与状态路由照常），
+  // 端点是面板地址的事实源：启动失败不拖垮插件（状态路由照常），
   // 原因原样进面板；状态文件损坏这类须人工介入的故障明确报出。
   let endpoint: EndpointRuntime | undefined
   let endpointFailure: string | null = null
   try {
     const server = await startEndpointServer({
       stateFile: dshHomePath('dsh-zhipu-tools.json'),
+      resolveExpectedKey: requireKey,
       search,
       read,
     })
@@ -104,62 +86,90 @@ export async function apply(ctx: Context) {
     ctx.logger.error('dsh-zhipu-tools: 未配置 zai-coding-cn 供应商，智谱能力保持不可用')
   }
 
-  // 重连与工具同步由 in-box mcp-client 承担；单个服务器失败只记日志、不
-  // 阻塞插件激活，也不影响端点搜索。
-  const mcpMounted = new Map<string, boolean>()
-  if (apiKey) {
-    for (const server of MCP_SERVERS) {
-      try {
-        const config: StreamableHttpConfig = {
-          transport: 'streamable-http',
-          serverName: server.serverName,
-          url: server.url,
-          headers: { Authorization: `Bearer ${apiKey}` },
-          toolCallTimeoutMs: server.callTimeoutMs,
-          failOnStartupError: false,
-        }
-        await ctx.plugin(MCP_CLIENT_PLUGIN, config)
-        mcpMounted.set(server.serverName, true)
-        ctx.logger.info(`dsh-zhipu-tools: MCP ${server.serverName} 已挂载（in-box mcp-client）`)
-      } catch (error) {
-        mcpMounted.set(server.serverName, false)
-        ctx.logger.error(
-          `dsh-zhipu-tools: MCP ${server.serverName} 挂载失败（仅该服务器工具不可用）: ${errMsg(error)}`,
-        )
-      }
+  // profile patch 的并发基线：status 返回 mtime，apply 带回校验；缺 ENOENT 即 null（基线关闭）。
+  async function patchMtime(): Promise<number | null> {
+    const patchPath = profilePatchPath(ctx)
+    if (patchPath === undefined) return null
+    try {
+      return (await stat(patchPath)).mtimeMs
+    } catch {
+      return null
     }
   }
 
-  ctx.effect(
-    () =>
-      ctx.webServer.register({
-        kind: 'exact',
-        path: ENDPOINT_STATUS_PATH,
-        handler: async (req: IncomingMessage, res: ServerResponse) => {
-          if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET' || !isTrustedFetch(req)) {
-            writeJson(res, 403, { error: 'forbidden' })
+  ctx.effect(() => {
+    const disposeStatus = ctx.webServer.register({
+      kind: 'exact',
+      path: ENDPOINT_STATUS_PATH,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (!isExpectedHost(req, ctx.webServer.host) || req.method !== 'GET' || !isTrustedFetch(req)) {
+          writeJson(res, 403, { error: 'forbidden' })
+          return
+        }
+        // 凭据每次现查：补配后无需重启即反映到面板。
+        const { key, failure: credentialFailure } = await resolveKey()
+        const view: EndpointStatusView = {
+          baseUrl: endpoint?.baseUrl ?? null,
+          port: endpoint?.port ?? null,
+          failure: endpointFailure,
+          credential: {
+            configured: key !== null,
+            failure: credentialFailure,
+          },
+          fetchBackend: 'zhipu-reader',
+          patchMtimeMs: await patchMtime(),
+        }
+        writeJson(res, 200, view as unknown as Record<string, unknown>)
+      },
+    })
+    const disposeApply = ctx.webServer.register({
+      kind: 'exact',
+      path: APPLY_WEB_CONFIG_PATH,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        try {
+          if (!isExpectedHost(req, ctx.webServer.host) || !isTrustedFetch(req)) {
+            throw new HttpError(403, 'forbidden')
+          }
+          if (req.method !== 'POST') throw new HttpError(405, '仅接受 POST')
+          if (endpoint === undefined) throw new HttpError(409, '端点未在监听，无法写入配置')
+          const patchPath = profilePatchPath(ctx)
+          if (patchPath === undefined) throw new HttpError(500, '无法定位 profile patch 文件路径')
+          const body = (await readJsonBody(req)) as ApplyWebConfigBody
+          const current = await patchMtime()
+          if (
+            typeof body.expectedMtimeMs === 'number' &&
+            current !== null &&
+            body.expectedMtimeMs !== current
+          ) {
+            throw new HttpError(409, 'patch 配置文件已被外部修改，请刷新面板后重试')
+          }
+          let text: string | null = null
+          try {
+            text = await readFile(patchPath, 'utf8')
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          }
+          await writeTextAtomic(patchPath, upsertWebSearchConfig(text, endpoint.baseUrl))
+          writeJson(res, 200, { ok: true })
+        } catch (error) {
+          if (error instanceof HttpError) {
+            writeJson(res, error.status, { error: error.message })
             return
           }
-          // 凭据每次现查：补配后无需重启即反映到面板。
-          const { key, failure: credentialFailure } = await resolveKey()
-          const view: EndpointStatusView = {
-            baseUrl: endpoint?.baseUrl ?? null,
-            port: endpoint?.port ?? null,
-            token: endpoint?.token ?? null,
-            failure: endpointFailure,
-            credential: {
-              configured: key !== null,
-              failure: credentialFailure,
-            },
-            fetchBackend: 'zhipu-reader',
-            mcp: MCP_SERVERS.map((server) => ({
-              server: server.serverName,
-              mounted: mcpMounted.get(server.serverName) ?? false,
-            })),
-          }
-          writeJson(res, 200, view as unknown as Record<string, unknown>)
-        },
-      }),
-    'dsh-zhipu-tools: endpoint status',
-  )
+          writeJson(res, 500, { error: errMsg(error) })
+        }
+      },
+    })
+    return () => {
+      disposeStatus()
+      disposeApply()
+    }
+  }, 'dsh-zhipu-tools: panel routes')
+}
+
+/** profile patch 文件路径（profileContext 由宿主装配，未就绪时 apply 不可用）。 */
+function profilePatchPath(ctx: Context): string | undefined {
+  const profile = ctx.get('profileContext') as ProfileContextView | undefined
+  const patchPath = profile?.patchPath
+  return typeof patchPath === 'string' && patchPath.length > 0 ? patchPath : undefined
 }

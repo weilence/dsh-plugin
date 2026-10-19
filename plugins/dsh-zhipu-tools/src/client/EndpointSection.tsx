@@ -1,7 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { MetaItem, Panel } from '@dsh-plugins/client-ui'
+import { Panel } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import type { EndpointStore } from './store'
 import { projectEndpoint } from './view'
@@ -27,9 +27,11 @@ export function EndpointSection(props: EndpointSectionProps) {
 
   const view = state.view
   const display = view === null ? null : projectEndpoint(t, view)
+  // 写入的前置条件：端点在监听且智谱凭据在场；原因经状态行展示。
+  const applyReady = view !== null && view.baseUrl !== null && view.credential.configured
 
   return (
-    <Panel title={t('title')} subtitle={t('subtitle')}>
+    <Panel>
       {state.error ? (
         <div className={shared.error} role="alert">
           {state.error}
@@ -44,29 +46,22 @@ export function EndpointSection(props: EndpointSectionProps) {
           <div className={shared.fieldWide}>
             <span className={shared.label}>{t('endpoint.label')}</span>
             <div className={shared.toolbar}>
-              {/* 端点地址是复制目标：code 字体行保持可选中，不被按钮遮挡换行。 */}
+              {/* 端点地址是内置设置要填的值：code 字体行保持可选中。 */}
               <p className={shared.hintLine}>{display.urlText}</p>
-              <Button disabled={display.urlText === null} onClick={() => void store.copyUrl()}>
-                {t('endpoint.copy')}
-              </Button>
             </div>
           </div>
-          <div className={shared.fieldWide}>
-            <span className={shared.label}>{t('endpoint.key')}</span>
-            <div className={shared.toolbar}>
-              {/* API 密钥同样是复制目标，与地址同款可选中行。 */}
-              <p className={shared.hintLine}>{display.tokenText}</p>
-              <Button disabled={display.tokenText === null} onClick={() => void store.copyToken()}>
-                {t('endpoint.copyKey')}
-              </Button>
+          <div className={shared.toolbar}>
+            <Button disabled={!applyReady} onClick={() => void store.apply()}>
+              {t('apply.label')}
+            </Button>
+          </div>
+          {/* apply 失败原文渲染在动作按钮旁，不随 Toast 消失。 */}
+          {state.applyError !== null ? (
+            <div className={shared.error} role="alert">
+              {state.applyError}
             </div>
-          </div>
-          <div className={shared.metaGrid}>
-            <MetaItem label={t('meta.listen')} value={display.listenText} />
-            <MetaItem label={t('meta.credential')} value={display.credentialText} />
-            <MetaItem label={t('meta.mcp')} value={display.mcpText} />
-            <MetaItem label={t('meta.fetchBackend')} value="智谱 webReader" />
-          </div>
+          ) : null}
+          {display.statusText !== null ? <p className={shared.hint}>{display.statusText}</p> : null}
           {/* failure 是 Host 给出的端点启动失败原文（errMsg），不翻译。 */}
           {view.failure !== null ? (
             <div className={shared.error} role="alert">
@@ -74,18 +69,6 @@ export function EndpointSection(props: EndpointSectionProps) {
             </div>
           ) : null}
           {display.credentialHint !== null ? <p className={shared.hint}>{display.credentialHint}</p> : null}
-          <div className={shared.section}>
-            <h4 className={shared.sectionTitle}>{t('steps.title')}</h4>
-            <ol className={shared.section}>
-              <li>{t('step.open')}</li>
-              <li>{t('step.enable')}</li>
-              <li>{t('step.paste')}</li>
-              <li>{t('step.key')}</li>
-            </ol>
-            <p className={shared.hint}>{t('note.deepseekKey')}</p>
-            <p className={shared.hint}>{t('note.security')}</p>
-            <p className={shared.hint}>{t('note.fetch')}</p>
-          </div>
         </>
       )}
     </Panel>

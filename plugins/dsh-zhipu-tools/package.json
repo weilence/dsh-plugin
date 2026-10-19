@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
   "version": "0.2.0",
-  "description": "Expose a local DeepSeek-compatible web search endpoint backed by Zhipu, plus Zhipu search / reader MCP tools.",
+  "description": "Expose a local DeepSeek-compatible web search endpoint backed by Zhipu.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
@@ -55,7 +55,6 @@
     "zhipu",
     "bigmodel",
     "zai-coding-cn",
-    "mcp",
     "web-search",
     "endpoint",
     "quota"
@@ -82,7 +81,6 @@
     "@deepseek-ai/dsh-credentials": "catalog:",
     "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
-    "@deepseek-ai/dsh-mcp-client": "catalog:",
     "@deepseek-ai/dsh-web": "catalog:",
     "@dsh-plugins/client-ui": "workspace:*",
     "@dsh-plugins/shared": "workspace:*",

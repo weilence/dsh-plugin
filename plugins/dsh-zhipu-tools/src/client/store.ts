@@ -3,10 +3,15 @@ import { endpointApi } from './api'
 import type { EndpointStatusView } from '../shared'
 import type { ZhipuT } from './locales'
 
+/** apply 成功后的补偿刷新时刻（毫秒）：覆盖 patch watcher 重整 → 重挂载的窗口期。 */
+const COMPENSATING_REFRESH_MS = [1_200, 4_000] as const
+
 export interface EndpointState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   notice: string | null
+  /** apply 失败原文（渲染在按钮旁；成功或下次重试时清空）。 */
+  applyError: string | null
   view: EndpointStatusView | null
 }
 
@@ -14,6 +19,7 @@ const INITIAL: EndpointState = {
   status: 'idle',
   error: null,
   notice: null,
+  applyError: null,
   view: null,
 }
 
@@ -22,7 +28,7 @@ export class EndpointStore {
   private readonly listeners = new Set<() => void>()
   private refreshGeneration = 0
 
-  // notice 是复制成功的即显 Toast：事件时间取词，不跨语言切换存活。
+  // notice 是写入成功的即显 Toast：事件时间取词，不跨语言切换存活。
   constructor(private readonly t: ZhipuT) {}
 
   getSnapshot = (): EndpointState => this.snapshot
@@ -58,25 +64,19 @@ export class EndpointStore {
       })
   }
 
-  /** 复制端点地址或 API 密钥：成功即显 Toast，失败清掉旧提示并把原样错误留在面板错误行。 */
-  async copyUrl(): Promise<void> {
-    await this.copyToClipboard(this.snapshot.view?.baseUrl, 'notice.copied')
-  }
-
-  async copyToken(): Promise<void> {
-    await this.copyToClipboard(this.snapshot.view?.token, 'notice.copiedKey')
-  }
-
-  private async copyToClipboard(
-    value: string | null | undefined,
-    noticeKey: 'notice.copied' | 'notice.copiedKey',
-  ): Promise<void> {
-    if (value === undefined || value === null) return
+  /** 一键写入内置 Web 搜索配置：成功即显 Toast 并补偿刷新两次；失败原文留在按钮旁。 */
+  async apply(): Promise<void> {
+    const view = this.snapshot.view
+    if (view === null) return
+    this.set({ applyError: null })
     try {
-      await navigator.clipboard.writeText(value)
-      this.set({ notice: this.t(noticeKey) })
+      await endpointApi.applyWebConfig({ expectedMtimeMs: view.patchMtimeMs ?? undefined })
+      this.set({ notice: this.t('notice.applied'), applyError: null })
+      for (const delay of COMPENSATING_REFRESH_MS) {
+        setTimeout(() => void this.refresh(), delay)
+      }
     } catch (error) {
-      this.set({ error: errMsg(error), notice: null })
+      this.set({ applyError: errMsg(error) })
     }
   }
 }

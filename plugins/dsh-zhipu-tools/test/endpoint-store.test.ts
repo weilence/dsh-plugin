@@ -1,15 +1,15 @@
-/** 端点面板 store 与投影：刷新、复制提示与状态文案。 */
+/** 端点面板 store 与投影：刷新、写入流程与状态文案。 */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EndpointStatusView } from '../src/shared'
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
-  writeText: vi.fn(),
+  applyWebConfig: vi.fn(),
 }))
 
 vi.mock('../src/client/api', () => ({
-  endpointApi: { status: mocks.status },
+  endpointApi: { status: mocks.status, applyWebConfig: mocks.applyWebConfig },
 }))
 
 import { EndpointStore } from '../src/client/store'
@@ -21,14 +21,10 @@ const t = makeT()
 const view = (overrides: Partial<EndpointStatusView> = {}): EndpointStatusView => ({
   baseUrl: 'http://127.0.0.1:39617',
   port: 39617,
-  token: 'ab'.repeat(16),
   failure: null,
   credential: { configured: true, failure: undefined },
   fetchBackend: 'zhipu-reader',
-  mcp: [
-    { server: 'zhipu_search', mounted: true },
-    { server: 'zhipu_reader', mounted: true },
-  ],
+  patchMtimeMs: 123,
   ...overrides,
 })
 
@@ -36,9 +32,8 @@ const listeningView = (): EndpointStatusView => view()
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.stubGlobal('navigator', { clipboard: { writeText: mocks.writeText } })
   mocks.status.mockResolvedValue(listeningView())
-  mocks.writeText.mockResolvedValue(undefined)
+  mocks.applyWebConfig.mockResolvedValue(undefined)
 })
 
 describe('EndpointStore', () => {
@@ -51,55 +46,66 @@ describe('EndpointStore', () => {
     expect(store.getSnapshot()).toMatchObject({ status: 'error', error: '宿主离线' })
   })
 
-  it('复制成功即显 Toast，失败原样留在错误行', async () => {
-    const store = new EndpointStore(t)
-    await store.refresh()
-    await store.copyUrl()
-    expect(mocks.writeText).toHaveBeenCalledWith(listeningView().baseUrl)
-    expect(store.getSnapshot().notice).toContain('端点地址')
-    await store.copyToken()
-    expect(mocks.writeText).toHaveBeenCalledWith(listeningView().token)
-    expect(store.getSnapshot().notice).toContain('API 密钥')
-    mocks.writeText.mockRejectedValue(new Error('剪贴板被占用'))
-    await store.copyUrl()
-    expect(store.getSnapshot().notice).toBeNull()
-    expect(store.getSnapshot().error).toContain('剪贴板被占用')
+  it('apply 成功：带 patch 基线发起请求，Toast 提示并补偿刷新两次', async () => {
+    vi.useFakeTimers()
+    try {
+      const store = new EndpointStore(t)
+      await store.refresh()
+      await store.apply()
+      expect(mocks.applyWebConfig).toHaveBeenCalledWith({ expectedMtimeMs: 123 })
+      expect(store.getSnapshot().notice).toContain('写入')
+      expect(store.getSnapshot().applyError).toBeNull()
+      await vi.advanceTimersByTimeAsync(1_200)
+      await vi.advanceTimersByTimeAsync(2_800)
+      // 初始刷新 1 次 + 补偿刷新 2 次。
+      expect(mocks.status).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('视图缺席（未就绪）时复制为无操作', async () => {
+  it('apply 失败：原文留在按钮旁错误行，不出 Toast', async () => {
     const store = new EndpointStore(t)
-    await store.copyUrl()
-    await store.copyToken()
-    expect(mocks.writeText).not.toHaveBeenCalled()
-    expect(store.getSnapshot().notice).toBeNull()
+    await store.refresh()
+    mocks.applyWebConfig.mockRejectedValue(new Error('patch 配置文件已被外部修改，请刷新面板后重试'))
+    await store.apply()
+    const snapshot = store.getSnapshot()
+    expect(snapshot.applyError).toContain('已被外部修改')
+    expect(snapshot.notice).toBeNull()
+    // 重试清掉旧错误。
+    mocks.applyWebConfig.mockResolvedValue(undefined)
+    await store.apply()
+    expect(store.getSnapshot().applyError).toBeNull()
+  })
+
+  it('视图缺席（未就绪）时 apply 为无操作', async () => {
+    const store = new EndpointStore(t)
+    await store.apply()
+    expect(mocks.applyWebConfig).not.toHaveBeenCalled()
   })
 })
 
 describe('projectEndpoint', () => {
-  it('监听中：地址与密钥原样展示、状态带端口、凭据与 MCP 齐备', () => {
+  it('监听中且凭据已配置：地址原样展示，状态行不出声', () => {
     const display = projectEndpoint(t, listeningView())
     expect(display.urlText).toBe(listeningView().baseUrl)
-    expect(display.tokenText).toBe(listeningView().token)
-    expect(display.listenText).toBe('已监听 127.0.0.1:39617')
-    expect(display.credentialText).toBe('已配置')
+    expect(display.statusText).toBeNull()
     expect(display.credentialHint).toBeNull()
-    expect(display.mcpText).toBe('zhipu_search ✓　zhipu_reader ✓')
   })
 
-  it('未监听：地址与密钥落空，凭据缺失给出候选引用名', () => {
+  it('未监听或凭据缺失：状态行给出异常事实与候选引用名', () => {
+    const down = projectEndpoint(t, view({ baseUrl: null, port: null }))
+    expect(down.statusText).toBe('未监听 · 凭据已配置')
+    const missing = projectEndpoint(t, view({ credential: { configured: false, failure: undefined } }))
+    expect(missing.statusText).toBe('已监听 · 凭据未配置（ZAI_CODING_CN_API_KEY / ZAI_API_KEY）')
+  })
+
+  it('凭据解析故障原文透传', () => {
     const display = projectEndpoint(
       t,
-      view({
-        baseUrl: null,
-        port: null,
-        token: null,
-        credential: { configured: false, failure: '凭证解析失败（ZAI_CODING_CN_API_KEY: 存储被锁）' },
-      }),
+      view({ credential: { configured: false, failure: '凭证解析失败（ZAI_CODING_CN_API_KEY: 存储被锁）' } }),
     )
-    expect(display.urlText).toBeNull()
-    expect(display.tokenText).toBeNull()
-    expect(display.listenText).toBe('未监听')
-    expect(display.credentialText).toContain('ZAI_CODING_CN_API_KEY')
+    expect(display.statusText).toContain('凭据未配置')
     expect(display.credentialHint).toContain('存储被锁')
   })
 })

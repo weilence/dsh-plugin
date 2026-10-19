@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Zhipu search endpoint",
-    "description": "Exposes a local DeepSeek-compatible search endpoint (fill it into the built-in Web search settings to search via Zhipu) and mounts Zhipu search / reader MCP tools."
+    "description": "Local DeepSeek-compatible search endpoint: fill it into the built-in Web search settings and web_search / web_fetch go through Zhipu."
   }
 }

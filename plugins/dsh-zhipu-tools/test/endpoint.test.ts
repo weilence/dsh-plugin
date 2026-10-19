@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebError, type WebSearchResult } from '@deepseek-ai/dsh-web'
 import { createEndpointRouter, startEndpointServer } from '../src/endpoint'
 
+/** 端点期望的 Bearer 凭据（= 现解析的智谱 Key）。 */
 const TOKEN = 'ab'.repeat(16)
 const BEARER = { authorization: `Bearer ${TOKEN}` }
 const NOOP_SEARCH = vi.fn(async (): Promise<WebSearchResult> => ({ sources: [], truncated: false }))
@@ -84,7 +85,7 @@ async function json(capture: CapturedResponse): Promise<Record<string, unknown>>
 
 describe('端点路由：信任边界与形状', () => {
   const search = vi.fn()
-  const router = createEndpointRouter({ token: TOKEN, search, read: NOOP_READ })
+  const router = createEndpointRouter({ resolveExpectedKey: async () => TOKEN, search, read: NOOP_READ })
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -170,29 +171,36 @@ describe('端点路由：信任边界与形状', () => {
     expect(search).not.toHaveBeenCalled()
   })
 
-  it('鉴权：缺失与错误 Bearer 同形 401，正确令牌放行', async () => {
-    const missing = fakeRes()
-    await router(fakeReq('/search', { query: 'q' }), missing.res)
-    expect((await missing.done).status).toBe(401)
+  it('鉴权：凭据缺失、解析故障、Bearer 缺失/错误同形 401，正确 Key（大小写不敏感头）放行', async () => {
+    const cases: {
+      deps?: Partial<Parameters<typeof createEndpointRouter>[0]>
+      headers?: Record<string, string>
+      status: number
+    }[] = [
+      { headers: {}, status: 401 },
+      { headers: { authorization: `Bearer ${'cd'.repeat(16)}` }, status: 401 },
+      { headers: { authorization: TOKEN }, status: 401 },
+      { headers: { authorization: `bearer ${TOKEN}` }, status: 200 },
+    ]
+    for (const { headers, status } of cases) {
+      const { res, done } = fakeRes()
+      await router(fakeReq('/search', { query: 'q' }, { headers }), res)
+      expect((await done).status).toBe(status)
+    }
+    expect(search).toHaveBeenCalledTimes(1)
 
-    const wrong = fakeRes()
-    await router(
-      fakeReq('/search', { query: 'q' }, { headers: { authorization: `Bearer ${'cd'.repeat(16)}` } }),
-      wrong.res,
-    )
-    expect((await wrong.done).status).toBe(401)
-
-    const malformed = fakeRes()
-    await router(fakeReq('/search', { query: 'q' }, { headers: { authorization: TOKEN } }), malformed.res)
-    expect((await malformed.done).status).toBe(401)
-
-    const ok = fakeRes()
-    await router(
-      fakeReq('/search', { query: 'q' }, { headers: { authorization: `bearer ${TOKEN}` } }),
-      ok.res,
-    )
-    expect((await ok.done).status).toBe(200)
-    expect(search).toHaveBeenCalledOnce()
+    // 凭据缺席（requireKey 抛错）与错误 Key 同形 401。
+    const failing = createEndpointRouter({
+      resolveExpectedKey: async () => {
+        throw new WebError('未配置智谱 Coding Plan API Key（ZAI_CODING_CN_API_KEY）', 'WEB_PROVIDER_ERROR')
+      },
+      search,
+      read: NOOP_READ,
+    })
+    const { res, done } = fakeRes()
+    await failing(fakeReq('/search', { query: 'q' }, { headers: BEARER }), res)
+    expect((await done).status).toBe(401)
+    expect(search).toHaveBeenCalledTimes(1)
   })
 
   it('路径不对（含旧版 /t/<token> 形态）一律 404', async () => {
@@ -220,7 +228,7 @@ describe('端点路由：/fetch 智谱网页阅读', () => {
   })
 
   it('按官方契约把 reader 正文映射为 {content}', async () => {
-    const router = createEndpointRouter({ token: TOKEN, search: NOOP_SEARCH, read })
+    const router = createEndpointRouter({ resolveExpectedKey: async () => TOKEN, search: NOOP_SEARCH, read })
     const { res, done } = fakeRes()
     await router(fakeReq('/fetch', { url: 'https://page.example/' }, { headers: BEARER }), res)
     const capture = await done
@@ -233,7 +241,7 @@ describe('端点路由：/fetch 智谱网页阅读', () => {
     read.mockRejectedValue(
       new WebError('智谱网页阅读返回了空正文（目标页可能没有可提取内容）', 'WEB_PROVIDER_ERROR'),
     )
-    const router = createEndpointRouter({ token: TOKEN, search: NOOP_SEARCH, read })
+    const router = createEndpointRouter({ resolveExpectedKey: async () => TOKEN, search: NOOP_SEARCH, read })
     const { res, done } = fakeRes()
     await router(fakeReq('/fetch', { url: 'https://empty.example/' }, { headers: BEARER }), res)
     const capture = await done
@@ -244,7 +252,7 @@ describe('端点路由：/fetch 智谱网页阅读', () => {
   })
 
   it('缺鉴权与非法请求体分别拒 401 / 400', async () => {
-    const router = createEndpointRouter({ token: TOKEN, search: NOOP_SEARCH, read })
+    const router = createEndpointRouter({ resolveExpectedKey: async () => TOKEN, search: NOOP_SEARCH, read })
     const unauthenticated = fakeRes()
     await router(fakeReq('/fetch', { url: 'https://a.example/' }), unauthenticated.res)
     expect((await unauthenticated.done).status).toBe(401)
@@ -267,21 +275,25 @@ describe('端点监听生命周期', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('状态文件持久化端口与 token，重启地址不变；真实 HTTP 往返符合协议', async () => {
+  it('状态文件只持久化端口，重启地址不变；真实 HTTP 往返符合协议', async () => {
     const stateFile = join(root, 'dsh-zhipu-tools.json')
-    const first = await startEndpointServer({ stateFile, search: NOOP_SEARCH, read: NOOP_READ })
+    const first = await startEndpointServer({
+      stateFile,
+      resolveExpectedKey: async () => TOKEN,
+      search: NOOP_SEARCH,
+      read: NOOP_READ,
+    })
     try {
-      // 地址不再携带秘密：token 走 Bearer 头（即面板展示的 API 密钥）。
       expect(first.baseUrl).toBe(`http://127.0.0.1:${String(first.port)}`)
       // 不硬断言默认端口：本机真实端点可能正占用 39617，自愈行为由专门用例覆盖。
-      expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ port: first.port, token: first.token })
+      expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ port: first.port })
 
-      // 真实回环往返：内置提供方就是带这些头与形状发请求的。
+      // 真实回环往返：内置提供方就是带这些头与形状发请求的（Bearer = 智谱 Key）。
       const response = await fetch(`${first.baseUrl}/search`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          authorization: `Bearer ${first.token}`,
+          authorization: `Bearer ${TOKEN}`,
           'user-agent': 'deepseek-harness/0.0.1',
         },
         body: JSON.stringify({ query: 'q', count: 5, need_content: false }),
@@ -303,7 +315,12 @@ describe('端点监听生命周期', () => {
       await first.close()
     }
 
-    const second = await startEndpointServer({ stateFile, search: NOOP_SEARCH, read: NOOP_READ })
+    const second = await startEndpointServer({
+      stateFile,
+      resolveExpectedKey: async () => TOKEN,
+      search: NOOP_SEARCH,
+      read: NOOP_READ,
+    })
     try {
       expect(second.baseUrl).toBe(first.baseUrl)
     } finally {
@@ -313,13 +330,23 @@ describe('端点监听生命周期', () => {
 
   it('端口被占时回退系统分配并回写状态文件，原服务不受影响', async () => {
     const stateFile = join(root, 'dsh-zhipu-tools.json')
-    const holder = await startEndpointServer({ stateFile, search: NOOP_SEARCH, read: NOOP_READ })
+    const holder = await startEndpointServer({
+      stateFile,
+      resolveExpectedKey: async () => TOKEN,
+      search: NOOP_SEARCH,
+      read: NOOP_READ,
+    })
     const mover: Array<() => Promise<void>> = [() => holder.close()]
     try {
-      const moved = await startEndpointServer({ stateFile, search: NOOP_SEARCH, read: NOOP_READ })
+      const moved = await startEndpointServer({
+        stateFile,
+        resolveExpectedKey: async () => TOKEN,
+        search: NOOP_SEARCH,
+        read: NOOP_READ,
+      })
       mover.push(() => moved.close())
       expect(moved.port).not.toBe(holder.port)
-      expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ port: moved.port, token: moved.token })
+      expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ port: moved.port })
       // 两个实例各自可服务。
       for (const instance of [holder, moved]) {
         expect(
@@ -327,7 +354,7 @@ describe('端点监听生命周期', () => {
             await fetch(`${instance.baseUrl}/search`, {
               method: 'POST',
               body: JSON.stringify({ query: 'q' }),
-              headers: { 'content-type': 'application/json', authorization: `Bearer ${instance.token}` },
+              headers: { 'content-type': 'application/json', authorization: `Bearer ${TOKEN}` },
             })
           ).status,
         ).toBe(200)
@@ -337,18 +364,46 @@ describe('端点监听生命周期', () => {
     }
   })
 
-  it('状态文件损坏或形状不对时明确报错，不静默重置 token', async () => {
+  it('状态文件损坏或端口非法时明确报错；旧版带 token 的文件兼容读取并回写瘦身', async () => {
     for (const [content, pattern] of [
       ['not-json', /不是有效 JSON/],
-      [JSON.stringify({ port: 'x', token: 'ab'.repeat(16) }), /不符合预期/],
-      [JSON.stringify({ port: 70000, token: 'ab'.repeat(16) }), /不符合预期/],
-      [JSON.stringify({ port: 39617, token: 'zz'.repeat(16) }), /不符合预期/],
+      [JSON.stringify({ port: 'x' }), /不符合预期/],
+      [JSON.stringify({ port: 70000 }), /不符合预期/],
     ] as const) {
       const stateFile = join(root, 'dsh-zhipu-tools.json')
       await writeFile(stateFile, content, 'utf8')
-      await expect(startEndpointServer({ stateFile, search: NOOP_SEARCH, read: NOOP_READ })).rejects.toThrow(
-        pattern,
-      )
+      await expect(
+        startEndpointServer({
+          stateFile,
+          resolveExpectedKey: async () => TOKEN,
+          search: NOOP_SEARCH,
+          read: NOOP_READ,
+        }),
+      ).rejects.toThrow(pattern)
+    }
+
+    // 旧版 {port, token}：token 字段忽略。占住文件声明的端口逼出自愈回写，断言写回即瘦身为 {port}。
+    const { createServer } = await import('node:http')
+    const blocker = createServer()
+    await new Promise<void>((resolve) => blocker.listen(45678, '127.0.0.1', resolve))
+    try {
+      const legacyFile = join(root, 'legacy.json')
+      await writeFile(legacyFile, JSON.stringify({ port: 45678, token: 'ab'.repeat(16) }), 'utf8')
+      const server = await startEndpointServer({
+        stateFile: legacyFile,
+        resolveExpectedKey: async () => TOKEN,
+        search: NOOP_SEARCH,
+        read: NOOP_READ,
+      })
+      try {
+        expect(server.port).not.toBe(45678)
+        expect(JSON.parse(await readFile(legacyFile, 'utf8'))).toEqual({ port: server.port })
+      } finally {
+        await server.close()
+      }
+    } finally {
+      blocker.close()
+      await new Promise<void>((resolve) => blocker.close(() => resolve()))
     }
   })
 })
