@@ -23,17 +23,20 @@ import {
   skillsRoots,
   systemPromptFile,
 } from './localenv'
-import { RemoteEngine, BusyError, NotFoundError, type EngineDeps } from './engine'
+import { RemoteEngine, BusyError, NotFoundError, SecretRequiredError, type EngineDeps } from './engine'
 import { ValidationError } from './connections'
 import { ForwardRegistry } from './forwards'
 import { RemoteTransportService, exchangeTunnelCookie } from './transport'
-import { sshExec, startSshForward, tarOverSsh, SshFailure, mergedOutput, summarizeOutput } from './ssh'
+import { readSshConfig } from './sshconfig'
+import { createSshTransport, SshFailure, mergedOutput, summarizeOutput, type SshTarget } from './ssh'
 import {
   CONNECT_PATH,
   DELETE_PATH,
   LOCAL_ROWS_PATH,
   REMOTE_INVENTORY_PATH,
   SAVE_PATH,
+  SECRET_PATH,
+  SSH_HOSTS_PATH,
   STATE_PATH,
   SYNC_PATH,
   TEST_PATH,
@@ -42,8 +45,11 @@ import {
   type LocalSkillRow,
   type OpRequest,
   type SaveRequest,
+  type SecretRequest,
+  type SshHostsResponse,
   type StateResponse,
   type SyncRequest,
+  type TestRequest,
 } from './shared'
 
 export const inject: string[] = ['webServer', 'connection']
@@ -160,13 +166,14 @@ async function packPlugin(): Promise<{ path: string; fileName: string }> {
 
 /** 单文件二进制推送：tgz 经 ssh stdin 直写远端 payload 目录。 */
 async function pushFile(
-  alias: string,
+  transport: { exec: EngineDeps['exec'] },
+  target: SshTarget,
   localPath: string,
   remoteDir: string,
   fileName: string,
 ): Promise<void> {
   const payload = await readFile(localPath)
-  const pushed = await sshExec(alias, `mkdir -p ${remoteDir} && cat > ${remoteDir}/${fileName}`, {
+  const pushed = await transport.exec(target, `mkdir -p ${remoteDir} && cat > ${remoteDir}/${fileName}`, {
     stdin: payload,
     timeoutMs: 120_000,
   })
@@ -179,9 +186,11 @@ async function pushFile(
 }
 
 function makeEngine(ctx: Context): RemoteEngine {
+  const homeDir = dshHomePath()
+  const transport = createSshTransport(homeDir)
   const deps: EngineDeps = {
-    exec: sshExec,
-    startForward: startSshForward,
+    exec: transport.exec,
+    startForward: transport.startForward,
     freeLocalPort: () =>
       new Promise<number>((resolve, reject) => {
         const server = createServer()
@@ -228,8 +237,9 @@ function makeEngine(ctx: Context): RemoteEngine {
         return { ok: false as const, error: errMsg(error) }
       }
     },
-    pushTar: tarOverSsh,
-    pushFile,
+    pushTar: transport.pushTar,
+    pushFile: (target, localPath, remoteDir, fileName) =>
+      pushFile(transport, target, localPath, remoteDir, fileName),
     readLocalLayers: () => readLocalLayers(profileContextOf(ctx)),
     readLocalMcp: () => readLocalMcp(profileContextOf(ctx)?.home ?? dshHomePath()),
     // 技能行带内容摘要：同步弹窗的「一致」判定源
@@ -256,8 +266,8 @@ function makeEngine(ctx: Context): RemoteEngine {
     localPluginVersion,
     packPlugin,
     packPackage,
-    forwards: new ForwardRegistry(dshHomePath()),
-    homeDir: dshHomePath(),
+    forwards: new ForwardRegistry(homeDir),
+    homeDir,
     now: () => new Date().toISOString(),
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }
@@ -268,6 +278,7 @@ function statusOf(error: unknown): number {
   if (error instanceof HttpError) return error.status
   if (error instanceof ValidationError) return 400
   if (error instanceof BusyError) return 409
+  if (error instanceof SecretRequiredError) return 409
   if (error instanceof NotFoundError) return 404
   return 500
 }
@@ -431,6 +442,7 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
     'dsh-remote: delete bridge',
   )
 
+  // 表单里的无状态探针（新增 / 编辑时「测试」按钮）：不保存、不占连接操作位。
   ctx.effect(
     () =>
       ctx.webServer.register({
@@ -439,8 +451,8 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
         handler: async (req: IncomingMessage, res: ServerResponse) => {
           try {
             if (!guard(req, res, 'POST')) return
-            const id = await connIdOf(req)
-            const response = await engine.test(id)
+            const body = await readJsonBody(req)
+            const response = await engine.probe(body as unknown as TestRequest)
             writeJson(res, 200, response as unknown as Record<string, unknown>)
           } catch (error) {
             writeJson(res, statusOf(error), { error: errMsg(error) })
@@ -448,6 +460,47 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
         },
       }),
     'dsh-remote: test bridge',
+  )
+
+  // ~/.ssh/config 的主机别名清单（表单选择器）：只读展示，连接参数仍由 ssh 解析。
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: SSH_HOSTS_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!guard(req, res, 'GET')) return
+            const response: SshHostsResponse = await readSshConfig()
+            writeJson(res, 200, response as unknown as Record<string, unknown>)
+          } catch (error) {
+            writeJson(res, 500, { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-remote: ssh-hosts bridge',
+  )
+
+  // 现场补口令（「记住密码」关闭的连接在宿主重启后需要）：只进内存，不写盘。
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: SECRET_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!guard(req, res, 'POST')) return
+            const body = (await readJsonBody(req)) as unknown as SecretRequest
+            if (typeof body.id !== 'string' || body.id.length === 0) throw new HttpError(400, '缺少 id')
+            if (typeof body.secret !== 'string') throw new HttpError(400, 'secret 必须是字符串')
+            await engine.setSessionSecret(body.id, body.secret)
+            writeJson(res, 200, { ok: true })
+          } catch (error) {
+            writeJson(res, statusOf(error), { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-remote: secret bridge',
   )
 
   ctx.effect(

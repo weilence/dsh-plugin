@@ -1,9 +1,20 @@
-import type { ForwardHandle, SshExec } from './ssh'
+import type { ForwardHandle, SshExec, SshTarget } from './ssh'
 import { SshFailure, mergedOutput, shQuote, summarizeOutput } from './ssh'
 import type { ForwardRegistry } from './forwards'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
-import { normalizeConnection, readStore, writeStore, type SyncManifest, type StoreFile } from './connections'
+import {
+  normalizeConnection,
+  normalizeSecret,
+  normalizeTarget,
+  readStore,
+  toRemoteConnection,
+  writeStore,
+  ValidationError,
+  type StoredConnection,
+  type SyncManifest,
+  type StoreFile,
+} from './connections'
 import {
   composeLocalRows,
   foldSkillDigest,
@@ -18,11 +29,11 @@ import {
   REMOTE_PROFILE,
   isRemoteSelf,
   mcpSignature,
+  targetRequiresSecret,
   type ConnOp,
   type ConnRow,
   type ConnState,
   type RegistryPluginInstall,
-  type RemoteConnection,
   type RemoteInventoryResponse,
   type RemoteMcpFact,
   type RemotePluginFact,
@@ -31,6 +42,7 @@ import {
   type SaveRequest,
   type SshErrorKind,
   type SyncKind,
+  type TestRequest,
   type TestResponse,
 } from './shared'
 
@@ -87,14 +99,14 @@ export type InstanceVersion =
 /** 引擎的外部效应面（测试注入 fake 用；生产接线见 host index.ts）。 */
 export interface EngineDeps {
   exec: SshExec
-  startForward(alias: string, localPort: number, remotePort: number): ForwardHandle
+  startForward(target: SshTarget, localPort: number, remotePort: number): Promise<ForwardHandle>
   freeLocalPort(): Promise<number>
   healthCheck(url: string): Promise<boolean>
   /** 经隧道问远端实例的运行版本（token 换 Cookie 后 GET /version）。 */
   instanceVersion(tunnelUrl: string): Promise<InstanceVersion>
-  pushTar(alias: string, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
+  pushTar(target: SshTarget, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
   /** 单文件二进制推送（tgz 落盘远端 payload 目录）。 */
-  pushFile(alias: string, localPath: string, remoteDir: string, fileName: string): Promise<void>
+  pushFile(target: SshTarget, localPath: string, remoteDir: string, fileName: string): Promise<void>
   readLocalLayers(): Promise<LocalPatchLayer[]>
   /** 本机全局 MCP 档（~/.dsh/mcp.json）：原始条目 + 弹窗行。 */
   readLocalMcp(): Promise<LocalMcpFile>
@@ -132,6 +144,13 @@ export class NotFoundError extends Error {
   }
 }
 
+/** 需要口令但当前没有（路由转 409，面板据此弹口令输入框）。 */
+export class SecretRequiredError extends Error {
+  constructor(message = '该连接需要登录密码：请先在面板输入密码') {
+    super(message)
+  }
+}
+
 interface ConnRuntime {
   phase: ConnState['phase']
   op: ConnOp | null
@@ -165,8 +184,10 @@ const HEALTH_INTERVAL_MS = 1_000
 const OP_TIMEOUT_MS = 600_000
 
 export class RemoteEngine {
-  private store: StoreFile = { version: 1, connections: [], manifest: {} }
+  private store: StoreFile = { version: 2, connections: [], manifest: {} }
   private readonly runtimes = new Map<string, ConnRuntime>()
+  /** 「记住密码」关闭时的口令：只驻内存，宿主退出 / 删除连接 / 改认证方式即消失。 */
+  private readonly sessionSecrets = new Map<string, string>()
   private loaded = false
 
   constructor(private readonly deps: EngineDeps) {}
@@ -199,7 +220,10 @@ export class RemoteEngine {
   }
 
   rows(): ConnRow[] {
-    return this.store.connections.map((connection) => ({ ...connection, state: this.stateOf(connection.id) }))
+    return this.store.connections.map((connection) => ({
+      ...toRemoteConnection(connection, this.sessionSecrets.has(connection.id)),
+      state: this.stateOf(connection.id),
+    }))
   }
 
   stateOf(id: string): ConnState {
@@ -222,33 +246,65 @@ export class RemoteEngine {
     }
   }
 
-  connectionOf(id: string): RemoteConnection {
+  connectionOf(id: string): StoredConnection {
     const connection = this.store.connections.find((candidate) => candidate.id === id)
     if (connection === undefined) throw new NotFoundError(id)
     return connection
   }
 
+  /** 当前可用口令：落盘优先，其次本次运行的内存口令；别名恒为 null。 */
+  private secretOf(connection: StoredConnection): string | null {
+    if (connection.target.kind === 'alias') return null
+    return connection.secret ?? this.sessionSecrets.get(connection.id) ?? null
+  }
+
+  /** 引擎各流程统一用「连接目标 + 当前口令」调用 ssh。 */
+  private sshTargetOf(connection: StoredConnection): SshTarget {
+    return { target: connection.target, secret: this.secretOf(connection) }
+  }
+
+  private ensureSecret(connection: StoredConnection): void {
+    if (targetRequiresSecret(connection.target) && this.secretOf(connection) === null) {
+      throw new SecretRequiredError()
+    }
+  }
+
+  /** 保存后的口令落点：记住 → 落盘由连接携带；不记住 → 只进内存；清除 → 两处都删。 */
+  private stashSecret(connection: StoredConnection, secret: string | null): void {
+    if (secret === null || connection.secret !== null) this.sessionSecrets.delete(connection.id)
+    else this.sessionSecrets.set(connection.id, secret)
+  }
+
   async save(request: SaveRequest): Promise<{ id: string }> {
     await this.load()
     const previous = request.id === undefined ? undefined : this.connectionOf(request.id)
-    // save 只管基本信息；运行中修改会让转发进程锚在旧别名上。没有「断开」
-    // 操作，改别名的路径是删除后重建。同步勾选不经 save（随 startSync 直传），
+    // save 只管基本信息；运行中修改会让转发进程锚在旧目标上。没有「断开」
+    // 操作，改目标的路径是删除后重建。同步勾选不经 save（随 startSync 直传），
     // 无此限制。
     if (previous !== undefined && this.runtimeOf(previous.id).running !== null) {
-      throw new BusyError('连接使用中不能修改基本信息；如需更换别名请删除连接后重建')
+      throw new BusyError('连接使用中不能修改基本信息；如需更换目标请删除连接后重建')
     }
     const ids = new Set(
       this.store.connections
         .filter((candidate) => candidate.id !== previous?.id)
         .map((candidate) => candidate.id),
     )
-    const connection = normalizeConnection(request, ids, this.deps.now(), previous)
+    const normalized = await normalizeConnection(
+      request,
+      ids,
+      this.deps.now(),
+      previous,
+      // 表单留空 = 保持：来源是「实际可用」的口令，可能只在内存里
+      previous === undefined ? null : this.secretOf(previous),
+    )
+    const connection = normalized.connection
     if (previous === undefined) this.store.connections.push(connection)
     else
       this.store.connections = this.store.connections.map((row) =>
         row.id === connection.id ? connection : row,
       )
     this.runtimeOf(connection.id)
+    this.stashSecret(connection, normalized.secret)
     await this.persist()
     return { id: connection.id }
   }
@@ -266,13 +322,29 @@ export class RemoteEngine {
     this.store.connections = this.store.connections.filter((candidate) => candidate.id !== id)
     delete this.store.manifest[id]
     this.runtimes.delete(id)
+    this.sessionSecrets.delete(id)
     await this.persist()
+  }
+
+  /** 现场补口令（POST /secret）：只进内存，永不落盘。 */
+  async setSessionSecret(id: string, secret: string): Promise<void> {
+    await this.load()
+    const connection = this.connectionOf(id)
+    if (connection.target.kind === 'alias') {
+      throw new ValidationError('别名连接的认证由 ~/.ssh/config 决定，不使用面板口令')
+    }
+    const value = normalizeSecret(secret)
+    if (value === null || value === undefined) throw new ValidationError('口令不能为空')
+    this.sessionSecrets.set(id, value)
   }
 
   /** 同步预占操作位（互斥在事件循环同一 tick 内完成，双击不会双跑）。
    *  本机缺 ssh 的失败分类由 ssh 执行器在 spawn 时给出（local-tool-missing）。 */
-  private beginOp(id: string, op: ConnOp, phase: ConnRuntime['phase']): RemoteConnection {
+  private beginOp(id: string, op: ConnOp, phase: ConnRuntime['phase']): StoredConnection {
     const connection = this.connectionOf(id)
+    // 密码登录却没有可用口令（典型：宿主重启后会话口令丢了）：显式要口令，
+    // 不把一次注定失败的认证当成连接失败
+    this.ensureSecret(connection)
     const runtime = this.runtimeOf(id)
     if (runtime.op !== null) throw new BusyError()
     runtime.op = op
@@ -319,48 +391,55 @@ export class RemoteEngine {
     return runtime.running !== null ? 'running' : 'idle'
   }
 
-  async test(id: string): Promise<TestResponse> {
+  /**
+   * 表单里的无状态探针（POST /test）：不占连接操作位、不改卡片阶段、不需要
+   * 先保存——只回报远端 node / npm / dsh 三段版本。口令来源：表单本次输入的
+   * 优先，其次 id 对应连接的已保存 / 会话口令。
+   */
+  async probe(request: TestRequest): Promise<TestResponse> {
     await this.load()
-    const connection = this.beginOp(id, { kind: 'test' }, 'probing')
-    this.step(id, 'probe')
-    const runtime = this.runtimeOf(id)
-    const backTo = (response: TestResponse): TestResponse => {
-      runtime.op = null
-      runtime.phase = this.restPhase(runtime)
-      return response
-    }
+    const target = await normalizeTarget(request.target)
+    const submitted = normalizeSecret(request.secret)
+    const secret =
+      submitted !== undefined
+        ? submitted
+        : request.id === undefined
+          ? null
+          : this.secretOf(this.connectionOf(request.id))
+    if (targetRequiresSecret(target) && secret === null) throw new SecretRequiredError()
+    const sshTarget: SshTarget = { target, secret }
     try {
-      const combined = await this.deps.exec(connection.sshAlias, 'node -v && npm -v && (dsh -V || true)', {
+      const combined = await this.deps.exec(sshTarget, 'node -v && npm -v && (dsh -V || true)', {
         timeoutMs: 20_000,
       })
       const lines = combined.stdout.trim().split(/\r?\n/)
-      return backTo({
+      return {
         ok: true,
         nodeVersion: lines[0] ?? null,
         npmVersion: lines[1] ?? null,
         dshVersion: lines[2] && lines[2].length > 0 ? lines[2] : null,
         error: null,
-      })
+      }
     } catch (error) {
       const failure = error instanceof SshFailure ? error : new SshFailure('unknown', errMsg(error))
       if (failure.kind === 'remote-cmd-failed') {
         // 连接通但 node 缺失：算探针结果而非连接故障
-        const node = await this.deps.exec(connection.sshAlias, 'node -v || true')
-        return backTo({
+        const node = await this.deps.exec(sshTarget, 'node -v || true')
+        return {
           ok: false,
           nodeVersion: node.code === 0 && node.stdout.trim().length > 0 ? node.stdout.trim() : null,
           npmVersion: null,
           dshVersion: null,
           error: { message: failure.message, kind: failure.kind },
-        })
+        }
       }
-      return backTo({
+      return {
         ok: false,
         nodeVersion: null,
         npmVersion: null,
         dshVersion: null,
         error: { message: failure.message, kind: failure.kind },
-      })
+      }
     }
   }
 
@@ -376,7 +455,7 @@ export class RemoteEngine {
    *  经一条标记行命令一次拿全——探查彼此无依赖，Windows（无连接复用）下
    *  必经建连从六次缩成一次。 */
   private async ensureDeployed(id: string): Promise<void> {
-    const alias = this.connectionOf(id).sshAlias
+    const target = this.sshTargetOf(this.connectionOf(id))
     const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
     const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
 
@@ -389,7 +468,7 @@ export class RemoteEngine {
       `echo __PLUGIN__"$(cat ${remoteModulePkg} 2>/dev/null | tr -d '\\n\\r')"`,
       `(grep -q ${shQuote(REMOTE_PLUGIN_NAME)} ${remoteProfilePkg} && echo __REG__1) || echo __REG__0`,
     ].join('; ')
-    const probe = await this.deps.exec(alias, probeCommand)
+    const probe = await this.deps.exec(target, probeCommand)
     const tools = parseToolProbe(probe.stdout)
     const probeDetail = mergedOutput(probe.stdout, probe.stderr)
     if (tools.node === null)
@@ -421,7 +500,7 @@ export class RemoteEngine {
     const remoteDsh = markedValues(probe.stdout).get('DSH')
     if (remoteDsh !== wantVersion) {
       const install = await this.deps.exec(
-        alias,
+        target,
         `npm install -g ${shQuote(`@deepseek-ai/dsh@${wantVersion}`)}`,
         {
           timeoutMs: OP_TIMEOUT_MS,
@@ -456,10 +535,10 @@ export class RemoteEngine {
     } else {
       const packed = await this.deps.packPlugin()
       this.step(id, 'push', packed.fileName)
-      await this.deps.pushFile(alias, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
+      await this.deps.pushFile(target, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
       this.step(id, 'install-plugin', packed.fileName)
       const add = await this.deps.exec(
-        alias,
+        target,
         `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}" && echo __VERIFY__"$(cat ${remoteModulePkg} | tr -d '\\n\\r')"`,
         {
           timeoutMs: OP_TIMEOUT_MS,
@@ -500,10 +579,10 @@ export class RemoteEngine {
     }
   }
 
-  private async runConnect(connection: RemoteConnection): Promise<void> {
+  private async runConnect(connection: StoredConnection): Promise<void> {
     const id = connection.id
     try {
-      const alias = connection.sshAlias
+      const target = this.sshTargetOf(connection)
       const runtime = this.runtimeOf(id)
       // 重连先杀旧转发：error 阶段重连时旧句柄仍在（fail 不清 forward），不杀
       // 会被新 forward 覆盖句柄，泄漏为无主 ssh 进程（实测累积过 4 个）
@@ -524,11 +603,11 @@ export class RemoteEngine {
         | { url: string; localPort: number; remotePort: number; pid: number; forward: ForwardHandle }
         | undefined
       for (;;) {
-        const launched = await this.launchInstance(alias, id)
+        const launched = await this.launchInstance(target, id)
 
         this.step(id, 'forward', `127.0.0.1 → 远端 :${launched.launch.remotePort}`)
         const localPort = await this.deps.freeLocalPort()
-        const forward = this.deps.startForward(alias, localPort, launched.launch.remotePort)
+        const forward = await this.deps.startForward(target, localPort, launched.launch.remotePort)
         runtime.forward = forward
         forward.onExit(() => {
           const current = this.runtimeOf(id)
@@ -566,7 +645,7 @@ export class RemoteEngine {
             )
           restarted = true
           this.step(id, 'restart', '复用实例无响应')
-          await this.stopInstance(alias, id)
+          await this.stopInstance(target, id)
           continue
         }
 
@@ -598,7 +677,7 @@ export class RemoteEngine {
         if (restarted) throw new SshFailure('unknown', `远端实例重启后版本仍不匹配（${mismatch}）`)
         restarted = true
         this.step(id, 'restart', '版本不匹配，重启远端实例')
-        await this.stopInstance(alias, id)
+        await this.stopInstance(target, id)
       }
 
       runtime.running = {
@@ -626,7 +705,7 @@ export class RemoteEngine {
   /** 启动段：start（pid 存活即复用候选）+ poll 就绪行。复用候选是否被接受由
    *  调用方在版本判定后决定（不匹配则杀旧重来，见 runConnect）。 */
   private async launchInstance(
-    alias: string,
+    target: SshTarget,
     id: string,
   ): Promise<{ launch: RemoteLaunch; pid: number; reused: boolean }> {
     const log = `~/.dsh/dsh-remote/${id}.log`
@@ -635,7 +714,7 @@ export class RemoteEngine {
     // pid 文件里的实例仍在运行就复用（重试连接不再叠加新实例，token 不变）；
     // 日志与 pid 由同一次启动写入，存活即两者一致。
     const start = await this.deps.exec(
-      alias,
+      target,
       `pid=$(cat ${pidFile} 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo reuse:$pid; else mkdir -p ~/.dsh/dsh-remote; nohup dsh --profile ${shQuote(REMOTE_PROFILE)} --no-open --port 0 > ${log} 2>&1 & echo $! > ${pidFile}; fi`,
       { timeoutMs: 30_000 },
     )
@@ -653,7 +732,7 @@ export class RemoteEngine {
     // 一条连接的输出里。
     const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
     const poll = await this.deps.exec(
-      alias,
+      target,
       [
         `for i in $(seq 1 ${maxAttempts}); do`,
         `line=$(grep -m1 '^dsh web: ' ${log} 2>/dev/null) && { echo "$line";`,
@@ -666,7 +745,7 @@ export class RemoteEngine {
     )
     const launch = poll.code === 0 ? parseLaunchFromLog(poll.stdout) : undefined
     if (launch === undefined) {
-      const tail = await this.deps.exec(alias, `tail -n 20 ${log} || true`)
+      const tail = await this.deps.exec(target, `tail -n 20 ${log} || true`)
       throw new SshFailure(
         'timeout',
         `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${tail.stdout.trim().slice(-800)}`,
@@ -683,11 +762,11 @@ export class RemoteEngine {
    *  pid 清除、日志截断——旧就绪行必须清掉，否则下次 poll 秒命中死实例的旧
    *  token。子进程一并补杀：SIGTERM 不传播，孤儿 MCP 与下次启动的依赖下载抢
    *  缓存锁与带宽。 */
-  private async stopInstance(alias: string, id: string): Promise<void> {
+  private async stopInstance(target: SshTarget, id: string): Promise<void> {
     const pidFile = `~/.dsh/dsh-remote/${id}.pid`
     const log = `~/.dsh/dsh-remote/${id}.log`
     const stop = await this.deps.exec(
-      alias,
+      target,
       [
         `pid=$(cat ${pidFile} 2>/dev/null);`,
         `if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep -q dsh; then`,
@@ -725,12 +804,12 @@ export class RemoteEngine {
    *  hasher 缺失 / 命令失败回 null——该根全部按「无法比对」保守推送。
    *  刻意不比 mtime / mode：声明语义只关心内容字节。 */
   private async remoteSkillFacts(
-    alias: string,
+    target: SshTarget,
     key: 'user-dsh' | 'user-agents',
   ): Promise<RemoteSkillFact[] | null> {
     const root = key === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills'
     const list = await this.deps.exec(
-      alias,
+      target,
       `if cd ${root} 2>/dev/null; then if command -v sha256sum >/dev/null 2>&1; then find . -type f ! -path '*/.*' -print0 | xargs -0 sha256sum; elif command -v shasum >/dev/null 2>&1; then find . -type f ! -path '*/.*' -print0 | xargs -0 shasum -a 256; else echo __DSH_NO_HASHER__; fi; fi`,
     )
     if (list.code !== 0 || list.stdout.includes('__DSH_NO_HASHER__')) return null
@@ -755,11 +834,11 @@ export class RemoteEngine {
    *  部署前置保证远端有 node；脚本见 REMOTE_PLUGIN_FACTS_SCRIPT）。任一环节
    *  失败回 null——按「无法比对」处理，同步侧保守安装。 */
   private async remotePluginFacts(
-    alias: string,
+    target: SshTarget,
     names: readonly string[],
   ): Promise<RemotePluginFact[] | null> {
     const pkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
-    const current = await this.deps.exec(alias, `cat ${pkg} 2>/dev/null || true`)
+    const current = await this.deps.exec(target, `cat ${pkg} 2>/dev/null || true`)
     let bundles: string[]
     try {
       const parsed = JSON.parse(current.stdout) as { dsh?: { profile?: { bundles?: unknown } } }
@@ -772,7 +851,7 @@ export class RemoteEngine {
     const probe = bundles.filter((name) => names.includes(name))
     if (probe.length > 0) {
       const read = await this.deps.exec(
-        alias,
+        target,
         `cd ~/.dsh/profiles/${REMOTE_PROFILE}/node_modules && node -e ${shQuote(
           REMOTE_PLUGIN_FACTS_SCRIPT,
         )} ${probe.map((name) => shQuote(name)).join(' ')}`,
@@ -793,10 +872,10 @@ export class RemoteEngine {
   /** 远端系统提示词事实：单文件 sha256（sha256sum / shasum 择一，文件缺失打
    *  __ABSENT__ 哨兵、hasher 缺失打 __NO_HASHER__）。命令失败回 null——按
    *  「无法比对」处理，同步侧保守推送。仅需 ssh 可达（同 skills / MCP）。 */
-  private async remotePromptFact(alias: string): Promise<RemotePromptFact | null> {
+  private async remotePromptFact(target: SshTarget): Promise<RemotePromptFact | null> {
     const file = '~/.dsh/system-prompt.md'
     const out = await this.deps.exec(
-      alias,
+      target,
       `f=${file}; if [ ! -f "$f" ]; then echo __ABSENT__; elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$f"; elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$f"; else echo __NO_HASHER__; fi`,
     )
     if (out.code !== 0) return null
@@ -812,12 +891,14 @@ export class RemoteEngine {
    *  （只有新增/覆盖，无删除风险）；ssh 连接级失败仍抛（路由转 5xx，弹窗提示）。 */
   async remoteInventory(id: string): Promise<RemoteInventoryResponse> {
     await this.load()
-    const alias = this.connectionOf(id).sshAlias
+    const connection = this.connectionOf(id)
+    this.ensureSecret(connection)
+    const target = this.sshTargetOf(connection)
     const skills = {
-      'user-dsh': await this.remoteSkillFacts(alias, 'user-dsh'),
-      'user-agents': await this.remoteSkillFacts(alias, 'user-agents'),
+      'user-dsh': await this.remoteSkillFacts(target, 'user-dsh'),
+      'user-agents': await this.remoteSkillFacts(target, 'user-agents'),
     }
-    const mcpFileText = await this.deps.exec(alias, 'cat ~/.dsh/mcp.json 2>/dev/null || true')
+    const mcpFileText = await this.deps.exec(target, 'cat ~/.dsh/mcp.json 2>/dev/null || true')
     let mcp: RemoteMcpFact[] | null = []
     if (mcpFileText.stdout.trim().length > 0) {
       try {
@@ -834,10 +915,10 @@ export class RemoteEngine {
     }
     const { pluginRows } = await composeLocalRows(await this.deps.readLocalLayers())
     const plugins = await this.remotePluginFacts(
-      alias,
+      target,
       pluginRows.map((row) => row.name),
     )
-    const prompts = await this.remotePromptFact(alias)
+    const prompts = await this.remotePromptFact(target)
     return { skills, mcp, plugins, prompts }
   }
 
@@ -889,7 +970,7 @@ export class RemoteEngine {
       next[root.key] = chosen
       if (chosen.length > 0) {
         this.step(id, 'push', `${root.key} ${chosen.length} 项`)
-        await this.deps.pushTar(connection.sshAlias, root.path, remoteRoot, chosen)
+        await this.deps.pushTar(this.sshTargetOf(connection), root.path, remoteRoot, chosen)
         pushed += chosen.length
       }
     }
@@ -913,7 +994,10 @@ export class RemoteEngine {
     if (chosen.length > 0) {
       const remoteFile = '~/.dsh/mcp.json'
       this.step(id, 'read-remote', remoteFile)
-      const current = await this.deps.exec(connection.sshAlias, `cat ${remoteFile} 2>/dev/null || true`)
+      const current = await this.deps.exec(
+        this.sshTargetOf(connection),
+        `cat ${remoteFile} 2>/dev/null || true`,
+      )
       let remote: { rootExtras: Record<string, unknown>; entries: Map<string, Record<string, unknown>> }
       try {
         remote = parseMcpServers(current.stdout.trim().length === 0 ? null : current.stdout)
@@ -931,7 +1015,7 @@ export class RemoteEngine {
 
       this.step(id, 'write-remote')
       const write = await this.deps.exec(
-        connection.sshAlias,
+        this.sshTargetOf(connection),
         `cat > ${remoteFile}.tmp-dsh-remote && mv ${remoteFile}.tmp-dsh-remote ${remoteFile}`,
         { stdin: `${JSON.stringify(next, null, 2)}\n` },
       )
@@ -971,9 +1055,9 @@ export class RemoteEngine {
       this.step(id, 'install', row.name)
       const viaPush = row.install === 'local' || registryInstall === 'push'
       const install = viaPush
-        ? await this.addViaPush(connection.sshAlias, row)
+        ? await this.addViaPush(this.sshTargetOf(connection), row)
         : await this.deps.exec(
-            connection.sshAlias,
+            this.sshTargetOf(connection),
             `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add ${shQuote(row.version === null ? row.name : `${row.name}@${row.version}`)}`,
             { timeoutMs: OP_TIMEOUT_MS },
           )
@@ -1006,7 +1090,7 @@ export class RemoteEngine {
       const target = '~/.dsh/system-prompt.md'
       this.step(id, 'push', 'system-prompt.md')
       const write = await this.deps.exec(
-        connection.sshAlias,
+        this.sshTargetOf(connection),
         `mkdir -p ~/.dsh && cat > ${target}.tmp-dsh-remote && mv ${target}.tmp-dsh-remote ${target}`,
         { stdin: content },
       )
@@ -1028,16 +1112,16 @@ export class RemoteEngine {
    *  文件（本地路径插件与选项 push 的 registry 插件共用；payload 只是传输介质，
    *  装入 node_modules 后即可清，目录不随版本迭代堆积）。 */
   private async addViaPush(
-    alias: string,
+    target: SshTarget,
     row: { name: string; root: string | null },
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     if (row.root === null) {
       throw new SshFailure('unknown', `本机未能定位 ${row.name} 的包目录，无法本地传输；请检查其安装后重试`)
     }
     const packed = await this.deps.packPackage(row.root)
-    await this.deps.pushFile(alias, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
+    await this.deps.pushFile(target, packed.path, '~/.dsh/dsh-remote/payload', packed.fileName)
     const install = await this.deps.exec(
-      alias,
+      target,
       `dsh plugin --profile ${shQuote(REMOTE_PROFILE)} add "$HOME/.dsh/dsh-remote/payload/${packed.fileName}"`,
       { timeoutMs: OP_TIMEOUT_MS },
     )
@@ -1047,7 +1131,7 @@ export class RemoteEngine {
       // 版本段锚定数字：@weilence/dsh-mcp 不误删 @weilence/dsh-mcp-x 的文件。
       const flat = row.name.replace(/^@/, '').replace(/\//g, '-')
       await this.deps.exec(
-        alias,
+        target,
         `find ~/.dsh/dsh-remote/payload -maxdepth 1 -name '${flat}-[0-9]*.tgz' ! -name '${packed.fileName}' -delete || true`,
       )
     }

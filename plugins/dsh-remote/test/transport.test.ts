@@ -44,7 +44,9 @@ function row(running: ConnRunning | null, state: Partial<ConnState> = {}, id = '
   return {
     id,
     label: `开发机 ${id}`,
-    sshAlias: id,
+    target: { kind: 'alias', alias: id },
+    secretState: 'none',
+    rememberSecret: false,
     createdAt: '2027-01-01',
     updatedAt: '2027-01-01',
     state: {
@@ -115,11 +117,11 @@ describe('RemoteTransportService', () => {
     expect(load).not.toHaveBeenCalled()
   })
 
-  it('入口保留所有连接，并区分测试中的 probing、操作忙、连接中与错误', async () => {
+  it('入口保留所有连接，并区分操作忙、连接中与错误', async () => {
     const target = { port: 12345, url: 'http://127.0.0.1:12345/?token=launch-secret' }
     const rows = [
       row(null, {}, 'idle'),
-      row(running(target), { phase: 'probing', op: { kind: 'test' } }, 'test'),
+      row(running(target), { op: { kind: 'sync-mcp' } }, 'busy'),
       row(running(target), { op: { kind: 'sync-skills' } }, 'sync'),
       row(running(target), { phase: 'deploying', op: { kind: 'connect' } }, 'connect'),
       row(null, { phase: 'error', error: { kind: 'unreachable', message: 'ssh refused' } }, 'error'),
@@ -127,7 +129,7 @@ describe('RemoteTransportService', () => {
     const { service } = transport(rows)
     expect(service.listConnections().map(({ id, reason, detail }) => ({ id, reason, detail }))).toEqual([
       { id: 'idle', reason: 'disconnected', detail: undefined },
-      { id: 'test', reason: 'busy', detail: 'test' },
+      { id: 'busy', reason: 'busy', detail: 'sync-mcp' },
       { id: 'sync', reason: 'busy', detail: 'sync-skills' },
       { id: 'connect', reason: 'connecting', detail: undefined },
       { id: 'error', reason: 'error', detail: 'ssh refused' },

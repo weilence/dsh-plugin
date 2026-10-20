@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugins",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "DeepSeek Harness (DSH) web 插件集：单仓多插件，pnpm workspace 管理，各插件独立发布到 npm。",
   "type": "module",

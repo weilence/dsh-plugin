@@ -4,11 +4,110 @@
   gap: 14px;
 }
 
-/* footer 动作行（共享表里无此类，各插件自带相同样式）。 */
+/* footer 动作行：左侧测试（不保存也能先验连接），右侧取消 / 保存。 */
 .formActions {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  justify-content: flex-end;
+}
+
+.formActionsRight {
+  display: flex;
+  gap: 8px;
+}
+
+/* 登录方式分段控件占满字段宽度（官方 SegmentedControl 默认按内容宽度）。 */
+.segmented {
+  width: 100%;
+}
+
+/* 分段控件的字段外壳：与官方 Field 同形态（竖排 label + 控件）。 */
+.loginField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* 端口 + 用户同一行、各自等宽：两列嵌套网格在窄屏也能收住。 */
+.inlineGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+/* 口令字段下方的「记住」开关与清除动作。 */
+.secretTools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* SSH 主机选择器：别名是可点的按钮，其余元信息与路径保持文本可选。 */
+.pickerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hostList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.hostItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--dsw-alias-border-secondary);
+}
+
+.hostItem:last-child {
+  border-bottom: none;
+}
+
+.hostPick {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+
+.hostPick:hover {
+  color: var(--dsw-alias-brand-primary);
+}
+
+.hostPick:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.hostMeta {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.hostNote {
+  font-family: var(--ds-font-family-code);
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow-wrap: anywhere;
 }
 
 /* 同步弹窗清单工具行：左「全选」勾选，右「隐藏已一致」开关（纯视图过滤）。 */

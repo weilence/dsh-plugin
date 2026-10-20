@@ -13,10 +13,11 @@ import {
   BusyError,
   RemoteEngine,
   REMOTE_PLUGIN_FACTS_SCRIPT,
+  SecretRequiredError,
   type EngineDeps,
   type InstanceVersion,
 } from '../src/engine'
-import type { ForwardHandle, SshResult } from '../src/ssh'
+import type { ForwardHandle, SshResult, SshTarget } from '../src/ssh'
 import { ForwardRegistry } from '../src/forwards'
 import { emptyPatchDoc, parsePatchDoc } from '../src/patchDoc'
 import { readStore, writeStore } from '../src/connections'
@@ -24,7 +25,7 @@ import { foldSkillDigest, mcpSummary, type LocalPatchLayer, type LocalMcpFile } 
 import { mcpSignature, type SaveRequest } from '../src/shared'
 
 interface Recorded {
-  alias: string
+  target: SshTarget
   command: string
   stdin?: string | Uint8Array
 }
@@ -87,16 +88,17 @@ interface FakeOptions {
 
 function makeDeps(options: FakeOptions = {}) {
   const calls: Recorded[] = []
-  const tarPushes: { alias: string; localRoot: string; remoteRoot: string; names?: readonly string[] }[] = []
-  const filePushes: { alias: string; localPath: string; remoteDir: string; fileName: string }[] = []
+  const tarPushes: { target: SshTarget; localRoot: string; remoteRoot: string; names?: readonly string[] }[] =
+    []
+  const filePushes: { target: SshTarget; localPath: string; remoteDir: string; fileName: string }[] = []
   const packedRoots: string[] = []
   let forwardKilled = 0
   let packCount = 0
   let versionAttempt = 0
   let healthAttempt = 0
   const deps: EngineDeps = {
-    async exec(alias, command, execOptions) {
-      calls.push({ alias, command, stdin: execOptions?.stdin })
+    async exec(target, command, execOptions) {
+      calls.push({ target, command, stdin: execOptions?.stdin })
       const scripted = options.respond?.(command)
       if (scripted instanceof Promise) return scripted
       return scripted ?? OK
@@ -113,7 +115,7 @@ function makeDeps(options: FakeOptions = {}) {
       }
       return typeof scripted === 'function' ? scripted(versionAttempt) : scripted
     },
-    startForward(alias, localPort, remotePort): ForwardHandle {
+    async startForward(target): Promise<ForwardHandle> {
       return {
         kill() {
           forwardKilled += 1
@@ -127,11 +129,11 @@ function makeDeps(options: FakeOptions = {}) {
       healthAttempt += 1
       return options.healthCheck === undefined ? true : options.healthCheck(healthAttempt)
     },
-    async pushTar(alias, localRoot, remoteRoot, names) {
-      tarPushes.push({ alias, localRoot, remoteRoot, names })
+    async pushTar(target, localRoot, remoteRoot, names) {
+      tarPushes.push({ target, localRoot, remoteRoot, names })
     },
-    async pushFile(alias, localPath, remoteDir, fileName) {
-      filePushes.push({ alias, localPath, remoteDir, fileName })
+    async pushFile(target, localPath, remoteDir, fileName) {
+      filePushes.push({ target, localPath, remoteDir, fileName })
     },
     readLocalMcp: async (): Promise<LocalMcpFile> => {
       const entries = new Map(Object.entries(options.localMcp ?? {}))
@@ -204,7 +206,8 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 function saveRequest(overrides: Partial<SaveRequest> = {}): SaveRequest {
   return {
     label: '开发机',
-    sshAlias: 'dev-box',
+    target: { kind: 'alias', alias: 'dev-box' },
+    rememberSecret: false,
     ...overrides,
   }
 }
@@ -236,10 +239,15 @@ describe('RemoteEngine', () => {
     expect(id).toBe('dev-box')
     const rows = engine.rows()
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ id: 'dev-box', sshAlias: 'dev-box', state: { phase: 'idle', op: null } })
+    expect(rows[0]).toMatchObject({
+      id: 'dev-box',
+      target: { kind: 'alias', alias: 'dev-box' },
+      secretState: 'none',
+      state: { phase: 'idle', op: null },
+    })
   })
 
-  it('test：合并探针解析三段版本', async () => {
+  it('probe：无状态探针解析三段版本（不占连接操作位、不改阶段）', async () => {
     makeEngine({
       respond: (command) => {
         if (command.includes('node -v && npm -v')) {
@@ -249,10 +257,69 @@ describe('RemoteEngine', () => {
       },
     })
     await engine.save(saveRequest())
-    const result = await engine.test('dev-box')
+    const result = await engine.probe({ target: { kind: 'alias', alias: 'dev-box' } })
     expect(result.ok).toBe(true)
     expect(result).toMatchObject({ nodeVersion: 'v22.19.0', npmVersion: '10.8.2', dshVersion: '0.1.7-rc.2' })
     expect(engine.stateOf('dev-box').phase).toBe('idle')
+    // 未保存的目标同样能测（表单新建路径）
+    expect((await engine.probe({ target: { kind: 'alias', alias: 'not-saved' } })).ok).toBe(true)
+  })
+
+  it('会话口令：不记住时只驻内存（不落盘），重启后需要现场补录', async () => {
+    const target = {
+      kind: 'direct',
+      host: '10.0.0.5',
+      port: null,
+      user: null,
+      auth: 'password',
+      identityFile: null,
+    } as const
+    makeEngine({
+      respond: (command) =>
+        command.includes('node -v && npm -v')
+          ? { code: 0, stdout: 'v22.19.0\n10.8.2\n0.1.7-rc.2\n', stderr: '' }
+          : undefined,
+    })
+    const { id } = await engine.save(saveRequest({ target, secret: 'pw', rememberSecret: false }))
+    expect(id).toBe('10-0-0-5')
+    expect(engine.rows()[0].secretState).toBe('session')
+    const persisted = await readStore(home)
+    expect(persisted.connections[0]?.secret).toBeNull()
+
+    // 表单没带口令：靠连接里的会话口令
+    await expect(engine.probe({ target })).rejects.toThrow(SecretRequiredError)
+    await expect(engine.probe({ id, target })).resolves.toMatchObject({ ok: true })
+
+    // 模拟宿主重启：同一 home 新引擎，内存口令丢失
+    const restarted = makeEngine()
+    await restarted.load()
+    expect(restarted.rows()[0]?.secretState).toBe('none')
+    expect(() => restarted.startConnect(id)).toThrow(SecretRequiredError)
+    await restarted.setSessionSecret(id, 'pw')
+    expect(restarted.rows()[0]?.secretState).toBe('session')
+    await expect(restarted.probe({ id, target })).resolves.toMatchObject({ ok: true })
+  })
+
+  it('记住口令：写入连接库 0600 文件，重启后仍可用', async () => {
+    const target = {
+      kind: 'direct',
+      host: '10.0.0.5',
+      port: 2222,
+      user: 'root',
+      auth: 'password',
+      identityFile: null,
+    } as const
+    makeEngine()
+    const { id } = await engine.save(saveRequest({ target, secret: 'pw', rememberSecret: true }))
+    expect(engine.rows()[0]?.secretState).toBe('saved')
+    const persisted = await readStore(home)
+    expect(persisted.connections[0]?.secret).toBe('pw')
+
+    const restarted = makeEngine()
+    await restarted.load()
+    expect(restarted.rows()[0]?.secretState).toBe('saved')
+    // 重启后仍可用：probe 经 id 取到已落盘的口令
+    await expect(restarted.probe({ id, target })).resolves.toMatchObject({ ok: true })
   })
 
   it('connect 部署段：未装 → 打包推送 tgz 并安装（web profile），verify 读回版本', async () => {
@@ -299,7 +366,7 @@ describe('RemoteEngine', () => {
     expect(fake.packCount()).toBe(1)
     expect(fake.filePushes).toEqual([
       {
-        alias: 'dev-box',
+        target: { target: { kind: 'alias', alias: 'dev-box' }, secret: null },
         localPath: 'C:/tmp/weilence-dsh-remote-0.1.0.tgz',
         remoteDir: '~/.dsh/dsh-remote/payload',
         fileName: 'weilence-dsh-remote-0.1.0.tgz',
@@ -809,9 +876,9 @@ describe('RemoteEngine', () => {
     // save 只管基本信息：运行中修改（转发进程锚在旧别名上）一律拒绝
     // （save 是 async，BusyError 经 promise rejection 抛出）
     await expect(engine.save(saveRequest({ id: 'dev-box', label: '改名' }))).rejects.toThrow(BusyError)
-    await expect(engine.save(saveRequest({ id: 'dev-box', sshAlias: 'other-box' }))).rejects.toThrow(
-      BusyError,
-    )
+    await expect(
+      engine.save(saveRequest({ id: 'dev-box', target: { kind: 'alias', alias: 'other-box' } })),
+    ).rejects.toThrow(BusyError)
     // 同步勾选随 startSync 直传，不受运行态限制
     engine.startSync('dev-box', 'skills', ['alpha'])
     await waitFor(() => engine.stateOf('dev-box').op === null)
@@ -1185,12 +1252,14 @@ describe('RemoteEngine', () => {
       ],
     })
     await writeStore(home, {
-      version: 1,
+      version: 2,
       connections: [
         {
           id: 'dev-box',
           label: '开发机',
-          sshAlias: 'dev-box',
+          target: { kind: 'alias', alias: 'dev-box' },
+          secret: null,
+          rememberSecret: false,
           createdAt: '2027-01-01T00:00:00.000Z',
           updatedAt: '2027-01-01T00:00:00.000Z',
         },
@@ -1203,7 +1272,7 @@ describe('RemoteEngine', () => {
     // 提交项全量推送（kept 内容一致也强制重推）
     expect(fake.tarPushes).toEqual([
       {
-        alias: 'dev-box',
+        target: { target: { kind: 'alias', alias: 'dev-box' }, secret: null },
         localRoot: 'C:/skills',
         remoteRoot: '~/.dsh/skills',
         names: ['kept', 'other'],

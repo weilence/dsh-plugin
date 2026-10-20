@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { RemoteStore } from '../src/client/store'
 import type { PanelMessage } from '../src/client/locales'
 import { messageText } from '../src/client/locales'
-import type { ConnRow, StateResponse } from '../src/shared'
+import type { ConnRow, ConnectionTarget, StateResponse } from '../src/shared'
 import { makeT } from './i18n'
 
 // store 走 HTTP 封装取状态；这里换成可控的顺序桩（refresh 链路其余为真实逻辑）。
@@ -12,9 +12,10 @@ const api = vi.hoisted(() => ({
   save: vi.fn(),
   remove: vi.fn(),
   test: vi.fn(),
+  sshHosts: vi.fn(),
+  setSecret: vi.fn(),
   remoteInventory: vi.fn(),
   connect: vi.fn(),
-  disconnect: vi.fn(),
   sync: vi.fn(),
 }))
 
@@ -24,13 +25,29 @@ vi.mock('../src/client/api', () => ({ remoteApi: api }))
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
 
-function connRow(id: string, state: Partial<ConnRow['state']> = {}): ConnRow {
+const PASSWORD_TARGET: ConnectionTarget = {
+  kind: 'direct',
+  host: '10.0.0.5',
+  port: null,
+  user: null,
+  auth: 'password',
+  identityFile: null,
+}
+
+function connRow(
+  id: string,
+  state: Partial<ConnRow['state']> = {},
+  extra: Partial<Pick<ConnRow, 'target' | 'secretState' | 'rememberSecret'>> = {},
+): ConnRow {
   return {
     id,
     label: `连接 ${id}`,
-    sshAlias: 'dev-box',
+    target: { kind: 'alias', alias: 'dev-box' },
+    secretState: 'none',
+    rememberSecret: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    ...extra,
     state: {
       phase: 'idle',
       op: null,
@@ -141,6 +158,16 @@ describe('RemoteStore 阶段迁移检测', () => {
     expect(text(store.getSnapshot().notice)).toBe('同步提示词完成')
     store.stopPolling()
   })
+
+  it('每次 toast 递增 noticeSeq（同文案也重新开计时）', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValue(stateResponse([]))
+    await store.remove('a')
+    const first = store.getSnapshot().noticeSeq
+    await store.remove('a')
+    expect(store.getSnapshot().noticeSeq).toBe(first + 1)
+    store.stopPolling()
+  })
 })
 
 describe('RemoteStore 写操作提示', () => {
@@ -149,15 +176,31 @@ describe('RemoteStore 写操作提示', () => {
     api.state.mockResolvedValue(stateResponse([]))
 
     api.save.mockResolvedValueOnce({ id: 'a' })
-    expect(await store.save({ label: 'a', sshAlias: 'box' })).toBe(true)
+    expect(
+      await store.save({ label: 'a', target: { kind: 'alias', alias: 'box' }, rememberSecret: false }),
+    ).toBe(true)
     expect(text(store.getSnapshot().notice)).toBe('已创建连接')
 
     api.save.mockResolvedValueOnce({ id: 'a' })
-    expect(await store.save({ id: 'a', label: 'a2', sshAlias: 'box' })).toBe(true)
+    expect(
+      await store.save({
+        id: 'a',
+        label: 'a2',
+        target: { kind: 'alias', alias: 'box' },
+        rememberSecret: false,
+      }),
+    ).toBe(true)
     expect(text(store.getSnapshot().notice)).toBe('已保存连接')
 
     api.save.mockRejectedValueOnce(new Error('boom'))
-    expect(await store.save({ id: 'a', label: 'a3', sshAlias: 'box' })).toBe(false)
+    expect(
+      await store.save({
+        id: 'a',
+        label: 'a3',
+        target: { kind: 'alias', alias: 'box' },
+        rememberSecret: false,
+      }),
+    ).toBe(false)
     expect(text(store.getSnapshot().error)).toBe('boom')
     store.stopPolling()
   })
@@ -177,6 +220,126 @@ describe('RemoteStore 写操作提示', () => {
     await store.refresh()
     expect(store.getSnapshot().status).toBe('error')
     expect(text(store.getSnapshot().error)).toBe('network down')
+    store.stopPolling()
+  })
+})
+
+describe('RemoteStore 表单测试与口令弹窗', () => {
+  it('测试成功 / 失败都只产生一次性 toast，不写连接状态', async () => {
+    const store = new RemoteStore()
+    const target: ConnectionTarget = { kind: 'alias', alias: 'dev-box' }
+
+    api.test.mockResolvedValueOnce({
+      ok: true,
+      nodeVersion: 'v22.19.0',
+      npmVersion: '10.8.2',
+      dshVersion: '0.1.7-rc.2',
+      error: null,
+    })
+    await store.testDraft({ target })
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0 · npm 10.8.2 · dsh 0.1.7-rc.2')
+    expect(store.getSnapshot().testing).toBe(false)
+
+    api.test.mockResolvedValueOnce({
+      ok: true,
+      nodeVersion: 'v22.19.0',
+      npmVersion: '10.8.2',
+      dshVersion: null,
+      error: null,
+    })
+    await store.testDraft({ target })
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0 · npm 10.8.2 · 未安装 dsh')
+
+    api.test.mockResolvedValueOnce({
+      ok: false,
+      nodeVersion: null,
+      npmVersion: null,
+      dshVersion: null,
+      error: { message: 'Permission denied (publickey)', kind: 'auth-failed' },
+    })
+    await store.testDraft({ target })
+    expect(text(store.getSnapshot().notice)).toBe('测试失败：Permission denied (publickey)')
+    store.stopPolling()
+  })
+
+  it('密码连接缺口令时先弹补录框：补录只进内存，随后继续连接', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'none' })]),
+    )
+    await store.refresh()
+
+    await store.connect('dev')
+    expect(store.getSnapshot().secretPrompt).toMatchObject({ id: 'dev', action: 'connect' })
+    expect(api.connect).not.toHaveBeenCalled()
+
+    api.setSecret.mockResolvedValueOnce({ ok: true })
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'session' })]),
+    )
+    await store.submitSecret('pw')
+    expect(api.setSecret).toHaveBeenCalledWith('dev', 'pw')
+    expect(api.connect).toHaveBeenCalledWith('dev')
+    expect(store.getSnapshot().secretPrompt).toBeNull()
+  })
+
+  it('同步入口同样先补口令，补完打开同步弹窗', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'none' })]),
+    )
+    await store.refresh()
+    store.askSync({ id: 'dev', kind: 'skills' })
+    expect(store.getSnapshot().secretPrompt).toMatchObject({ action: 'sync', kind: 'skills' })
+    expect(store.getSnapshot().syncing).toBeNull()
+
+    api.setSecret.mockResolvedValueOnce({ ok: true })
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'session' })]),
+    )
+    await store.submitSecret('pw')
+    expect(store.getSnapshot().syncing).toEqual({ id: 'dev', kind: 'skills' })
+  })
+
+  it('已有会话口令时不弹框；别名连接永远不弹', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValue(
+      stateResponse([
+        connRow('a', {}, { target: PASSWORD_TARGET, secretState: 'session' }),
+        connRow('b', {}, { target: PASSWORD_TARGET, secretState: 'none' }),
+      ]),
+    )
+    await store.refresh()
+    await store.connect('a')
+    expect(store.getSnapshot().secretPrompt).toBeNull()
+    expect(api.connect).toHaveBeenCalledWith('a')
+
+    api.state.mockResolvedValue(
+      stateResponse([connRow('alias', {}, { target: { kind: 'alias', alias: 'box' } })]),
+    )
+    await store.refresh()
+    await store.connect('alias')
+    expect(store.getSnapshot().secretPrompt).toBeNull()
+    store.stopPolling()
+  })
+
+  it('ssh config 清单懒加载：成功缓存、失败给 text 错误', async () => {
+    const store = new RemoteStore()
+    api.sshHosts.mockResolvedValueOnce({
+      path: '/home/u/.ssh/config',
+      exists: true,
+      hosts: [
+        { alias: 'box', hostname: '10.0.0.5', user: 'root', port: 22, identityFile: null, proxy: null },
+      ],
+      error: null,
+    })
+    await store.loadSshHosts()
+    expect(store.getSnapshot().sshHosts?.hosts[0]?.alias).toBe('box')
+    expect(store.getSnapshot().sshHostsLoading).toBe(false)
+
+    api.sshHosts.mockRejectedValueOnce(new Error('denied'))
+    await store.loadSshHosts()
+    expect(text(store.getSnapshot().sshHostsError)).toBe('denied')
     store.stopPolling()
   })
 })

@@ -1,4 +1,4 @@
-import { createElement, type ReactNode } from 'react'
+import { Children, createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { RemoteSection } from '../src/client/RemoteSection'
@@ -13,6 +13,15 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   StateDot: ({ state }: { state: string }) => <span data-state-dot={state} />,
   MenuSurface: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   useAnchoredPosition: () => null,
+  SegmentedControl: ({ options }: { options: readonly { label: string }[] }) => (
+    <div>{options.map((option) => option.label).join('/')}</div>
+  ),
+  Checkbox: ({ label }: { label: string }) => <label>{label}</label>,
+  SettingsSecretField: ({ label, hint, stateLabel }: { label: string; hint: string; stateLabel: string }) => (
+    <div>
+      {label}|{hint}|{stateLabel}
+    </div>
+  ),
 }))
 
 vi.mock('@dsh-plugins/client-ui', () => ({
@@ -31,6 +40,7 @@ vi.mock('@dsh-plugins/client-ui', () => ({
     items: readonly ConnRow[]
     renderCard: (row: ConnRow) => {
       title: string
+      meta?: string
       note?: string
       pills?: { text: string }[]
       badge?: ReactNode
@@ -48,6 +58,7 @@ vi.mock('@dsh-plugins/client-ui', () => ({
         return (
           <div key={row.id}>
             <span>{card.title}</span>
+            {card.meta !== undefined ? <span>{card.meta}</span> : null}
             {card.pills?.map((pill, index) => (
               <span key={index}>{pill.text}</span>
             ))}
@@ -59,7 +70,9 @@ vi.mock('@dsh-plugins/client-ui', () => ({
                 {card.errorDetail.expandLabel}|{card.errorDetail.text}
               </span>
             ) : null}
-            {card.actions}
+            {card.actions !== undefined ? (
+              <div data-card-actions>{Children.toArray(card.actions)}</div>
+            ) : null}
             {card.children}
           </div>
         )
@@ -106,7 +119,14 @@ vi.mock('@dsh-plugins/client-ui', () => ({
       {title}|{body}|{confirmLabel}|{cancelLabel}
     </div>
   ),
+  Field: ({ label, children }: { label: ReactNode; children?: ReactNode }) => (
+    <div>
+      {label}
+      {children}
+    </div>
+  ),
   TextField: ({ label }: { label: string }) => <label>{label}</label>,
+  SearchBox: ({ label }: { label: string }) => <input aria-label={label} />,
   IssueList: () => null,
   PickList: () => null,
   SelectField: () => null,
@@ -119,21 +139,37 @@ const api = vi.hoisted(() => ({
   save: vi.fn(),
   remove: vi.fn(),
   test: vi.fn(),
+  sshHosts: vi.fn(),
+  setSecret: vi.fn(),
   remoteInventory: vi.fn(),
   connect: vi.fn(),
-  disconnect: vi.fn(),
   sync: vi.fn(),
 }))
 
 vi.mock('../src/client/api', () => ({ remoteApi: api }))
 
-function connRow(state: Partial<ConnRow['state']> = {}): ConnRow {
+const PASSWORD_TARGET = {
+  kind: 'direct',
+  host: '10.0.0.5',
+  port: null,
+  user: null,
+  auth: 'password',
+  identityFile: null,
+} as const
+
+function connRow(
+  state: Partial<ConnRow['state']> = {},
+  extra: Partial<Pick<ConnRow, 'target' | 'secretState' | 'rememberSecret'>> = {},
+): ConnRow {
   return {
     id: 'dev',
     label: '开发机 A',
-    sshAlias: 'dev-box',
+    target: { kind: 'alias', alias: 'dev-box' },
+    secretState: 'none',
+    rememberSecret: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    ...extra,
     state: {
       phase: 'idle',
       op: null,
@@ -217,15 +253,18 @@ describe('远程开发面板渲染', () => {
     store.stopPolling()
   })
 
-  it('空闲连接展示测试 / 连接动作，不显示端口与探针段', async () => {
+  it('空闲连接只提供「连接」动作（测试按钮在表单里）', async () => {
     api.state.mockReturnValue(stateResponse({}, [connRow()]))
     api.localRows.mockReturnValue(localRowsFixture())
     const store = await loadedStore()
     const html = renderPanel(store)
 
     expect(html).toContain('空闲')
-    expect(html).toContain('测试')
-    expect(html).toContain('连接')
+    const actions = /data-card-actions[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? ''
+    expect(actions).toContain('连接')
+    expect(actions).not.toContain('测试')
+    // 卡片元信息显示连接目标摘要
+    expect(html).toContain('dev-box')
     expect(html).not.toContain('端口')
     expect(html).not.toContain('探针')
     store.stopPolling()
@@ -261,7 +300,7 @@ describe('远程开发面板渲染', () => {
     const html = renderPanel(store)
 
     expect(html).toContain('删除连接|')
-    expect(html).toContain('确认删除「开发机 A」（dev-box）？只清除本机记录与端口转发')
+    expect(html).toContain('确认删除「开发机 A」（dev-box）？只清除本机记录、已保存的口令与端口转发')
     expect(html).toContain('|删除|取消')
     store.stopPolling()
   })
@@ -366,6 +405,62 @@ describe('远程开发面板渲染', () => {
     expect(dialog).toContain('probe · node / npm / pnpm / dsh')
     expect(dialog).toContain('line-a')
     expect(dialog).toContain('line-b')
+    store.stopPolling()
+  })
+
+  it('编辑表单展示三种登录方式、目标字段与口令状态', async () => {
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({}, { target: PASSWORD_TARGET, secretState: 'saved', rememberSecret: true }),
+      ]),
+    )
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+
+    expect(html).toContain('登录方式')
+    expect(html).toContain('SSH 别名/密码/密钥文件')
+    expect(html).toContain('地址')
+    expect(html).toContain('端口')
+    expect(html).toContain('用户')
+    expect(html).toContain('已保存到本机')
+    expect(html).toContain('记住口令（保存到本机）')
+    expect(html).toContain('清除已保存的口令')
+    // 测试入口移入表单（卡片动作区不再有）
+    expect(html).toContain('测试')
+    store.stopPolling()
+  })
+
+  it('密码连接缺可用口令时，「连接」先弹补录框', async () => {
+    const row = connRow({}, { target: PASSWORD_TARGET, secretState: 'none' })
+    api.state.mockReturnValue(stateResponse({}, [row]))
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    await store.connect('dev')
+    const html = renderPanel(store)
+
+    expect(html).toContain('需要登录密码')
+    expect(html).toContain('连接「开发机 A」（10.0.0.5）没有可用的密码')
+    expect(html).toContain('使用此密码')
+    store.stopPolling()
+  })
+
+  it('表单测试结果只以 toast 呈现（不写进卡片）', async () => {
+    api.state.mockReturnValue(stateResponse({}, [connRow()]))
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    api.test.mockResolvedValueOnce({
+      ok: true,
+      nodeVersion: 'v22.19.0',
+      npmVersion: '10.8.2',
+      dshVersion: '0.1.7-rc.2',
+      error: null,
+    })
+    await store.testDraft({ target: { kind: 'alias', alias: 'dev-box' } })
+    const html = renderPanel(store)
+
+    expect(html).toContain('测试通过：node v22.19.0 · npm 10.8.2 · dsh 0.1.7-rc.2')
+    expect(html).not.toContain('探针')
     store.stopPolling()
   })
 

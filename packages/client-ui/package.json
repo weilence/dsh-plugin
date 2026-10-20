@@ -1,6 +1,6 @@
 {
   "name": "@dsh-plugins/client-ui",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "DSH 插件共享 client UI：官方 dsh-client-ui-primitives 之上的薄封装——表单字段套件、确认弹窗、语气色调色板与共享基础样式表。构建期由各插件 client bundle 内联（workspace 源码包，无独立产物、无运行时依赖）。",
   "type": "module",

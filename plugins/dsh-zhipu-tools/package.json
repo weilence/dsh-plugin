@@ -1,6 +1,6 @@
 {
   "name": "@weilence/dsh-zhipu-tools",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "Expose Zhipu web search and page reader as dsh-web providers, selectable with one click.",
   "icon": "./icon.svg",
   "type": "module",

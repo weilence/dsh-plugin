@@ -5,6 +5,8 @@ import {
   LOCAL_ROWS_PATH,
   REMOTE_INVENTORY_PATH,
   SAVE_PATH,
+  SECRET_PATH,
+  SSH_HOSTS_PATH,
   STATE_PATH,
   SYNC_PATH,
   TEST_PATH,
@@ -12,8 +14,10 @@ import {
   type RegistryPluginInstall,
   type RemoteInventoryResponse,
   type SaveRequest,
+  type SshHostsResponse,
   type StateResponse,
   type SyncKind,
+  type TestRequest,
   type TestResponse,
 } from '../shared'
 
@@ -32,8 +36,17 @@ export const remoteApi = {
   remove(id: string): Promise<{ removed: boolean }> {
     return request(DELETE_PATH, { method: 'POST', body: JSON.stringify({ id }) })
   },
-  test(id: string): Promise<TestResponse> {
-    return request(TEST_PATH, { method: 'POST', body: JSON.stringify({ id }) })
+  /** 表单里的无状态探针（未保存的连接也能测）。 */
+  test(requestBody: TestRequest): Promise<TestResponse> {
+    return request(TEST_PATH, { method: 'POST', body: JSON.stringify(requestBody) })
+  },
+  /** ~/.ssh/config 的主机别名清单（表单选择器）。 */
+  sshHosts(): Promise<SshHostsResponse> {
+    return request(SSH_HOSTS_PATH)
+  },
+  /** 现场补口令：只进宿主内存。 */
+  setSecret(id: string, secret: string): Promise<{ ok: true }> {
+    return request(SECRET_PATH, { method: 'POST', body: JSON.stringify({ id, secret }) })
   },
   remoteInventory(id: string): Promise<RemoteInventoryResponse> {
     return request(REMOTE_INVENTORY_PATH, { method: 'POST', body: JSON.stringify({ id }) })

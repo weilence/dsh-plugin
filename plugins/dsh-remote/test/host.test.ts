@@ -142,7 +142,7 @@ async function makeHarness(): Promise<Harness> {
   }
   const engine = new RemoteEngine({
     exec: async () => ({ code: 0, stdout: '', stderr: '' }),
-    startForward: () => ({ kill() {}, onExit() {}, pid: 4242 }),
+    startForward: async () => ({ kill() {}, onExit() {}, pid: 4242 }),
     freeLocalPort: async () => 19999,
     healthCheck: async () => true,
     instanceVersion: async () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
@@ -251,22 +251,71 @@ describe('dsh-remote 路由', () => {
   it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {
     const created = await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
-      sshAlias: 'dev-box',
+      target: { kind: 'alias', alias: 'dev-box' },
+      rememberSecret: false,
     })
     expect(created.status).toBe(200)
     expect(created.body).toEqual({ id: 'dev-box' })
 
     const invalid = await harness.request('POST', '/dsh-remote/save', {
       label: '',
-      sshAlias: 'x',
+      target: { kind: 'alias', alias: 'x' },
+      rememberSecret: false,
     })
     expect(invalid.status).toBe(400)
+  })
+
+  it('GET /dsh-remote/ssh-hosts：返回 ssh config 路径与主机清单形状', async () => {
+    const response = await harness.request('GET', '/dsh-remote/ssh-hosts')
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({
+      path: expect.stringContaining('.ssh'),
+      exists: expect.any(Boolean),
+      hosts: expect.any(Array),
+    })
+  })
+
+  it('POST /dsh-remote/test 与 /secret：无状态探针、缺口令 409、现场补录只进内存', async () => {
+    const target = {
+      kind: 'direct',
+      host: '10.0.0.5',
+      port: null,
+      user: null,
+      auth: 'password',
+      identityFile: null,
+    }
+    const created = await harness.request('POST', '/dsh-remote/save', {
+      label: '密码机',
+      target,
+      secret: 'pw',
+      rememberSecret: false,
+    })
+    expect(created.status).toBe(200)
+    const id = (created.body as unknown as { id: string }).id
+
+    // 表单没带口令、连接也没有（会话口令属于另一次请求的内存态）→ 409
+    expect((await harness.request('POST', '/dsh-remote/test', { target })).status).toBe(409)
+    expect((await harness.request('POST', '/dsh-remote/test', { target, secret: 'pw' })).status).toBe(200)
+
+    expect((await harness.request('POST', '/dsh-remote/secret', { id: 'nope', secret: 'pw' })).status).toBe(
+      404,
+    )
+    expect((await harness.request('POST', '/dsh-remote/secret', { id, secret: '' })).status).toBe(400)
+    expect((await harness.request('POST', '/dsh-remote/secret', { id, secret: 'pw' })).status).toBe(200)
+
+    const state = await harness.request('GET', '/dsh-remote/state')
+    const rows = (state.body as unknown as { connections: { secretState: string }[] }).connections
+    expect(rows[0]?.secretState).toBe('session')
+    expect((await harness.request('POST', '/dsh-remote/test', { id, target })).status).toBe(200)
+    // 口令值绝不出现在任何响应里
+    expect(JSON.stringify(state.body)).not.toContain('"pw"')
   })
 
   it('POST 操作路由：未知 id 404、缺 id 400、坏 kind 400、合法触发 200', async () => {
     await harness.request('POST', '/dsh-remote/save', {
       label: '开发机',
-      sshAlias: 'dev-box',
+      target: { kind: 'alias', alias: 'dev-box' },
+      rememberSecret: false,
     })
 
     expect((await harness.request('POST', '/dsh-remote/connect', { id: 'nope' })).status).toBe(404)
@@ -304,7 +353,11 @@ describe('dsh-remote 路由', () => {
   it.each([401, 403] as const)(
     '宿主拒绝 %s 时所有路由均先认证，不泄露启动 token 或执行操作',
     async (status) => {
-      await harness.engine.save({ label: '开发机', sshAlias: 'dev-box' })
+      await harness.engine.save({
+        label: '开发机',
+        target: { kind: 'alias', alias: 'dev-box' },
+        rememberSecret: false,
+      })
       const [connection] = harness.engine.rows()
       const rows = vi.spyOn(harness.engine, 'rows').mockReturnValue([
         {
@@ -326,7 +379,8 @@ describe('dsh-remote 路由', () => {
         vi.spyOn(harness.engine, 'load'),
         vi.spyOn(harness.engine, 'save'),
         vi.spyOn(harness.engine, 'remove'),
-        vi.spyOn(harness.engine, 'test'),
+        vi.spyOn(harness.engine, 'probe'),
+        vi.spyOn(harness.engine, 'setSessionSecret'),
         vi.spyOn(harness.engine, 'remoteInventory'),
         vi.spyOn(harness.engine, 'startConnect'),
         vi.spyOn(harness.engine, 'startSync'),
@@ -338,6 +392,8 @@ describe('dsh-remote 路由', () => {
         ['POST', '/dsh-remote/save'],
         ['POST', '/dsh-remote/delete'],
         ['POST', '/dsh-remote/test'],
+        ['GET', '/dsh-remote/ssh-hosts'],
+        ['POST', '/dsh-remote/secret'],
         ['POST', '/dsh-remote/remote-inventory'],
         ['POST', '/dsh-remote/connect'],
         ['POST', '/dsh-remote/sync'],
@@ -346,7 +402,8 @@ describe('dsh-remote 路由', () => {
         const response = await harness.request(method, path, {
           id: 'dev-box',
           label: '未授权修改',
-          sshAlias: 'new-box',
+          target: { kind: 'alias', alias: 'new-box' },
+          rememberSecret: false,
           kind: 'skills',
           names: ['skill'],
         })
@@ -375,7 +432,7 @@ describe('dsh-remote 路由', () => {
         await harness.request(
           'POST',
           '/dsh-remote/save',
-          { label: 'x', sshAlias: 'x' },
+          { label: 'x', target: { kind: 'alias', alias: 'x' }, rememberSecret: false },
           { 'sec-fetch-site': 'cross-site' },
         )
       ).status,

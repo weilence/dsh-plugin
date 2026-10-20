@@ -30,34 +30,104 @@ export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
 export const CONNECT_PATH = '/dsh-remote/connect'
 export const VERSION_PATH = '/dsh-remote/version'
 export const SYNC_PATH = '/dsh-remote/sync'
+/** 本机 ~/.ssh/config 的主机别名清单（新建 / 编辑表单的选择器）。 */
+export const SSH_HOSTS_PATH = '/dsh-remote/ssh-hosts'
+/** 为「记住密码」关闭的连接现场补口令：只进宿主内存，永不落盘。 */
+export const SECRET_PATH = '/dsh-remote/secret'
 
 /** 非本地（registry 形态）插件的远端安装方式：本地打包传输 / 远端自行 npm 下载。
  *  本地路径安装（link:/file:）的插件不受此选项影响——永远本地传输（开发中的
  *  未发布代码也只有这条路径能到达远端）。 */
 export type RegistryPluginInstall = 'push' | 'remote'
 
-/** 一个远程开发连接的持久化声明（同步勾选不持久化——随 POST /sync 直传）。 */
+/** 直接连接的认证方式：密钥文件（可带私钥口令）或登录密码。 */
+export type DirectAuth = 'key' | 'password'
+
+/** 面板的三种登录方式（内存模型用 kind + auth 表达，这里是表单 / 卡片用的投影）。 */
+export type LoginKind = 'alias' | 'password' | 'key'
+
+/**
+ * 连接目标：`alias` 完全交给 OpenSSH 配置解析（含 agent / 证书 / ProxyJump）；
+ * `direct` 显式给出地址、端口、用户与认证方式——不猜凭据，凭据必须落在
+ * 密钥文件或密码上。
+ */
+export type ConnectionTarget =
+  | { kind: 'alias'; alias: string }
+  | {
+      kind: 'direct'
+      /** IP 或域名；IPv6 原样存（不带方括号）。 */
+      host: string
+      /** null = ssh 默认（22）。 */
+      port: number | null
+      /** null = ssh 默认（当前系统用户）。 */
+      user: string | null
+      auth: DirectAuth
+      /** auth='key' 时的本地私钥路径（保存前已展开 ~，绝对路径）。 */
+      identityFile: string | null
+    }
+
+/** 口令的可用状态：已写盘 / 只在宿主内存 / 没有。 */
+export type SecretState = 'saved' | 'session' | 'none'
+
+/** 面板看到的连接：口令只有状态，值永不出 host。 */
 export interface RemoteConnection {
   id: string
   label: string
-  /** OpenSSH 主机别名——唯一凭据来源，本插件不读写任何私钥材料。 */
-  sshAlias: string
+  target: ConnectionTarget
+  secretState: SecretState
+  /** 是否把口令保存到本机（别名连接恒 false）。 */
+  rememberSecret: boolean
   createdAt: string
   updatedAt: string
 }
 
+/** target 对应的登录方式（表单投影）。 */
+export function loginKindOf(target: ConnectionTarget): LoginKind {
+  if (target.kind === 'alias') return 'alias'
+  return target.auth
+}
+
+/** 卡片 / 弹窗里的连接摘要：别名原样，直连为 [user@]host[:port]。 */
+export function targetSummary(target: ConnectionTarget): string {
+  if (target.kind === 'alias') return target.alias
+  const user = target.user === null ? '' : `${target.user}@`
+  const port = target.port === null || target.port === 22 ? '' : `:${target.port}`
+  const host = port.length > 0 && target.host.includes(':') ? `[${target.host}]` : target.host
+  return `${user}${host}${port}`
+}
+
+/** 密码认证必须有口令；密钥文件的口令是可选的，故不强制。 */
+export function targetRequiresSecret(target: ConnectionTarget): boolean {
+  return target.kind === 'direct' && target.auth === 'password'
+}
+
+/** ssh config 条目的一行摘要（选择器与 datalist 用）。 */
+export function sshHostMeta(host: SshHostEntry): string {
+  const user = host.user === null ? '' : `${host.user}@`
+  const name = host.hostname ?? host.alias
+  const port = host.port === null || host.port === 22 ? '' : `:${host.port}`
+  return `${user}${name}${port}`
+}
+
 /** SSH 失败的错误分类（面板按类给修复指引）。 */
 export type SshErrorKind =
-  'auth-failed' | 'unreachable' | 'remote-cmd-failed' | 'timeout' | 'local-tool-missing' | 'unknown'
+  | 'auth-failed'
+  | 'host-key'
+  | 'unreachable'
+  | 'remote-cmd-failed'
+  | 'timeout'
+  | 'local-tool-missing'
+  | 'unknown'
 
 /** 连接生命周期阶段（无「断开」操作：本地转发随宿主退出或意外中断消失，
  *  远端实例常驻由用户自理）。 */
 export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running' | 'error'
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。文字进度不在此——面板用
- *  spinner 呈现进行中，过程细节见 progress 时间线。 */
+ *  spinner 呈现进行中，过程细节见 progress 时间线。表单里的「测试」是无状态
+ *  探针，不占连接操作位。 */
 export interface ConnOp {
-  kind: 'test' | 'connect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
+  kind: 'connect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
 }
 
 /** 操作步骤时间线的一项（进行中 hover 浮层与失败详情弹窗共用）。 */
@@ -267,7 +337,46 @@ export interface SaveRequest {
   /** 编辑时的连接 id；缺省为新建。 */
   id?: string
   label: string
-  sshAlias: string
+  target: ConnectionTarget
+  /** 新口令：缺省 = 沿用原值；'' = 清除；非空 = 覆盖（不 trim，密码允许首尾空格）。 */
+  secret?: string
+  /** 记住口令 = 写入本机连接库；缺省 / false 只进宿主内存。 */
+  rememberSecret: boolean
+}
+
+/** 表单里的无状态探针：不要求名称、不保存、不占连接操作位。 */
+export interface TestRequest {
+  /** 编辑已有连接时带上：没填口令就复用它的已保存 / 本次会话口令。 */
+  id?: string
+  target: ConnectionTarget
+  /** 表单里新输入的口令（优先于 id 对应的口令）。 */
+  secret?: string
+}
+
+/** 现场补口令：只进宿主内存，永不写盘。 */
+export interface SecretRequest {
+  id: string
+  secret: string
+}
+
+/** ~/.ssh/config 里一个可选的别名（字段是配置里的声明值，不是 ssh 的生效值）。 */
+export interface SshHostEntry {
+  alias: string
+  hostname: string | null
+  user: string | null
+  port: number | null
+  identityFile: string | null
+  /** ProxyJump / ProxyCommand 的原文（仅展示）。 */
+  proxy: string | null
+}
+
+export interface SshHostsResponse {
+  /** ~/.ssh/config 的绝对路径（展示、可复制）。 */
+  path: string
+  exists: boolean
+  hosts: SshHostEntry[]
+  /** 读取 / 解析失败原因；hosts 仍返回已解析出的部分。 */
+  error: string | null
 }
 
 export interface StateResponse {

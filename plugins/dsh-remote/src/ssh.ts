@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
+import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { Readable } from 'node:stream'
 import { errMsg } from '@dsh-plugins/shared'
-import type { SshErrorKind } from './shared'
+import type { ConnectionTarget, SshErrorKind } from './shared'
 
 /** 一次远端命令的结果（非 0 退出码不抛异常，由调用方决定语义）。 */
 export interface SshResult {
@@ -10,7 +13,7 @@ export interface SshResult {
   stderr: string
 }
 
-/** 连接级失败（认证 / 不可达 / 超时 / 本机缺工具）；命令级失败走 code。 */
+/** 连接级失败（认证 / 主机密钥 / 不可达 / 超时 / 本机缺工具）；命令级失败走 code。 */
 export class SshFailure extends Error {
   constructor(
     readonly kind: SshErrorKind,
@@ -20,6 +23,13 @@ export class SshFailure extends Error {
   ) {
     super(message)
   }
+}
+
+/** 一次 ssh 调用的目标：连接声明 + 当前可用的口令（宿主内存里的或已保存的）。 */
+export interface SshTarget {
+  target: ConnectionTarget
+  /** 密码或私钥口令；null = 没有可用口令（未加密私钥 / 别名交给配置）。 */
+  secret: string | null
 }
 
 /** 本机 ssh 客户端的横幅行（如 OpenSSH 10 对无 post-quantum KEX 服务端的提示，
@@ -69,9 +79,197 @@ export interface SshExecOptions {
   timeoutMs?: number
 }
 
-export type SshExec = (alias: string, command: string, options?: SshExecOptions) => Promise<SshResult>
+export type SshExec = (target: SshTarget, command: string, options?: SshExecOptions) => Promise<SshResult>
 
-function classify(code: number | null, stderr: string, spawnError?: NodeJS.ErrnoException): SshFailure {
+// ---------------------------------------------------------------------------
+// 口令通道（SSH_ASKPASS）
+//
+// 密码与私钥口令都必须在 ssh 的「提示」路径里递进去，而 BatchMode 会跳过该
+// 路径，所以带口令的调用不能设 BatchMode（见 buildSshInvocation）。
+//
+// Windows 的 CreateProcess 不能把 .cmd / 脚本当 SSH_ASKPASS（实测 EINVAL），
+// 所以 hook 用 Node 的 --require 预载执行：SSH_ASKPASS 指向宿主自身的可执行
+// 文件（Electron 宿主用 ELECTRON_RUN_AS_NODE=1 以 Node 模式运行），NODE_OPTIONS
+// 预载 hook，口令经环境变量传入、由 hook 原样写到 stdout。首次使用时做一次
+// 自检——机制失效时给出明确错误，而不是让 ssh 报一个含混的认证失败。
+// ---------------------------------------------------------------------------
+
+const ASKPASS_DIR = 'dsh-remote'
+const ASKPASS_FILE = 'askpass.cjs'
+const ASKPASS_SECRET_ENV = 'DSH_REMOTE_SSH_SECRET'
+const ASKPASS_PROBE_TIMEOUT_MS = 10_000
+const ASKPASS_HOOK = [
+  '// 由 ssh 的 SSH_ASKPASS 调用：宿主把口令放进环境变量，这里原样写到 stdout。',
+  'process.stdout.write(String(process.env.DSH_REMOTE_SSH_SECRET ?? ""))',
+  'process.exit(0)',
+  '',
+].join('\n')
+
+/** 口令通道：给 ssh 子进程造环境，并保证 hook 与自检就绪。 */
+export interface Askpass {
+  /** 与口令一起传给 ssh 子进程的环境变量。 */
+  env(secret: string): NodeJS.ProcessEnv
+  /** 写 hook（缺失 / 内容变更时）+ 一次性自检。 */
+  ensure(): Promise<void>
+}
+
+export function createAskpass(homeDir: string): Askpass {
+  const hookPath = join(homeDir, ASKPASS_DIR, ASKPASS_FILE)
+  const env = (secret: string): NodeJS.ProcessEnv => ({
+    SSH_ASKPASS: process.execPath,
+    // force：非 tty 也走 askpass（GUI 宿主没有终端可问）
+    SSH_ASKPASS_REQUIRE: 'force',
+    // 宿主是 Electron 时 process.execPath 是应用本身，以 Node 模式运行它；
+    // 纯 node 宿主下该变量无副作用
+    ELECTRON_RUN_AS_NODE: '1',
+    // NODE_OPTIONS 的解析器支持双引号；正斜杠避免反斜杠被当转义
+    NODE_OPTIONS: `--require "${hookPath.replace(/\\/g, '/')}"`,
+    [ASKPASS_SECRET_ENV]: secret,
+  })
+  let ready: Promise<void> | null = null
+
+  const verify = async (): Promise<void> => {
+    const sentinel = randomBytes(12).toString('hex')
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(process.execPath, ['dsh-remote-askpass-probe'], {
+        env: { ...process.env, ...env(sentinel) },
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      })
+      let stdout = ''
+      let settled = false
+      const finish = (error?: SshFailure): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error === undefined) resolve()
+        else reject(error)
+      }
+      const timer = setTimeout(() => {
+        child.kill()
+        finish(new SshFailure('unknown', '口令通道自检超时：宿主可执行文件未能以 Node 模式运行预载 hook'))
+      }, ASKPASS_PROBE_TIMEOUT_MS)
+      child.stdout?.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8')
+      })
+      child.on('error', (error: NodeJS.ErrnoException) => {
+        finish(new SshFailure('unknown', `口令通道无法启动（${process.execPath}）：${error.message}`))
+      })
+      child.on('close', () => {
+        finish(
+          stdout.trim() === sentinel
+            ? undefined
+            : new SshFailure(
+                'unknown',
+                '口令通道自检失败：宿主可执行文件未回传口令（SSH_ASKPASS 预载 hook 未生效）',
+              ),
+        )
+      })
+    })
+  }
+
+  const prepare = async (): Promise<void> => {
+    await mkdir(join(homeDir, ASKPASS_DIR), { recursive: true, mode: 0o700 })
+    let current: string | null = null
+    try {
+      current = await readFile(hookPath, 'utf8')
+    } catch {
+      // 首次使用：下面写
+    }
+    if (current !== ASKPASS_HOOK) {
+      const temporary = `${hookPath}.tmp-${randomBytes(4).toString('hex')}`
+      await writeFile(temporary, ASKPASS_HOOK, { encoding: 'utf8', mode: 0o600 })
+      await rename(temporary, hookPath)
+      await chmod(hookPath, 0o600).catch(() => {})
+    }
+    await verify()
+  }
+
+  return {
+    env,
+    ensure(): Promise<void> {
+      ready ??= prepare().catch((error: unknown) => {
+        // 自检失败不缓存：修好环境（换宿主 / 权限）后下一次操作可重试
+        ready = null
+        throw error
+      })
+      return ready
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 调用参数矩阵
+//
+// | 目标                          | BatchMode | 其他                                   |
+// | ----------------------------- | --------- | -------------------------------------- |
+// | alias                         | yes       | 认证完全交给 ~/.ssh/config             |
+// | direct + key（无口令）        | yes       | -i + IdentitiesOnly + publickey        |
+// | direct + key（有口令）        | no        | + NumberOfPasswordPrompts=1 + askpass  |
+// | direct + password             | no        | PubkeyAuthentication=no + askpass      |
+//
+// 「有口令要递，就不能让 ssh 进入不提问模式；没口令可递，就用 BatchMode 保证
+//  快速失败而不是等一个永远不存在的终端。」
+// ---------------------------------------------------------------------------
+
+export interface SshInvocation {
+  args: string[]
+  /** null = 不需要口令通道；否则与 process.env 合并后交给 ssh。 */
+  env: NodeJS.ProcessEnv | null
+}
+
+/** 直连统一的主机密钥策略：未知主机自动记录（TOFU），密钥变更硬失败。 */
+const STRICT_HOST_KEY = 'StrictHostKeyChecking=accept-new'
+
+export function buildSshInvocation(
+  target: SshTarget,
+  askpass: Askpass,
+  extra: readonly string[] = [],
+): SshInvocation {
+  const connection = target.target
+  const args: string[] = []
+  if (connection.kind === 'alias') {
+    args.push('-o', 'BatchMode=yes', ...extra, '--', connection.alias)
+    return { args, env: null }
+  }
+  if (connection.auth === 'password' && target.secret === null) {
+    // 防错分支：界面上密码登录必须带口令；走到这里说明状态过期（如宿主重启
+    // 后连接库里的口令已不在内存），显式报错而不是让 ssh 报认证失败
+    throw new SshFailure('auth-failed', '该连接需要登录密码：请在面板重新输入密码')
+  }
+  args.push('-o', STRICT_HOST_KEY)
+  if (connection.port !== null) args.push('-p', String(connection.port))
+  if (connection.user !== null) args.push('-l', connection.user)
+  if (connection.auth === 'key') {
+    args.push(
+      '-i',
+      connection.identityFile ?? '',
+      '-o',
+      'IdentitiesOnly=yes',
+      '-o',
+      'PreferredAuthentications=publickey',
+    )
+  } else {
+    args.push('-o', 'PubkeyAuthentication=no', '-o', 'PreferredAuthentications=password,keyboard-interactive')
+  }
+  const secret = target.secret
+  if (secret === null) {
+    args.push('-o', 'BatchMode=yes')
+  } else {
+    // 重试压到一次：同一个口令喂三遍既慢又容易触发服务端失败计数；私钥口令
+    // 的加载循环同样受该值约束
+    args.push('-o', 'NumberOfPasswordPrompts=1')
+  }
+  args.push(...extra, '--', connection.host)
+  return { args, env: secret === null ? null : askpass.env(secret) }
+}
+
+/** 把 ssh 的退出码 / stderr 归一为可操作失败分类（host 级错误与命令级错误共用）。 */
+export function classifySshFailure(
+  code: number | null,
+  stderr: string,
+  spawnError?: NodeJS.ErrnoException,
+): SshFailure {
   if (spawnError?.code === 'ENOENT') {
     return new SshFailure(
       'local-tool-missing',
@@ -84,13 +282,24 @@ function classify(code: number | null, stderr: string, spawnError?: NodeJS.Errno
   const text = stderr.toLowerCase()
   if (code === 255) {
     if (
+      text.includes('host key verification failed') ||
+      text.includes('remote host identification has changed') ||
+      (text.includes('host key for') && text.includes('has changed'))
+    ) {
+      return new SshFailure(
+        'host-key',
+        '主机密钥校验失败：远端密钥与 known_hosts 记录不一致。若确属远端重装，请先在终端用 ssh 连一次核对并更新 known_hosts——本插件不自动清除记录',
+        mergedOutput('', stderr),
+      )
+    }
+    if (
       text.includes('permission denied') ||
       text.includes('no such identity') ||
       text.includes('authentication')
     ) {
       return new SshFailure(
         'auth-failed',
-        'SSH 认证失败：检查 ~/.ssh/config 别名与密钥（BatchMode 下无法交互输入密码）',
+        'SSH 认证失败：检查用户名、密码、密钥文件与私钥口令；别名连接需在 ~/.ssh/config 侧配好免交互登录（BatchMode 下不会询问密码）',
       )
     }
     if (
@@ -107,23 +316,36 @@ function classify(code: number | null, stderr: string, spawnError?: NodeJS.Errno
   }
   return new SshFailure(
     'remote-cmd-failed',
-    stderr.trim().split(/\r?\n/).slice(-3).join(' ') || `退出码 ${code}`,
+    // 摘要走 cleanLines：剔除本机 ssh 客户端横幅，避免顶掉真实原因
+    summarizeOutput('', stderr) || `退出码 ${code}`,
     mergedOutput('', stderr),
   )
 }
 
-// 宿主侧受信代码直接 spawn（不经模型沙箱），认证完全复用用户 OpenSSH 配置。
-// 不做 ControlMaster 连接复用：实测在宿主环境里连接 poll 的长会话两次挂死
-// （就绪行早已写入日志、slave 却等不到数据直到本地超时），同形态独立复现
-// 未成功——宿主进程环境的差异不可穷尽，按确定性优先移除；建连开销已由
-// 「探查合并 + poll 远端有界循环」的批量执行路径消化（必经连接 ~9 次 → 3 次）。
+/** 密钥文件带口令却没填：认证失败时补一句可操作的提示（BatchMode 下 ssh 不会
+ *  提问，只会给出笼统的 Permission denied）。 */
+function withKeyPassphraseHint(error: unknown, target: SshTarget): unknown {
+  if (!(error instanceof SshFailure) || error.kind !== 'auth-failed') return error
+  const connection = target.target
+  if (connection.kind !== 'direct' || connection.auth !== 'key' || target.secret !== null) return error
+  return new SshFailure(error.kind, `${error.message}（若该私钥设了口令，请填写「私钥口令」）`, error.detail)
+}
 
-/** ssh 命令执行：连接级失败抛 SshFailure，命令级失败原样返回 code/stderr。 */
-export const sshExec: SshExec = (alias, command, options) =>
-  new Promise<SshResult>((resolve, reject) => {
-    const child = spawn('ssh', ['-o', 'BatchMode=yes', alias, loginWrapped(command)], {
+function sshEnv(env: NodeJS.ProcessEnv | null): NodeJS.ProcessEnv {
+  return env === null ? process.env : { ...process.env, ...env }
+}
+
+/** 单次 ssh 命令：连接级失败抛 SshFailure，命令级失败原样返回 code/stderr。 */
+function spawnSsh(
+  args: string[],
+  env: NodeJS.ProcessEnv | null,
+  options?: SshExecOptions,
+): Promise<SshResult> {
+  return new Promise<SshResult>((resolve, reject) => {
+    const child = spawn('ssh', args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      env: sshEnv(env),
     })
     let stdout = ''
     let stderr = ''
@@ -132,7 +354,7 @@ export const sshExec: SshExec = (alias, command, options) =>
       reject(
         new SshFailure(
           'timeout',
-          `远端命令超时（${options?.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms）：${command.slice(0, 80)}`,
+          `远端命令超时（${options?.timeoutMs ?? DEFAULT_TIMEOUT_MS}ms）：${args.at(-1)?.slice(0, 80) ?? ''}`,
         ),
       )
     }, options?.timeoutMs ?? DEFAULT_TIMEOUT_MS)
@@ -144,13 +366,13 @@ export const sshExec: SshExec = (alias, command, options) =>
     })
     child.on('error', (error: NodeJS.ErrnoException) => {
       clearTimeout(timer)
-      reject(classify(null, stderr, error))
+      reject(classifySshFailure(null, stderr, error))
     })
     child.on('close', (code) => {
       clearTimeout(timer)
       if (code === null) return // 已由 error / timeout 路径结算
       if (code === 255) {
-        reject(classify(code, stderr))
+        reject(classifySshFailure(code, stderr))
         return
       }
       resolve({ code, stdout, stderr })
@@ -162,6 +384,8 @@ export const sshExec: SshExec = (alias, command, options) =>
       child.stdin?.end()
     }
   })
+}
+
 /** 本地端口转发子进程的抽象句柄（engine 测试注入 fake 用）。 */
 export interface ForwardHandle {
   kill(): void
@@ -171,13 +395,12 @@ export interface ForwardHandle {
   pid: number | null
 }
 
-/** 起 `ssh -N -L` 本地转发；不等待退出，返回句柄由调用方持有。 */
-export function startSshForward(alias: string, localPort: number, remotePort: number): ForwardHandle {
-  const child: ChildProcess = spawn(
-    'ssh',
-    ['-o', 'BatchMode=yes', '-N', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`, alias],
-    { stdio: 'ignore', windowsHide: true },
-  )
+function spawnForward(invocation: SshInvocation): ForwardHandle {
+  const child: ChildProcess = spawn('ssh', invocation.args, {
+    stdio: 'ignore',
+    windowsHide: true,
+    env: sshEnv(invocation.env),
+  })
   const listeners = new Set<() => void>()
   child.on('exit', () => {
     for (const listener of listeners) listener()
@@ -244,8 +467,8 @@ async function describeProcess(
 
 /** tar-over-ssh 单通道推送：本地 tar 打包的 stdout 直接写入远端 tar 解包的 stdin。
  *  names 指定时只打包根内的这些条目（skills 按勾选推送），缺省整根。 */
-export function tarOverSsh(
-  alias: string,
+function tarOverSsh(
+  invocation: SshInvocation,
   localRoot: string,
   remoteRoot: string,
   names?: readonly string[],
@@ -258,12 +481,10 @@ export function tarOverSsh(
     const ssh = spawn(
       'ssh',
       [
-        '-o',
-        'BatchMode=yes',
-        alias,
+        ...invocation.args,
         loginWrapped(`mkdir -p ${shQuote(remoteRoot)} && tar -C ${shQuote(remoteRoot)} -xf -`),
       ],
-      { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true },
+      { stdio: ['pipe', 'ignore', 'pipe'], windowsHide: true, env: sshEnv(invocation.env) },
     )
     let stderr = ''
     let settled = false
@@ -293,7 +514,7 @@ export function tarOverSsh(
     })
     ssh.on('error', (error: NodeJS.ErrnoException) => {
       tar.kill()
-      settle(classify(null, stderr, error))
+      settle(classifySshFailure(null, stderr, error))
     })
     ssh.on('close', (code) => {
       if (code !== 0 && code !== null)
@@ -307,4 +528,41 @@ export function tarOverSsh(
     })
     ;(tar.stdout as Readable).pipe(ssh.stdin!)
   })
+}
+
+/** 引擎的外部 ssh 面：所有调用都按「连接目标 + 当前口令」组装参数与环境。 */
+export interface SshTransport {
+  exec: SshExec
+  startForward(target: SshTarget, localPort: number, remotePort: number): Promise<ForwardHandle>
+  pushTar(target: SshTarget, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
+}
+
+/** 生产 transport：宿主侧受信代码直接 spawn，认证完全复用 OpenSSH 配置 + 口令通道。 */
+export function createSshTransport(homeDir: string): SshTransport {
+  const askpass = createAskpass(homeDir)
+  return {
+    async exec(target, command, options) {
+      const invocation = buildSshInvocation(target, askpass)
+      if (invocation.env !== null) await askpass.ensure()
+      try {
+        return await spawnSsh([...invocation.args, loginWrapped(command)], invocation.env, options)
+      } catch (error) {
+        throw withKeyPassphraseHint(error, target)
+      }
+    },
+    async startForward(target, localPort, remotePort) {
+      const invocation = buildSshInvocation(target, askpass, [
+        '-N',
+        '-L',
+        `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+      ])
+      if (invocation.env !== null) await askpass.ensure()
+      return spawnForward(invocation)
+    },
+    async pushTar(target, localRoot, remoteRoot, names) {
+      const invocation = buildSshInvocation(target, askpass)
+      if (invocation.env !== null) await askpass.ensure()
+      return tarOverSsh(invocation, localRoot, remoteRoot, names)
+    },
+  }
 }

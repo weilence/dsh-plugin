@@ -13,17 +13,18 @@ import {
   Dialog,
   MenuButton,
   Panel,
+  TextField,
   useWideSettingsDialog,
   type ExpandableCardProps,
   type PillData,
 } from '@dsh-plugins/client-ui'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnOp, ConnProgress, ConnRow } from '../shared'
-import { REMOTE_PROFILE } from '../shared'
+import { REMOTE_PROFILE, targetSummary } from '../shared'
 import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
 import { SyncDialog } from './SyncDialog'
-import type { RemoteStore } from './store'
+import type { RemoteStore, SecretPrompt } from './store'
 import local from './RemoteSection.module.css'
 import shared from '@dsh-plugins/client-ui/styles'
 
@@ -44,7 +45,6 @@ const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone:
 }
 
 const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
-  test: 'op.test',
   connect: 'op.connect',
   'sync-skills': 'op.sync-skills',
   'sync-mcp': 'op.sync-mcp',
@@ -54,7 +54,6 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
 
 /** error 阶段的入口文案按最近一次操作的类别取（progress 在 op 清空后仍保留）。 */
 const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
-  test: 'failed.test',
   connect: 'failed.connect',
   'sync-skills': 'failed.sync',
   'sync-mcp': 'failed.sync',
@@ -159,13 +158,15 @@ export function RemoteSection(props: RemoteSectionProps) {
 
   const connections = state.list?.connections ?? []
   const env = state.list?.env
-  const { syncing, deleting, connectPrompt, failedDetail } = state
+  const { syncing, deleting, connectPrompt, failedDetail, secretPrompt } = state
   const syncTarget = syncing === null ? undefined : connections.find((row) => row.id === syncing.id)
   const deleteTarget = deleting === null ? undefined : connections.find((row) => row.id === deleting.id)
   const connectTarget =
     connectPrompt === null ? undefined : connections.find((row) => row.id === connectPrompt.id)
   const failedTarget =
     failedDetail === null ? undefined : connections.find((row) => row.id === failedDetail.id)
+  const secretTarget =
+    secretPrompt === null ? undefined : connections.find((row) => row.id === secretPrompt.id)
 
   return (
     <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
@@ -184,7 +185,7 @@ export function RemoteSection(props: RemoteSectionProps) {
       ) : null}
       {state.notice !== null ? (
         <Toast
-          key={String('key' in state.notice ? state.notice.key : state.notice.text)}
+          key={state.noticeSeq}
           text={messageText(state.notice, t)}
           holdMs={5000}
           onDone={() => store.dismissNotice()}
@@ -228,7 +229,6 @@ export function RemoteSection(props: RemoteSectionProps) {
                   store={store}
                   t={t}
                   busy={state.busyId === 'new'}
-                  error={state.error === null ? null : messageText(state.error, t)}
                   onDone={() => store.edit(undefined)}
                   onCancel={() => store.edit(undefined)}
                 />
@@ -277,7 +277,7 @@ export function RemoteSection(props: RemoteSectionProps) {
           title={t('connect.title')}
           description={t('connect.description', {
             label: connectTarget.label,
-            alias: connectTarget.sshAlias,
+            target: targetSummary(connectTarget.target),
           })}
           closeLabel={t('close')}
           onClose={() => store.askConnect(null)}
@@ -304,7 +304,10 @@ export function RemoteSection(props: RemoteSectionProps) {
       {deleteTarget !== undefined ? (
         <ConfirmDialog
           title={t('delete.title')}
-          body={t('delete.body', { label: deleteTarget.label, alias: deleteTarget.sshAlias })}
+          body={t('delete.body', {
+            label: deleteTarget.label,
+            target: targetSummary(deleteTarget.target),
+          })}
           confirmLabel={t('delete')}
           cancelLabel={t('cancel')}
           closeLabel={t('close')}
@@ -313,7 +316,66 @@ export function RemoteSection(props: RemoteSectionProps) {
           onConfirm={() => void store.remove(deleteTarget.id)}
         />
       ) : null}
+      {secretTarget !== undefined && secretPrompt !== null ? (
+        <SecretPromptDialog
+          row={secretTarget}
+          prompt={secretPrompt}
+          t={t}
+          onCancel={() => store.closeSecretPrompt()}
+          onSubmit={(secret) => void store.submitSecret(secret)}
+        />
+      ) : null}
     </Panel>
+  )
+}
+
+/** 密码登录缺口令时的补录弹窗：只进宿主内存（补完继续原动作——连接或同步）。 */
+function SecretPromptDialog(props: {
+  row: ConnRow
+  prompt: SecretPrompt
+  t: RemoteT
+  onCancel(): void
+  onSubmit(secret: string): void
+}) {
+  const [secret, setSecret] = useState('')
+  return (
+    <Dialog
+      title={props.t('secret.title')}
+      description={props.t('secret.description', {
+        label: props.row.label,
+        target: targetSummary(props.row.target),
+      })}
+      closeLabel={props.t('close')}
+      onClose={props.onCancel}
+      actions={
+        <>
+          <Button variant="outline" disabled={props.prompt.busy} onClick={props.onCancel}>
+            {props.t('cancel')}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={props.prompt.busy || secret.length === 0}
+            onClick={() => props.onSubmit(secret)}
+          >
+            {props.prompt.busy ? props.t('secret.busy') : props.t('secret.confirm')}
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        label={props.t('secret.field')}
+        type="password"
+        value={secret}
+        onChange={setSecret}
+        autoFocus
+        autoComplete="off"
+      />
+      {props.prompt.error !== null ? (
+        <div className={styles.error} role="alert">
+          {messageText(props.prompt.error, props.t)}
+        </div>
+      ) : null}
+    </Dialog>
   )
 }
 
@@ -328,7 +390,6 @@ function connectionCard(
   const op = row.state.op
   const opBusy = op !== null
   const running = row.state.running
-  const testResult = state.testResult?.id === row.id ? state.testResult.result : null
 
   const phase = PHASE_PILL_KEYS[row.state.phase]
   // 进行中与失败态：文字进度 pill 全部让位（spinner 表进行中、失败入口表终态），
@@ -348,22 +409,30 @@ function connectionCard(
     ) : null
 
   const action = (
+    key: string,
     label: string,
     onClick: () => void,
     options?: { variant?: 'primary' | 'outline' },
   ): ReactElement => (
-    <Button size="sm" variant={options?.variant ?? 'ghost'} disabled={busy || opBusy} onClick={onClick}>
+    <Button
+      key={key}
+      size="sm"
+      variant={options?.variant ?? 'ghost'}
+      disabled={busy || opBusy}
+      onClick={onClick}
+    >
       {label}
     </Button>
   )
 
   const actions =
     row.state.phase === 'running' && running !== null
-      ? [action(t('action.open'), () => window.open(running.url, '_blank'), { variant: 'primary' })]
-      : [
-          action(t('action.test'), () => void store.test(row.id)),
-          action(t('op.connect'), () => void store.connect(row.id), { variant: 'primary' }),
+      ? [
+          action('open', t('action.open'), () => window.open(running.url, '_blank'), {
+            variant: 'primary',
+          }),
         ]
+      : [action('connect', t('op.connect'), () => void store.connect(row.id), { variant: 'primary' })]
   const children = (
     <div>
       {row.state.lastSync.skills !== null ? (
@@ -400,7 +469,6 @@ function connectionCard(
         store={store}
         t={t}
         busy={busy}
-        error={state.error === null ? null : messageText(state.error, t)}
         onDone={() => store.edit(undefined)}
         onCancel={() => store.edit(undefined)}
       />
@@ -411,24 +479,13 @@ function connectionCard(
     open,
     onToggle: () => (opBusy ? undefined : store.edit(open ? undefined : row.id)),
     title: row.label,
-    meta: row.sshAlias,
+    meta: targetSummary(row.target),
     pills,
     description: running !== null ? running.url : undefined,
     note:
       t('card.profile', { profile: REMOTE_PROFILE }) +
       (running !== null
         ? ` · ${t('card.forward', { local: running.localPort, remote: running.remotePort })}`
-        : '') +
-      (testResult !== null
-        ? ` · ${t('card.probe', {
-            detail: testResult.ok
-              ? t('card.probeDetail', {
-                  node: testResult.nodeVersion ?? '?',
-                  npm: testResult.npmVersion ?? '?',
-                  dsh: testResult.dshVersion ?? t('card.probeNoDsh'),
-                })
-              : (testResult.error?.message ?? t('card.probeFailed')),
-          })}`
         : ''),
     // 连接失败的摘要与全文都收敛进「连接失败」详情弹窗（actions 区入口）；同步失败
     // （连接仍在 running）保持摘要行 + 查看完整机制。
