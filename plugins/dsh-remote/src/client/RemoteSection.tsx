@@ -511,7 +511,24 @@ function connectionCard(
     title: row.label,
     meta: targetSummary(row.target),
     pills,
-    description: running !== null ? running.url : undefined,
+    // 不展示打开用的 token URL（启动 token 是凭据，落在界面上只会泄露与换行）；
+    // 「打开」按钮直接用它开页。行上展示的是心跳查询到的事实（下方 info）。
+    info:
+      running !== null
+        ? [
+            { label: 'node', value: running.machine.node },
+            { label: 'npm', value: running.machine.npm },
+            {
+              label: 'dsh',
+              // 实例自报是活进程的事实（心跳实时刷新）；还没问到时回退部署段
+              // 探查的机器版本
+              value: running.instance?.dsh ?? running.machine.dsh,
+            },
+            ...(running.instance?.plugin != null
+              ? [{ label: t('noun.plugins'), value: running.instance.plugin }]
+              : []),
+          ]
+        : undefined,
     note:
       t('card.profile', { profile: REMOTE_PROFILE }) +
       (running !== null

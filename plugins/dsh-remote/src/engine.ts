@@ -571,8 +571,12 @@ export class RemoteEngine {
    *  十项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记、
    *  HOME / dsh 路径 / 登录 PATH 三项服务事实、既有单元端口）经一条标记行命令
    *  一次拿全——探查彼此无依赖，Windows（无连接复用）下必经建连从十次缩成一次。
-   *  端口只在单元里没有有效值时才探测（多一次建连，仅首连 / 旧单元迁移时发生）。 */
-  private async ensureDeployed(id: string): Promise<ServicePaths> {
+   *  端口只在单元里没有有效值时才探测（多一次建连，仅首连 / 旧单元迁移时发生）。
+   *  返回值还携带机器事实（node / npm / dsh，与表单「测试」同一组查询的定格），
+   *  由 runConnect 写进 running 供面板展示。 */
+  private async ensureDeployed(
+    id: string,
+  ): Promise<{ paths: ServicePaths; machine: { node: string; npm: string; dsh: string } }> {
     const target = this.sshTargetOf(this.connectionOf(id))
     const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
     const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
@@ -720,7 +724,12 @@ export class RemoteEngine {
     // 版本的 `--port 0`）才探测一次。
     const port = parseUnitPort(probe.stdout) ?? (await this.choosePort(target))
     this.step(id, 'port', String(port))
-    return { ...servicePaths, port }
+    return {
+      paths: { ...servicePaths, port },
+      // dsh 取对齐后的目标版本：部署段要么已一致、要么刚装成 wantVersion，两者
+      // 同值；node / npm 是探查原值（面板行展示的事实）
+      machine: { node: tools.node, npm: tools.npm, dsh: wantVersion },
+    }
   }
 
   /** 无既有端口时的远端端口探测（loopback 试绑候选表，全占用则内核分配）。 */
@@ -749,7 +758,7 @@ export class RemoteEngine {
       runtime.running = null
 
       // 部署段先行（幂等，已装齐时直接跳过）；装配完成进入启动段（阶段驱动面板 pill）
-      const servicePaths = await this.ensureDeployed(id)
+      const { paths: servicePaths, machine } = await this.ensureDeployed(id)
       runtime.phase = 'starting'
 
       // 复用实例先验明正身再接受：版本快照由实例自报（进程内 apply 时定格，
@@ -758,7 +767,14 @@ export class RemoteEngine {
       // 不匹配按原样报错，不无限回环。
       let restarted = false
       let accepted:
-        | { url: string; localPort: number; remotePort: number; pid: number; forward: ForwardHandle }
+        | {
+            url: string
+            localPort: number
+            remotePort: number
+            pid: number
+            forward: ForwardHandle
+            instance: { dsh: string | null; plugin: string | null }
+          }
         | undefined
       for (;;) {
         const launched = await this.launchInstance(target, id, servicePaths)
@@ -815,7 +831,16 @@ export class RemoteEngine {
             version.dsh === this.deps.localDshVersion &&
             (this.deps.localPluginVersion === null || version.plugin === this.deps.localPluginVersion)
           ) {
-            accepted = { url, localPort, remotePort: launched.launch.remotePort, pid: launched.pid, forward }
+            accepted = {
+              url,
+              localPort,
+              remotePort: launched.launch.remotePort,
+              pid: launched.pid,
+              forward,
+              // 版本判定问到的那份自报身份直接种进 running：面板行先有东西可显，
+              // 之后由心跳按 beat 实时刷新
+              instance: { dsh: version.dsh, plugin: version.plugin },
+            }
             break
           }
           mismatch = `实例 dsh ${version.dsh ?? '?'} / 插件 ${version.plugin ?? '?'}，本机 dsh ${this.deps.localDshVersion ?? '?'} / 插件 ${this.deps.localPluginVersion ?? '?'}`
@@ -844,6 +869,8 @@ export class RemoteEngine {
         remotePort: accepted.remotePort,
         pid: accepted.pid,
         since: this.deps.now(),
+        machine,
+        instance: accepted.instance,
         // 新连接（含自动收敛后的新连接）从「未探测」开始，第一次心跳在 10s 后
         health: null,
       }
@@ -982,9 +1009,11 @@ export class RemoteEngine {
 
   /**
    * 存活心跳（面板轮询驱动，见 host 的 GET /state）：只探 running 连接，同一
-   * 连接不并发，10s 一次。探测走**既有本地转发**——不开新 ssh，隧道上拿到任何
-   * HTTP 响应（含 401）即算活着；只有连续 3 次探测失败（≈30s）才建一条 ssh 向
-   * systemd 核实，避免宿主休眠 / systemd 重启窗口被误判成「死了」。
+   * 连接不并发，10s 一次。每拍就是「测试链接」的完整查询——全部走**既有本地
+   * 转发**、不开新 ssh：GET /（任何 HTTP 响应含 401 即算活着）+ GET /version
+   * （实例自报身份，面板行上的 dsh / 插件版本实时刷新）。只有连续 3 次探测
+   * 失败（≈30s）才建一条 ssh 向 systemd 核实，避免宿主休眠 / systemd 重启窗口
+   * 被误判成「死了」。
    *
    * 为什么需要它：running 只是连接成功那一刻的内存事实。远端 dsh 被 systemctl
    * stop、崩溃循环触顶、或机器重启后 linger 没生效时，sshd 只会拒绝新建隧道通道，
@@ -1017,9 +1046,10 @@ export class RemoteEngine {
     try {
       const runtime = this.runtimes.get(id)
       if (runtime === undefined || runtime.running === null) return
+      const url = runtime.running.url
       let healthy = false
       try {
-        healthy = await this.deps.healthCheck(runtime.running.url)
+        healthy = await this.deps.healthCheck(url)
       } catch {
         healthy = false
       }
@@ -1032,6 +1062,17 @@ export class RemoteEngine {
         // 的实例会让自动恢复无限重连
         if (current.health.okStreak >= RECOVERY_RESET_STREAK) current.health.recoveries = 0
         this.setHealth(current, null)
+        // 心跳即「测试链接」的完整查询：隧道活着之外，顺路问实例自报身份
+        // （token 换 Cookie 后 GET /version），面板行上的 dsh / 插件版本由此实时
+        // 刷新。问不到（token 过期等）保留上次自报，不当作异常。
+        const version = await this.deps.instanceVersion(url)
+        const live = this.runtimes.get(id)
+        if (live !== undefined && live.running !== null && live.running.url === url && version.ok) {
+          live.running = {
+            ...live.running,
+            instance: { dsh: version.dsh, plugin: version.plugin },
+          }
+        }
         return
       }
       current.health.okStreak = 0

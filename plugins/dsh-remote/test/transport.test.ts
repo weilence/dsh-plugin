@@ -68,6 +68,8 @@ function running(target: { port: number; url: string }): ConnRunning {
     remotePort: 19387,
     pid: 42,
     since: '2027-01-01',
+    machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+    instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
     health: null,
   }
 }

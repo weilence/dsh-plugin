@@ -597,6 +597,10 @@ describe('RemoteEngine', () => {
       localPort: 19999,
       remotePort: 4321,
       pid: 4242,
+      // 机器事实来自部署段探查（与表单「测试」同一组查询），实例身份由版本判定种下
+      machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+      instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+      health: null,
     })
     // 连接路径零同步动作：skills 只在手动「同步 skills」时推送
     expect(fake.tarPushes).toEqual([])
@@ -1123,6 +1127,39 @@ describe('RemoteEngine', () => {
     await engine.heartbeat()
     expect(fake.calls.length).toBe(callsBefore)
     expect(engine.stateOf('dev-box').running?.health).toBeNull()
+  })
+
+  it('heartbeat：每拍顺路问实例自报身份，行上版本实时刷新', async () => {
+    const clock = fakeClock()
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+      // 连接时的版本判定（attempt 1）与本机一致；心跳的那次（attempt 2）报出
+      // 升级后的身份——只刷新展示，不触发任何动作
+      instanceVersion: (attempt) =>
+        attempt === 1
+          ? { ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }
+          : { ok: true, dsh: '0.2.0', plugin: '0.2.0' },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(engine.stateOf('dev-box').running?.instance).toEqual({
+      dsh: '0.1.7-rc.2',
+      plugin: '0.1.0',
+    })
+    clock.advance(10_000)
+    await engine.heartbeat()
+    expect(engine.stateOf('dev-box').running?.instance).toEqual({ dsh: '0.2.0', plugin: '0.2.0' })
+    expect(engine.stateOf('dev-box').running?.health).toBeNull()
+    expect(engine.stateOf('dev-box').phase).toBe('running')
   })
 
   it('heartbeat：10s 节流 + 连续 2 次失败不核实（判死阈值是 3 次）', async () => {

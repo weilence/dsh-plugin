@@ -48,6 +48,7 @@ vi.mock('@dsh-plugins/client-ui', () => ({
       children?: ReactNode
       error?: string
       errorDetail?: { text: string; expandLabel: string }
+      info?: readonly { label: string; value: ReactNode }[]
     }
     empty?: ReactNode
     after?: ReactNode
@@ -70,6 +71,11 @@ vi.mock('@dsh-plugins/client-ui', () => ({
                 {card.errorDetail.expandLabel}|{card.errorDetail.text}
               </span>
             ) : null}
+            {card.info?.map((item, index) => (
+              <span key={index}>
+                {item.label}:{item.value}
+              </span>
+            ))}
             {card.actions !== undefined ? (
               <div data-card-actions>{Children.toArray(card.actions)}</div>
             ) : null}
@@ -222,6 +228,8 @@ describe('远程开发面板渲染', () => {
             remotePort: 18730,
             pid: 42,
             since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
             health: null,
           },
           lastSync: {
@@ -246,6 +254,17 @@ describe('远程开发面板渲染', () => {
     expect(html).not.toContain('断开')
     expect(html).toContain('同步 ▾|同步 Skills,同步 MCP,同步插件,同步提示词')
     expect(html).toContain('远端 profile web（固定） · 端口 18731 → 18730')
+    // 行上展示心跳查询到的事实（机器 trio + 实例自报身份），不再显示打开用的 token URL
+    expect(html).toContain('node')
+    expect(html).toContain('v22.19.0')
+    expect(html).toContain('npm')
+    expect(html).toContain('10.8.2')
+    expect(html).toContain('dsh')
+    expect(html).toContain('0.1.7-rc.2')
+    expect(html).toContain('插件')
+    expect(html).toContain('0.1.0')
+    expect(html).not.toContain('http://127.0.0.1:18731')
+    expect(html).not.toContain('token=')
     expect(html).toContain('上次 Skills 同步：推送 2（')
     expect(html).toContain('显示名')
     expect(html).toContain('SSH 别名')
@@ -265,6 +284,8 @@ describe('远程开发面板渲染', () => {
             remotePort: 18730,
             pid: 42,
             since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
             health: {
               state: 'unresponsive',
               at: '2026-01-02T03:04:05.000Z',
@@ -281,6 +302,8 @@ describe('远程开发面板渲染', () => {
               remotePort: 18740,
               pid: 43,
               since: '2026-01-01T00:00:00.000Z',
+              machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+              instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
               health: { state: 'restarting', at: '2026-01-02T03:04:05.000Z' },
             },
           }),
@@ -375,6 +398,8 @@ describe('远程开发面板渲染', () => {
             remotePort: 19998,
             pid: 4242,
             since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
             health: null,
           },
           error: {

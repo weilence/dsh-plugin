@@ -168,6 +168,12 @@ export interface ConnRunning {
   /** 远端实例主进程 pid（systemd MainPID，信息展示用；进程存活性由单元管理）。 */
   pid: number
   since: string
+  /** 部署段探查定格的远端机器事实——与表单「测试」同一组查询（node -v / npm -v /
+   *  dsh -V），重连时刷新；远端自行升级后以重连为准。 */
+  machine: { node: string; npm: string; dsh: string }
+  /** 实例自报身份：连接时的版本判定种下，心跳经隧道 GET /version 实时刷新；
+   *  null = 从未问到（面板回退显示 machine.dsh）。 */
+  instance: { dsh: string | null; plugin: string | null } | null
   /** 心跳结论；正常或未探测为 null。 */
   health: RunningHealth | null
 }
