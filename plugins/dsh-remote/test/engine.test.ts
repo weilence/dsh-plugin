@@ -721,17 +721,19 @@ describe('RemoteEngine', () => {
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
     const launchCall = fake.calls.find((call) => call.command.includes('is-active'))
-    expect(launchCall?.command).toContain(
-      'cat > ~/.config/systemd/user/dsh-remote-dev-box.service.tmp-dsh-remote',
-    )
+    expect(launchCall?.command).toContain('cat > ~/.config/systemd/user/dsh-web.service.tmp-dsh-remote')
     // 单元内容经 stdin：ExecStart 用探查到的 dsh 绝对路径，日志走 append（就绪行解析不变）
     expect(launchCall?.stdin).toContain('[Unit]')
     expect(launchCall?.stdin).toContain('Type=exec')
     expect(launchCall?.stdin).toContain('Environment="PATH=/usr/local/bin:/usr/bin:/bin"')
     expect(launchCall?.stdin).toContain('ExecStart="/usr/local/bin/dsh" --profile web --no-open --port 0')
-    expect(launchCall?.stdin).toContain(`ExecStartPre=/bin/sh -c ': > "/home/u/.dsh/dsh-remote/dev-box.log"'`)
-    expect(launchCall?.stdin).toContain('StandardOutput=append:/home/u/.dsh/dsh-remote/dev-box.log')
+    expect(launchCall?.stdin).toContain(`ExecStartPre=/bin/sh -c ': > "/home/u/.dsh/dsh-remote/web.log"'`)
+    expect(launchCall?.stdin).toContain('StandardOutput=append:/home/u/.dsh/dsh-remote/web.log')
     expect(launchCall?.stdin).toContain('Restart=on-failure')
+    // 单元名、描述与日志路径都不含连接 id：同一台机器换别名连复用同一单元，
+    // 内容不变 → cmp 命中 → 不重写、不 restart（只有 pid 文件仍是旧形态的 id 路径）
+    expect(launchCall?.stdin).not.toContain('dev-box')
+    expect(launchCall?.command).toContain('systemctl --user restart dsh-web.service')
     // 旧 nohup 形态的迁移清理随启动命令一并下发（核验身份后杀，废弃 pid 文件）
     expect(launchCall?.command).toContain('ps -p "$lp" -o command=')
     expect(launchCall?.command).toContain('rm -f ~/.dsh/dsh-remote/dev-box.pid;')
@@ -804,7 +806,7 @@ describe('RemoteEngine', () => {
         if (command.includes('is-active')) {
           return {
             code: 1,
-            stdout: '__STARTFAIL__Job for dsh-remote-dev-box.service failed\n',
+            stdout: '__STARTFAIL__Job for dsh-web.service failed\n',
             stderr: '',
           }
         }
@@ -816,7 +818,7 @@ describe('RemoteEngine', () => {
     await waitFor(() => engine.stateOf('dev-box').phase === 'error')
     const state = engine.stateOf('dev-box')
     expect(state.error?.message).toContain('systemd 启动远端实例失败')
-    expect(state.error?.message).toContain('journalctl --user -u dsh-remote-dev-box.service')
+    expect(state.error?.message).toContain('journalctl --user -u dsh-web.service')
   })
 
   it('connect：远端服务事实探测不全（无 HOME）→ 部署段显式失败', async () => {

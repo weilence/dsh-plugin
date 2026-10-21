@@ -8,8 +8,8 @@ import {
   buildPollCommand,
   buildStopCommand,
   buildUnitContent,
-  unitName,
-  type InstanceFiles,
+  UNIT_LOG,
+  UNIT_NAME,
   type ServicePaths,
 } from './service'
 import {
@@ -202,6 +202,12 @@ const CONNECT_POLL_LIMIT_MS = 300_000
 const HEALTH_RETRY = 8
 const HEALTH_INTERVAL_MS = 1_000
 const OP_TIMEOUT_MS = 600_000
+
+/** 旧 nohup 形态的 pid 文件路径（按连接 id 命名）：只服务升级后的迁移清理与
+ *  停止收尾——单元名与日志路径已固定，不再由它派生。 */
+function pidFileOf(id: string): string {
+  return `~/.dsh/dsh-remote/${id}.pid`
+}
 
 export class RemoteEngine {
   private store: StoreFile = { version: 2, connections: [], manifest: {} }
@@ -752,18 +758,12 @@ export class RemoteEngine {
     id: string,
     paths: ServicePaths,
   ): Promise<{ launch: RemoteLaunch; pid: number; reused: boolean }> {
-    const log = `~/.dsh/dsh-remote/${id}.log`
-    const pidFile = `~/.dsh/dsh-remote/${id}.pid`
-    const files: InstanceFiles = { unit: unitName(id), log, pidFile }
-    this.step(id, 'start', files.unit)
+    const pidFile = pidFileOf(id)
+    this.step(id, 'start', UNIT_NAME)
     // 单元内容经 stdin 落盘（与同一连接的其余逻辑合并，一次建连完成全部启动
     // 步骤）；探测 / linger / 总线的失败以标记行分类，逐类给出可操作的指引。
-    const start = await this.deps.exec(target, buildLaunchCommand(files), {
-      stdin: buildUnitContent({
-        id,
-        paths,
-        logPath: `${paths.home}/.dsh/dsh-remote/${id}.log`,
-      }),
+    const start = await this.deps.exec(target, buildLaunchCommand(pidFile), {
+      stdin: buildUnitContent(paths),
       timeoutMs: 60_000,
     })
     // 标记分类先于退出码判定：__STARTFAIL__ 分支以非零码收场，通用检查在前
@@ -796,7 +796,7 @@ export class RemoteEngine {
     if (markers.has('STARTFAIL'))
       throw new SshFailure(
         'remote-cmd-failed',
-        `systemd 启动远端实例失败：${summarizeOutput(markers.get('STARTFAIL') ?? '', start.stderr)}（可查看 journalctl --user -u ${files.unit} 与远端日志 ${log}）`,
+        `systemd 启动远端实例失败：${summarizeOutput(markers.get('STARTFAIL') ?? '', start.stderr)}（可查看 journalctl --user -u ${UNIT_NAME} 与远端日志 ${UNIT_LOG}）`,
         mergedOutput(start.stdout, start.stderr),
       )
     const reused = start.stdout.includes('reuse:')
@@ -809,12 +809,12 @@ export class RemoteEngine {
     const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
     const poll = await this.deps.exec(
       target,
-      buildPollCommand(files, maxAttempts, CONNECT_POLL_INTERVAL_MS / 1000),
+      buildPollCommand(maxAttempts, CONNECT_POLL_INTERVAL_MS / 1000),
       { timeoutMs: CONNECT_POLL_LIMIT_MS + 60_000 },
     )
     const launch = poll.code === 0 ? parseLaunchFromLog(poll.stdout) : undefined
     if (launch === undefined) {
-      const tail = await this.deps.exec(target, `tail -n 20 ${log} || true`)
+      const tail = await this.deps.exec(target, `tail -n 20 ${UNIT_LOG} || true`)
       throw new SshFailure(
         'timeout',
         `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${tail.stdout.trim().slice(-800)}`,
@@ -830,12 +830,9 @@ export class RemoteEngine {
    *  必要），随后清旧 pid 文件、截断日志——旧就绪行不清掉，下次 poll 秒命中
    *  死实例的旧 token。单元保持 enabled：重启收敛与开机自启不受影响。 */
   private async stopInstance(target: SshTarget, id: string): Promise<void> {
-    const files: InstanceFiles = {
-      unit: unitName(id),
-      log: `~/.dsh/dsh-remote/${id}.log`,
-      pidFile: `~/.dsh/dsh-remote/${id}.pid`,
-    }
-    const stop = await this.deps.exec(target, buildStopCommand(files), { timeoutMs: 60_000 })
+    const stop = await this.deps.exec(target, buildStopCommand(pidFileOf(id)), {
+      timeoutMs: 60_000,
+    })
     if (stop.code !== 0 || markedValues(stop.stdout).has('STOPFAIL'))
       throw new SshFailure(
         'remote-cmd-failed',
