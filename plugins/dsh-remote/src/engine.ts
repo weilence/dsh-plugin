@@ -4,10 +4,13 @@ import type { ForwardRegistry } from './forwards'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import {
+  buildHealthCommand,
   buildLaunchCommand,
   buildPollCommand,
+  buildPortProbeCommand,
   buildStopCommand,
   buildUnitContent,
+  buildUnitPortProbe,
   UNIT_LOG,
   UNIT_NAME,
   type ServicePaths,
@@ -48,6 +51,7 @@ import {
   type RemotePluginFact,
   type RemotePromptFact,
   type RemoteSkillFact,
+  type RunningHealth,
   type SaveRequest,
   type SshErrorKind,
   type SyncKind,
@@ -100,14 +104,60 @@ export function parseToolProbe(stdout: string): ToolProbe {
 }
 
 /** 解析服务事实探查输出（HOME / DSHBIN / PATH）：systemd 用户单元内容的原料，
- *  任一缺失为 null（由 ensureDeployed 在启动段前校验并显式报错）。 */
-export function parseServiceProbe(stdout: string): ServicePaths | null {
+ *  任一缺失为 null（由 ensureDeployed 在启动段前校验并显式报错）。端口不在其中
+ *  ——它由既有单元或端口探测单独决定（见 parseUnitPort / parsePort）。 */
+export function parseServiceProbe(stdout: string): Omit<ServicePaths, 'port'> | null {
   const values = markedValues(stdout)
   const home = values.get('HOME') ?? ''
   const dshPath = values.get('DSHBIN') ?? ''
   const path = values.get('PATH') ?? ''
   if (home === '' || dshPath === '' || path === '') return null
   return { home, dshPath, path }
+}
+
+/** 有效端口：非数字、privileged 端口（< 1024）与越界值一律不认。旧版本单元里
+ *  的 `--port 0` 也在这一步被识别为「没有端口」，触发重选并改写单元。 */
+export function parsePort(raw: string | undefined): number | null {
+  if (raw === undefined || !/^[0-9]{1,5}$/.test(raw)) return null
+  const port = Number(raw)
+  return port >= 1024 && port <= 65535 ? port : null
+}
+
+/** 既有单元里的端口（部署段探查的 `__UNITPORT__` 标记）：有则沿用——端口稳定
+ *  是「重启不换隧道」的前提，也是不每次重写单元、不额外 restart 的前提。 */
+export function parseUnitPort(stdout: string): number | null {
+  return parsePort(markedValues(stdout).get('UNITPORT'))
+}
+
+/** 存活核实结果（buildHealthCommand 的标记行）：systemd 眼中的单元状态 + 日志
+ *  尾部。心跳判死之后才取一次，只读。 */
+export interface LivenessFacts {
+  /** ActiveState（active / activating / inactive / failed / …）；读不到为 null。 */
+  active: string | null
+  /** SubState（running / dead / auto-restart / …）；读不到为 null。 */
+  sub: string | null
+  /** NRestarts：systemd 自动拉起过几次；读不到为 null。 */
+  restarts: number | null
+  /** 日志尾部原文（远端把多行压成 `|`，这里还原）。 */
+  log: string
+  /** 远端没有 systemctl（单元不可能由 systemd 托管，按无法核实处理）。 */
+  noSystemd: boolean
+}
+
+/** 解析存活核实输出；畸形输出按「读不到」处理（active 为 null），由调用方按
+ *  无法核实降级——绝不在读不到状态时凭空判死并重启实例。 */
+export function parseLivenessFacts(stdout: string): LivenessFacts {
+  const values = markedValues(stdout)
+  const active = (values.get('ACTIVE') ?? '').trim()
+  const sub = (values.get('SUB') ?? '').trim()
+  const restarts = Number.parseInt((values.get('RESTARTS') ?? '').trim(), 10)
+  return {
+    active: active.length === 0 ? null : active,
+    sub: sub.length === 0 ? null : sub,
+    restarts: Number.isInteger(restarts) ? restarts : null,
+    log: (values.get('LOG') ?? '').replace(/\|+$/, '').split('|').join('\n'),
+    noSystemd: values.has('NOSYSTEMD'),
+  }
 }
 
 /** 经隧道问到的远端实例运行身份：ok 携带 apply 时定格的版本快照；404 =
@@ -171,6 +221,23 @@ export class SecretRequiredError extends Error {
   }
 }
 
+/** 心跳看门狗的历史（独立于 running 事实：running 被重建时不清零，收敛次数
+ *  才数得准）。 */
+interface HealthRuntime {
+  /** 上次探测时刻（epoch ms；NaN = 从没探过）。 */
+  checkedAt: number
+  /** 连续失败次数（成功即清零）。 */
+  failures: number
+  /** 连续成功次数：用于「稳定健康过一段时间」才清零收敛计数。 */
+  okStreak: number
+  /** 探测进行中（同一连接不并发探）。 */
+  probing: boolean
+  /** 在这之前不再探测（核实之后的退避，避免对坏实例刷 ssh）。 */
+  pausedUntil: number
+  /** 连续自动收敛次数：达到上限即判死并停手（防崩溃循环里无限重连）。 */
+  recoveries: number
+}
+
 interface ConnRuntime {
   phase: ConnState['phase']
   op: ConnOp | null
@@ -180,6 +247,18 @@ interface ConnRuntime {
   running: ConnState['running']
   lastSync: ConnState['lastSync']
   forward: ForwardHandle | null
+  health: HealthRuntime
+}
+
+function freshHealth(): HealthRuntime {
+  return {
+    checkedAt: Number.NaN,
+    failures: 0,
+    okStreak: 0,
+    probing: false,
+    pausedUntil: 0,
+    recoveries: 0,
+  }
 }
 
 function freshRuntime(): ConnRuntime {
@@ -191,6 +270,7 @@ function freshRuntime(): ConnRuntime {
     running: null,
     lastSync: { skills: null, mcp: null, plugins: null, prompts: null },
     forward: null,
+    health: freshHealth(),
   }
 }
 
@@ -202,6 +282,17 @@ const CONNECT_POLL_LIMIT_MS = 300_000
 const HEALTH_RETRY = 8
 const HEALTH_INTERVAL_MS = 1_000
 const OP_TIMEOUT_MS = 600_000
+/** 存活心跳间隔（面板轮询驱动；10s ≈ 每两次轮询探一次本地回环请求）。 */
+const HEARTBEAT_INTERVAL_MS = 10_000
+/** 连续失败多少轮才当回事：宿主休眠、systemd 重启窗口、远端瞬时卡顿都在这条
+ *  阈值内被吸收；真正的死掉要 3 次 × 10s ≈ 30s 才判定。 */
+const HEARTBEAT_FAILURE_LIMIT = 3
+/** 核实之后的退避：实例「活着但不应答」时不要每 10s 建一次 ssh。 */
+const HEALTH_PAUSE_MS = 60_000
+/** 一轮掉线里最多自动收敛几次；连续健康两轮（≈20s）才把计数清零，防止
+ *  「起来就崩」的实例把重连变成风暴。 */
+const RECOVERY_LIMIT = 3
+const RECOVERY_RESET_STREAK = 2
 
 /** 旧 nohup 形态的 pid 文件路径（按连接 id 命名）：只服务升级后的迁移清理与
  *  停止收尾——单元名与日志路径已固定，不再由它派生。 */
@@ -477,9 +568,10 @@ export class RemoteEngine {
 
   /** 连接的部署段：环境探针 + dsh 版本对齐 + 本插件安装；已装齐时立即完成。
    *  失败原样抛给 runConnect 的 catch 统一 fail（error 阶段）。
-   *  九项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记、
-   *  HOME / dsh 路径 / 登录 PATH 三项服务事实）经一条标记行命令一次拿全——
-   *  探查彼此无依赖，Windows（无连接复用）下必经建连从九次缩成一次。 */
+   *  十项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记、
+   *  HOME / dsh 路径 / 登录 PATH 三项服务事实、既有单元端口）经一条标记行命令
+   *  一次拿全——探查彼此无依赖，Windows（无连接复用）下必经建连从十次缩成一次。
+   *  端口只在单元里没有有效值时才探测（多一次建连，仅首连 / 旧单元迁移时发生）。 */
   private async ensureDeployed(id: string): Promise<ServicePaths> {
     const target = this.sshTargetOf(this.connectionOf(id))
     const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
@@ -496,6 +588,7 @@ export class RemoteEngine {
       'echo __HOME__"$HOME"',
       'echo __DSHBIN__"$(command -v dsh 2>/dev/null)"',
       'echo __PATH__"$PATH"',
+      buildUnitPortProbe(),
     ].join('; ')
     const probe = await this.deps.exec(target, probeCommand)
     const tools = parseToolProbe(probe.stdout)
@@ -622,7 +715,26 @@ export class RemoteEngine {
         mergedOutput(probe.stdout, probe.stderr),
       )
     }
-    return servicePaths
+    // 端口优先沿用既有单元：同一端口意味着重启（systemd 自动拉起 / 版本收敛）
+    // 之后既有隧道与浏览器会话都不用重来。只有单元里没有有效端口（首连，或旧
+    // 版本的 `--port 0`）才探测一次。
+    const port = parseUnitPort(probe.stdout) ?? (await this.choosePort(target))
+    this.step(id, 'port', String(port))
+    return { ...servicePaths, port }
+  }
+
+  /** 无既有端口时的远端端口探测（loopback 试绑候选表，全占用则内核分配）。 */
+  private async choosePort(target: SshTarget): Promise<number> {
+    const probe = await this.deps.exec(target, buildPortProbeCommand(), { timeoutMs: 20_000 })
+    const port = parsePort(markedValues(probe.stdout).get('PORT'))
+    if (port === null) {
+      throw new SshFailure(
+        'remote-cmd-failed',
+        '远端无法确定实例监听端口（端口探测没有有效输出）：请确认远端 node 可用后重试',
+        mergedOutput(probe.stdout, probe.stderr),
+      )
+    }
+    return port
   }
 
   private async runConnect(connection: StoredConnection): Promise<void> {
@@ -732,7 +844,12 @@ export class RemoteEngine {
         remotePort: accepted.remotePort,
         pid: accepted.pid,
         since: this.deps.now(),
+        // 新连接（含自动收敛后的新连接）从「未探测」开始，第一次心跳在 10s 后
+        health: null,
       }
+      runtime.health.checkedAt = this.nowMs()
+      runtime.health.failures = 0
+      runtime.health.pausedUntil = 0
       // 转发进程与内存句柄可能同时幸存于宿主重启——租约落盘供下次 load 清扫
       if (accepted.forward.pid !== null) {
         await this.deps.forwards.record(id, {
@@ -815,11 +932,21 @@ export class RemoteEngine {
     const launch = poll.code === 0 ? parseLaunchFromLog(poll.stdout) : undefined
     if (launch === undefined) {
       const tail = await this.deps.exec(target, `tail -n 20 ${UNIT_LOG} || true`)
+      const text = tail.stdout.trim()
+      // 端口在探测之后被占：显式指出端口与出路，不让人对着通用超时猜
+      const occupied = text.includes('EADDRINUSE')
       throw new SshFailure(
         'timeout',
-        `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${tail.stdout.trim().slice(-800)}`,
+        occupied
+          ? `远端实例未能在端口 ${paths.port} 上启动（日志显示 EADDRINUSE：该端口在探测之后被别的进程占用）。请释放该端口，或删除远端单元 ~/.config/systemd/user/${UNIT_NAME} 后重连以重新选端口。日志尾部：\n${text.slice(-800)}`
+          : `远端实例 ${CONNECT_POLL_LIMIT_MS / 1000}s 内未输出就绪信号。日志尾部：\n${text.slice(-800)}`,
         mergedOutput(tail.stdout, tail.stderr),
       )
+    }
+    // 端口以实例实际打印的为准（隧道必须指向真实监听口）；与单元不一致说明
+    // 远端 dsh 没有按 `--port` 起，记一笔便于排查——不在连接路径上失败。
+    if (launch.remotePort !== paths.port) {
+      this.step(id, 'port-drift', `单元 --port ${paths.port}，实例实际监听 ${launch.remotePort}`)
     }
     const pid = Number.parseInt(markedValues(poll.stdout).get('PID') ?? '', 10)
     return { launch, pid: Number.isInteger(pid) ? pid : 0, reused }
@@ -851,6 +978,172 @@ export class RemoteEngine {
       runtime.forward = null
     }
     void this.deps.forwards.clearAll()
+  }
+
+  /**
+   * 存活心跳（面板轮询驱动，见 host 的 GET /state）：只探 running 连接，同一
+   * 连接不并发，10s 一次。探测走**既有本地转发**——不开新 ssh，隧道上拿到任何
+   * HTTP 响应（含 401）即算活着；只有连续 3 次探测失败（≈30s）才建一条 ssh 向
+   * systemd 核实，避免宿主休眠 / systemd 重启窗口被误判成「死了」。
+   *
+   * 为什么需要它：running 只是连接成功那一刻的内存事实。远端 dsh 被 systemctl
+   * stop、崩溃循环触顶、或机器重启后 linger 没生效时，sshd 只会拒绝新建隧道通道，
+   * 本地 `-L` 监听照旧存在——没有心跳，面板会一直显示「运行中」。
+   */
+  heartbeat(): Promise<void> {
+    const now = this.nowMs()
+    const probes: Promise<void>[] = []
+    for (const [id, runtime] of this.runtimes) {
+      if (runtime.running === null || runtime.op !== null) continue
+      const health = runtime.health
+      if (health.probing || now < health.pausedUntil) continue
+      if (Number.isFinite(health.checkedAt) && now - health.checkedAt < HEARTBEAT_INTERVAL_MS) continue
+      health.checkedAt = now
+      health.probing = true
+      // 探测自身的意外异常不外抛（/state 是 fire-and-forget 调用点）：状态留在
+      // 「未探测」，下一轮心跳自然会再试
+      probes.push(this.probeLiveness(id).catch(() => {}))
+    }
+    return Promise.all(probes).then(() => undefined)
+  }
+
+  /** deps.now() 的毫秒形式（ISO 字符串；解析不了回退本机时钟）。 */
+  private nowMs(): number {
+    const parsed = Date.parse(this.deps.now())
+    return Number.isFinite(parsed) ? parsed : Date.now()
+  }
+
+  private async probeLiveness(id: string): Promise<void> {
+    try {
+      const runtime = this.runtimes.get(id)
+      if (runtime === undefined || runtime.running === null) return
+      let healthy = false
+      try {
+        healthy = await this.deps.healthCheck(runtime.running.url)
+      } catch {
+        healthy = false
+      }
+      const current = this.runtimes.get(id)
+      if (current === undefined) return
+      if (healthy) {
+        current.health.failures = 0
+        current.health.okStreak += 1
+        // 连续健康两轮才认为「这轮掉线过去了」，清零收敛计数——否则「起来就崩」
+        // 的实例会让自动恢复无限重连
+        if (current.health.okStreak >= RECOVERY_RESET_STREAK) current.health.recoveries = 0
+        this.setHealth(current, null)
+        return
+      }
+      current.health.okStreak = 0
+      current.health.failures += 1
+      if (current.health.failures < HEARTBEAT_FAILURE_LIMIT) return
+      current.health.failures = 0
+      if (current.op !== null) return
+      await this.classifyLiveness(id)
+    } finally {
+      const current = this.runtimes.get(id)
+      if (current !== undefined) current.health.probing = false
+    }
+  }
+
+  /** 探测判死后的核实与处置：systemd 说「正在拉起」就再等一等；说「活着」就
+   *  报无响应（进程卡死，重启会丢现场）；说「inactive / failed」才自动收敛。
+   *  读不到状态（ssh 不通、systemctl 缺失、输出畸形）一律按无法核实降级——
+   *  绝不在没有事实时重启别人的实例。 */
+  private async classifyLiveness(id: string): Promise<void> {
+    const runtime = this.runtimes.get(id)
+    if (runtime === undefined || runtime.running === null) return
+    let connection: StoredConnection
+    try {
+      connection = this.connectionOf(id)
+    } catch {
+      return
+    }
+    const now = this.nowMs()
+    const pause = (health: RunningHealth, ms: number): void => {
+      this.setHealth(runtime, health)
+      runtime.health.pausedUntil = now + ms
+    }
+    // 密码登录且会话口令已丢（宿主重启过）：没有可用于 ssh 的口令，无法核实
+    if (targetRequiresSecret(connection.target) && this.secretOf(connection) === null) {
+      pause({ state: 'unknown', at: this.deps.now() }, HEALTH_PAUSE_MS)
+      return
+    }
+    let facts: LivenessFacts
+    try {
+      const verdict = await this.deps.exec(this.sshTargetOf(connection), buildHealthCommand(), {
+        timeoutMs: 30_000,
+      })
+      facts = parseLivenessFacts(verdict.stdout)
+    } catch (error) {
+      // ssh 本身不可达：实例可能完好（宿主休眠 / 网络断了），隧道恢复后还能用
+      pause({ state: 'unknown', at: this.deps.now(), detail: errMsg(error) }, HEALTH_PAUSE_MS)
+      return
+    }
+    const summary = `systemd：${facts.active ?? '未知'}${facts.sub === null ? '' : `/${facts.sub}`}${
+      facts.restarts === null ? '' : `（NRestarts=${facts.restarts}）`
+    }`
+    const detail = [summary, facts.log].filter((line) => line.length > 0).join('\n')
+    if (facts.active === 'active') {
+      pause({ state: 'unresponsive', at: this.deps.now(), detail }, HEALTH_PAUSE_MS)
+      return
+    }
+    if (facts.active === 'activating' || facts.active === 'reloading' || facts.active === 'deactivating') {
+      pause({ state: 'restarting', at: this.deps.now(), detail }, HEARTBEAT_INTERVAL_MS)
+      return
+    }
+    if (facts.active === 'inactive' || facts.active === 'failed') {
+      await this.recover(id, connection, facts, detail)
+      return
+    }
+    pause({ state: 'unknown', at: this.deps.now(), detail }, HEALTH_PAUSE_MS)
+  }
+
+  /** 自动收敛：复用正常连接流程把实例拉起来（unit 已 enabled，restart 由启动段
+   *  的 systemctl 语义完成），成功后回 running 并让面板看到一次「已自动恢复」。
+   *  同一轮掉线最多 RECOVERY_LIMIT 次，超了判死停手——不把重连变成风暴。 */
+  private async recover(
+    id: string,
+    connection: StoredConnection,
+    facts: LivenessFacts,
+    detail: string,
+  ): Promise<void> {
+    const runtime = this.runtimeOf(id)
+    if (runtime.running === null || runtime.op !== null) return
+    if (runtime.health.recoveries >= RECOVERY_LIMIT) {
+      this.declareDown(id, runtime, facts, detail)
+      return
+    }
+    runtime.health.recoveries += 1
+    runtime.op = { kind: 'recover' }
+    runtime.progress = { kind: 'recover', steps: [] }
+    runtime.phase = 'deploying'
+    this.step(id, 'recover', `systemd ${facts.active ?? '未知'}`)
+    await this.runConnect(connection)
+  }
+
+  /** 判死：隧道已无用，杀掉转发、清租约、进入 error，并把 systemd 侧的事实留在
+   *  错误详情里（面板「查看完整」）。之后只能由用户重新连接。 */
+  private declareDown(id: string, runtime: ConnRuntime, facts: LivenessFacts, detail: string): void {
+    runtime.forward?.kill()
+    runtime.forward = null
+    runtime.running = null
+    runtime.op = null
+    runtime.phase = 'error'
+    runtime.progress = { kind: 'recover', steps: [] }
+    runtime.error = {
+      kind: 'unknown',
+      message: `远端实例已停止（systemd：${facts.active ?? '未知'}${facts.sub === null ? '' : `/${facts.sub}`}），自动恢复 ${RECOVERY_LIMIT} 次仍未恢复：请重新连接`,
+      detail,
+    }
+    void this.deps.forwards.clear(id)
+  }
+
+  /** 写入 / 清除心跳结论（running 被重建即视为旧结论作废）。 */
+  private setHealth(runtime: ConnRuntime, health: RunningHealth | null): void {
+    if (runtime.running === null) return
+    if (health === null && runtime.running.health === null) return
+    runtime.running = { ...runtime.running, health }
   }
 
   /** 远端一个 skills 根的技能内容指纹：find|sha256 管线一次取整根文件摘要，

@@ -371,6 +371,7 @@ describe('dsh-remote 路由', () => {
               remotePort: 19387,
               pid: 4242,
               since: '2027-01-01',
+              health: null,
             },
           },
         },

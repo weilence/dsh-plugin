@@ -62,7 +62,14 @@ function row(running: ConnRunning | null, state: Partial<ConnState> = {}, id = '
 }
 
 function running(target: { port: number; url: string }): ConnRunning {
-  return { url: target.url, localPort: target.port, remotePort: 19387, pid: 42, since: '2027-01-01' }
+  return {
+    url: target.url,
+    localPort: target.port,
+    remotePort: 19387,
+    pid: 42,
+    since: '2027-01-01',
+    health: null,
+  }
 }
 
 function transport(rows: ConnRow[]) {

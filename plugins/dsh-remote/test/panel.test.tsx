@@ -222,6 +222,7 @@ describe('远程开发面板渲染', () => {
             remotePort: 18730,
             pid: 42,
             since: '2026-01-01T00:00:00.000Z',
+            health: null,
           },
           lastSync: {
             skills: { at: '2026-01-02T03:04:05.000Z', pushed: 2 },
@@ -250,6 +251,51 @@ describe('远程开发面板渲染', () => {
     expect(html).toContain('SSH 别名')
     expect(html).toContain('取消')
     expect(html).toContain('保存')
+    store.stopPolling()
+  })
+
+  it('心跳结论叠加在阶段 pill 旁：无响应 / 重启中如实可见', async () => {
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            health: {
+              state: 'unresponsive',
+              at: '2026-01-02T03:04:05.000Z',
+              detail: 'systemd：active/running\nFATAL',
+            },
+          },
+        }),
+        {
+          ...connRow({
+            phase: 'running',
+            running: {
+              url: 'http://127.0.0.1:18741',
+              localPort: 18741,
+              remotePort: 18740,
+              pid: 43,
+              since: '2026-01-01T00:00:00.000Z',
+              health: { state: 'restarting', at: '2026-01-02T03:04:05.000Z' },
+            },
+          }),
+          id: 'dev2',
+          label: '第二台',
+        },
+      ]),
+    )
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+
+    expect(html).toContain('运行中')
+    expect(html).toContain('实例无响应')
+    expect(html).toContain('实例重启中')
     store.stopPolling()
   })
 
@@ -329,6 +375,7 @@ describe('远程开发面板渲染', () => {
             remotePort: 19998,
             pid: 4242,
             since: '2026-01-01T00:00:00.000Z',
+            health: null,
           },
           error: {
             message: '远端安装失败：ENOENT …',

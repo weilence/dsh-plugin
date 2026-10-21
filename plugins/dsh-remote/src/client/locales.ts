@@ -37,10 +37,17 @@ export const zh = {
   'phase.error': '错误',
 
   'op.connect': '连接',
+  'op.recover': '自动恢复',
   'op.sync-skills': '同步 Skills',
   'op.sync-mcp': '同步 MCP',
   'op.sync-plugins': '同步插件',
   'op.sync-prompts': '同步提示词',
+
+  // 心跳对远端实例的结论（running 仍在，实例有状况——见 engine 的心跳段）
+  'health.restarting': '实例重启中',
+  'health.unresponsive': '实例无响应',
+  'health.unknown': '实例状态未知',
+  'health.lastAt': '最后一次心跳观测：{at}（systemd 状态与日志尾部见下）',
 
   'noun.skills': 'skills',
   'noun.mcp': 'MCP',
@@ -56,6 +63,7 @@ export const zh = {
   'card.opLog.title': '操作过程',
   'failed.connect': '连接失败',
   'failed.sync': '同步失败',
+  'failed.recover': '自动恢复失败',
   'card.syncMenu': '同步 ▾',
 
   'lastSync.skills': '上次 Skills 同步：推送 {pushed}',
@@ -74,6 +82,7 @@ export const zh = {
     '确认删除「{label}」（{target}）？只清除本机记录、已保存的口令与端口转发；远端实例会继续在后台运行，已装插件与已下发配置保留。',
 
   'notice.connected': '已连接「{label}」——点卡片上的「打开」进入远端页面',
+  'notice.recovered': '远端实例曾停止，已自动恢复「{label}」——点「打开」重新进入',
   'notice.created': '已创建连接',
   'notice.saved': '已保存连接',
   'notice.deleted': '已删除连接',
@@ -239,10 +248,16 @@ export const en: { [Key in RemoteKey]: string } = {
   'phase.error': 'Error',
 
   'op.connect': 'Connect',
+  'op.recover': 'Recovering',
   'op.sync-skills': 'Sync Skills',
   'op.sync-mcp': 'Sync MCP',
   'op.sync-plugins': 'Sync plugins',
   'op.sync-prompts': 'Sync prompts',
+
+  'health.restarting': 'Restarting',
+  'health.unresponsive': 'Unresponsive',
+  'health.unknown': 'State unknown',
+  'health.lastAt': 'Last heartbeat at {at} (systemd state and log tail below)',
 
   'noun.skills': 'skills',
   'noun.mcp': 'MCP',
@@ -258,6 +273,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'card.opLog.title': 'Operation log',
   'failed.connect': 'Connection failed',
   'failed.sync': 'Sync failed',
+  'failed.recover': 'Auto-recovery failed',
   'card.syncMenu': 'Sync ▾',
 
   'lastSync.skills': 'Last Skills sync: pushed {pushed}',
@@ -276,6 +292,8 @@ export const en: { [Key in RemoteKey]: string } = {
     'Delete "{label}" ({target})? Only the local record, the saved secret and port forwarding are removed; the remote instance keeps running in the background, with installed plugins and delivered configuration kept.',
 
   'notice.connected': 'Connected to "{label}" — click "Open" on the card to enter the remote page',
+  'notice.recovered':
+    'The remote instance had stopped and was recovered automatically — click "Open" to re-enter "{label}"',
   'notice.created': 'Connection created',
   'notice.saved': 'Connection saved',
   'notice.deleted': 'Connection deleted',

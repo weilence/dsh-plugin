@@ -19,7 +19,7 @@ import {
   type PillData,
 } from '@dsh-plugins/client-ui'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ConnOp, ConnProgress, ConnRow } from '../shared'
+import type { ConnOp, ConnProgress, ConnRow, RunningHealth } from '../shared'
 import { REMOTE_PROFILE, targetSummary } from '../shared'
 import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
@@ -46,6 +46,7 @@ const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone:
 
 const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'op.connect',
+  recover: 'op.recover',
   'sync-skills': 'op.sync-skills',
   'sync-mcp': 'op.sync-mcp',
   'sync-plugins': 'op.sync-plugins',
@@ -55,10 +56,18 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
 /** error 阶段的入口文案按最近一次操作的类别取（progress 在 op 清空后仍保留）。 */
 const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'failed.connect',
+  recover: 'failed.recover',
   'sync-skills': 'failed.sync',
   'sync-mcp': 'failed.sync',
   'sync-plugins': 'failed.sync',
   'sync-prompts': 'failed.sync',
+}
+
+/** 心跳结论 → 徽标文案与语气（running 仍在时叠加在阶段徽标旁）。 */
+const HEALTH_PILLS: Record<RunningHealth['state'], { key: RemoteKey; tone: PillData['tone'] }> = {
+  restarting: { key: 'health.restarting', tone: 'warn' },
+  unresponsive: { key: 'health.unresponsive', tone: 'err' },
+  unknown: { key: 'health.unknown', tone: 'warn' },
 }
 
 /** 操作步骤时间线（spinner 的 hover 浮层与失败详情弹窗共用）。 */
@@ -395,7 +404,14 @@ function connectionCard(
   // 进行中与失败态：文字进度 pill 全部让位（spinner 表进行中、失败入口表终态），
   // 过程细节一律经 progress 时间线呈现（hover / 点击详情）。
   const failed = row.state.phase === 'error' && row.state.op === null
+  const health = running?.health ?? null
   const pills: PillData[] = opBusy || failed ? [] : [{ text: t(phase.key), tone: phase.tone }]
+  // 心跳结论叠在阶段徽标旁：隧道还通、连接记录还在（running 非空），但实例侧有
+  // 状况——只靠「运行中」会掩盖远端已经停了这件事。
+  if (pills.length > 0 && health !== null) {
+    const badge = HEALTH_PILLS[health.state]
+    pills.push({ text: t(badge.key), tone: badge.tone, title: health.detail })
+  }
 
   // 操作状态入口（spinner / 失败详情）占按钮区最左位，与动作按钮中心线对齐。
   // 过程浮层见 OpHoverCard（官方 MenuSurface，z-1100 在设置弹窗之上）。
@@ -435,6 +451,20 @@ function connectionCard(
       : [action('connect', t('op.connect'), () => void store.connect(row.id), { variant: 'primary' })]
   const children = (
     <div>
+      {health !== null ? (
+        <>
+          <p className={styles.rowWhen}>
+            {t('health.lastAt', {
+              at: new Date(health.at).toLocaleTimeString(),
+            })}
+          </p>
+          {health.detail !== undefined && health.detail.length > 0 ? (
+            <pre className={local.opLogPre} data-drag-skip>
+              {health.detail}
+            </pre>
+          ) : null}
+        </>
+      ) : null}
       {row.state.lastSync.skills !== null ? (
         <p className={styles.rowWhen}>
           {t('lastSync.skills', { pushed: row.state.lastSync.skills.pushed })}

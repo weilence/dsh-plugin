@@ -125,9 +125,10 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
 
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。文字进度不在此——面板用
  *  spinner 呈现进行中，过程细节见 progress 时间线。表单里的「测试」是无状态
- *  探针，不占连接操作位。 */
+ *  探针，不占连接操作位。`recover` 由心跳看门狗发起（远端实例被 systemd 判为
+ *  inactive / failed 后的自动收敛），面板据此区分「用户点的连接」与「自动恢复」。 */
 export interface ConnOp {
-  kind: 'connect' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
+  kind: 'connect' | 'recover' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
 }
 
 /** 操作步骤时间线的一项（进行中 hover 浮层与失败详情弹窗共用）。 */
@@ -145,6 +146,20 @@ export interface ConnProgress {
   steps: OpStep[]
 }
 
+/** 本地心跳对远端实例的结论（经既有隧道 HTTP 探测 + systemd 核实）。null =
+ *  最近一次探测正常，或尚未探测。running 为真而此处非空，说明「隧道还在、
+ *  实例有状况」——面板据此把状态如实标出来，而不是一直显示「运行中」。 */
+export interface RunningHealth {
+  /** restarting = systemd 正在拉起（Restart=on-failure / 手动 restart，隧道
+   *  指向的端口不变，通常几十秒自愈）；unresponsive = 进程在（systemd active）
+   *  但隧道上不应答；unknown = 无法核实（ssh 不可达、或密码登录缺口令）。 */
+  state: 'restarting' | 'unresponsive' | 'unknown'
+  /** 本次结论的观测时间。 */
+  at: string
+  /** 诊断原文（systemd 状态 + 日志尾部），「查看完整」展示用。 */
+  detail?: string
+}
+
 /** running 阶段的事实（token URL 由启动日志解析而来）。 */
 export interface ConnRunning {
   url: string
@@ -153,6 +168,8 @@ export interface ConnRunning {
   /** 远端实例主进程 pid（systemd MainPID，信息展示用；进程存活性由单元管理）。 */
   pid: number
   since: string
+  /** 心跳结论；正常或未探测为 null。 */
+  health: RunningHealth | null
 }
 
 /** 连接的运行态快照（GET /state 的组成部分）。 */

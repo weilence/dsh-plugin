@@ -44,13 +44,16 @@ function deployReady(command: string): SshResult | undefined {
   return undefined
 }
 
-/** 探查输出装配：九项标记行（工具链 + 插件登记 + systemd 服务事实）。 */
+/** 探查输出装配：十项标记行（工具链 + 插件登记 + systemd 服务事实 + 既有单元端口）。
+ *  unitPort：null = 单元里读不到端口（首连 / 旧 `--port 0` 单元），缺省与就绪
+ *  行的端口一致（4321），让既有用例不产生 port-drift 步骤。 */
 function probeOutput(
   options: {
     dsh?: string
     plugin?: string
     registered?: boolean
     dshBin?: string
+    unitPort?: number | null
   } = {},
 ): string {
   const {
@@ -58,11 +61,13 @@ function probeOutput(
     plugin = '{"name":"@weilence/dsh-remote","version":"0.1.0"}',
     registered = true,
     dshBin = '/usr/local/bin/dsh',
+    unitPort = 4321,
   } = options
   return (
     `__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__${dsh}\n` +
     `__PLUGIN__${plugin}\n__REG__${registered ? 1 : 0}\n` +
-    `__HOME__/home/u\n__DSHBIN__${dshBin}\n__PATH__/usr/local/bin:/usr/bin:/bin\n`
+    `__HOME__/home/u\n__DSHBIN__${dshBin}\n__PATH__/usr/local/bin:/usr/bin:/bin\n` +
+    (unitPort === null ? '' : `__UNITPORT__${unitPort}\n`)
   )
 }
 
@@ -100,6 +105,8 @@ interface FakeOptions {
   instanceVersion?: InstanceVersion | ((attempt: number) => InstanceVersion)
   /** 健康检查结果；函数形式按尝试次序变化（自愈回环用例），缺省恒 true。 */
   healthCheck?: (attempt: number) => boolean
+  /** 引擎时钟（心跳节流与退避的判定依据）；缺省恒定——心跳用例传可推进的假时钟。 */
+  now?: () => string
 }
 
 function makeDeps(options: FakeOptions = {}) {
@@ -196,7 +203,7 @@ function makeDeps(options: FakeOptions = {}) {
     },
     forwards: new ForwardRegistry(''),
     homeDir: '',
-    now: () => '2027-01-01T00:00:00.000Z',
+    now: options.now ?? (() => '2027-01-01T00:00:00.000Z'),
     delay: async () => {},
   }
   return {
@@ -217,6 +224,17 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
   throw new Error('waitFor 超时')
+}
+
+/** 可推进的假时钟：心跳节流 / 退避都按 deps.now() 判定，测试推进它而不是等真实时间。 */
+function fakeClock(startMs = Date.parse('2027-01-01T00:00:00.000Z')) {
+  let current = startMs
+  return {
+    advance: (ms: number) => {
+      current += ms
+    },
+    now: () => new Date(current).toISOString(),
+  }
 }
 
 function saveRequest(overrides: Partial<SaveRequest> = {}): SaveRequest {
@@ -726,7 +744,7 @@ describe('RemoteEngine', () => {
     expect(launchCall?.stdin).toContain('[Unit]')
     expect(launchCall?.stdin).toContain('Type=exec')
     expect(launchCall?.stdin).toContain('Environment="PATH=/usr/local/bin:/usr/bin:/bin"')
-    expect(launchCall?.stdin).toContain('ExecStart="/usr/local/bin/dsh" --profile web --no-open --port 0')
+    expect(launchCall?.stdin).toContain('ExecStart="/usr/local/bin/dsh" --profile web --no-open --port 4321')
     expect(launchCall?.stdin).toContain(`ExecStartPre=/bin/sh -c ': > "/home/u/.dsh/dsh-remote/web.log"'`)
     expect(launchCall?.stdin).toContain('StandardOutput=append:/home/u/.dsh/dsh-remote/web.log')
     expect(launchCall?.stdin).toContain('Restart=on-failure')
@@ -1001,6 +1019,395 @@ describe('RemoteEngine', () => {
     expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(true)
     // 病实例的转发被丢弃后重建（两次 kill：丢弃 + fail 无关……此处只验证成功）
     expect(engine.stateOf('dev-box').running).toMatchObject({ localPort: 19999 })
+  })
+
+  it('connect：单元里没有端口（首连 / 旧 --port 0 单元）→ 远端探测空闲端口写进单元', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('__NODE__'))
+          return { code: 0, stdout: probeOutput({ unitPort: null }), stderr: '' }
+        if (command.includes('node -e ') && command.includes('__PORT__'))
+          return { code: 0, stdout: '__PORT__3081\n', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const launchCall = fake.calls.find((call) =>
+      call.command.includes('cat > ~/.config/systemd/user/dsh-web.service.tmp-dsh-remote'),
+    )
+    expect(launchCall?.stdin).toContain('--profile web --no-open --port 3081')
+    expect(engine.stateOf('dev-box').running).toMatchObject({ remotePort: 4321 })
+  })
+
+  it('connect：端口探测无有效输出 → 显式失败（不静默回退随机端口）', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('__NODE__'))
+          return { code: 0, stdout: probeOutput({ unitPort: null }), stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('无法确定实例监听端口')
+  })
+
+  it('connect：单元端口与实例实际监听不一致 → 隧道以实际端口为准并记 port-drift', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('__NODE__'))
+          return { code: 0, stdout: probeOutput({ unitPort: 3080 }), stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const state = engine.stateOf('dev-box')
+    expect(state.running?.remotePort).toBe(4321)
+    expect(state.progress?.steps.some((step) => step.step === 'port-drift')).toBe(true)
+  })
+
+  it('connect：就绪信号迟迟不出现且日志含 EADDRINUSE → 错误指明端口冲突与出路', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return { code: 1, stdout: '', stderr: '' }
+        if (command.includes('tail -n 20'))
+          return { code: 0, stdout: 'Error: listen EADDRINUSE :::4321\n', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const error = engine.stateOf('dev-box').error
+    expect(error?.message).toContain('EADDRINUSE')
+    expect(error?.message).toContain('4321')
+    expect(error?.message).toContain('dsh-web.service')
+  })
+
+  // ───────────────────────── 存活心跳（面板轮询驱动，不建新 ssh） ─────────────────────────
+
+  it('heartbeat：探测健康 → 状态不变、不额外建连', async () => {
+    const clock = fakeClock()
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const callsBefore = fake.calls.length
+    await engine.heartbeat()
+    expect(fake.calls.length).toBe(callsBefore)
+    clock.advance(10_000)
+    await engine.heartbeat()
+    expect(fake.calls.length).toBe(callsBefore)
+    expect(engine.stateOf('dev-box').running?.health).toBeNull()
+  })
+
+  it('heartbeat：10s 节流 + 连续 2 次失败不核实（判死阈值是 3 次）', async () => {
+    const clock = fakeClock()
+    let up = true
+    let probes = 0
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => {
+        if (up) return true
+        probes += 1
+        return false
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    up = false
+    await engine.heartbeat()
+    expect(probes).toBe(0)
+    clock.advance(10_000)
+    await engine.heartbeat()
+    expect(probes).toBe(1)
+    await engine.heartbeat()
+    expect(probes).toBe(1)
+    clock.advance(10_000)
+    await engine.heartbeat()
+    expect(probes).toBe(2)
+    // 两次失败只是计数，没有核实命令、没有改状态
+    expect(engine.stateOf('dev-box').running?.health).toBeNull()
+    expect(fake.calls.some((call) => call.command.includes('__ACTIVE__'))).toBe(false)
+  })
+
+  it('heartbeat：3 次失败 + systemd active → 无响应（保留 running 与隧道，退避 60s）', async () => {
+    const clock = fakeClock()
+    let up = true
+    let probes = 0
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        if (command.includes('__ACTIVE__')) {
+          return {
+            code: 0,
+            stdout:
+              '__ACTIVE__active\n__SUB__running\n__RESTARTS__2\n__LOG__dsh web: http://127.0.0.1:4321/?token=tok43|FATAL|',
+            stderr: '',
+          }
+        }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => {
+        if (up) return true
+        probes += 1
+        return false
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    up = false
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(10_000)
+      await engine.heartbeat()
+    }
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('running')
+    expect(state.running).not.toBeNull()
+    expect(state.running?.health).toMatchObject({ state: 'unresponsive' })
+    expect(state.running?.health?.detail).toContain('systemd：active/running')
+    expect(state.running?.health?.detail).toContain('FATAL')
+    const activeCalls = () => fake.calls.filter((call) => call.command.includes('__ACTIVE__')).length
+    expect(activeCalls()).toBe(1)
+    // 退避窗口（60s）内继续心跳不探测、不重复核实
+    clock.advance(10_000)
+    await engine.heartbeat()
+    expect(activeCalls()).toBe(1)
+    // 窗口过后恢复探测（失败重新从 1 计数，不足 3 次不再核实）
+    clock.advance(60_000)
+    await engine.heartbeat()
+    expect(probes).toBe(4)
+    expect(activeCalls()).toBe(1)
+  })
+
+  it('heartbeat：systemd activating → 实例重启中（短退避，不动隧道不重启）', async () => {
+    const clock = fakeClock()
+    let up = true
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('__ACTIVE__'))
+          return {
+            code: 0,
+            stdout: '__ACTIVE__activating\n__SUB__auto-restart\n__RESTARTS__1\n__LOG__|',
+            stderr: '',
+          }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => up,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    up = false
+    const restartsBefore = fake.calls.filter((call) =>
+      call.command.includes('systemctl --user restart'),
+    ).length
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(10_000)
+      await engine.heartbeat()
+    }
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('running')
+    expect(state.running?.health).toMatchObject({ state: 'restarting' })
+    expect(fake.calls.filter((call) => call.command.includes('systemctl --user restart')).length).toBe(
+      restartsBefore,
+    )
+  })
+
+  it('heartbeat：systemd inactive → 自动收敛走完整连接流程，成功回 running（op 为 recover）', async () => {
+    const clock = fakeClock()
+    let alive = true
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('__ACTIVE__'))
+          return { code: 0, stdout: '__ACTIVE__inactive\n__SUB__dead\n__RESTARTS__0\n__LOG__|', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          alive = true
+          return launchResult()
+        }
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => alive,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    expect(fake.calls.filter((call) => call.command.includes('__NODE__')).length).toBe(1)
+    alive = false
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(10_000)
+      await engine.heartbeat()
+    }
+    // 收敛 = 重跑连接流程（部署段探查再来一遍），不是盲目 systemctl start
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('running')
+    expect(state.op).toBeNull()
+    expect(state.progress?.kind).toBe('recover')
+    expect(state.running).not.toBeNull()
+    expect(state.running?.health).toBeNull()
+    expect(fake.calls.filter((call) => call.command.includes('__NODE__')).length).toBe(2)
+  })
+
+  it('heartbeat：自动恢复失败 → error（progress.kind = recover，面板按「自动恢复失败」取词）', async () => {
+    const clock = fakeClock()
+    let alive = true
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('__ACTIVE__'))
+          return { code: 0, stdout: '__ACTIVE__failed\n__SUB__dead\n__RESTARTS__5\n__LOG__|', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => alive,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    alive = false
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(10_000)
+      await engine.heartbeat()
+    }
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const state = engine.stateOf('dev-box')
+    expect(state.running).toBeNull()
+    expect(state.progress?.kind).toBe('recover')
+    expect(state.error?.message).toBeTruthy()
+  })
+
+  it('heartbeat：连续掉线超过收敛上限 → 判死停手（不再无限重连）', async () => {
+    const clock = fakeClock()
+    let alive = true
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('__ACTIVE__'))
+          return { code: 0, stdout: '__ACTIVE__inactive\n__SUB__dead\n__RESTARTS__0\n__LOG__|', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) {
+          alive = true
+          return launchResult()
+        }
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => alive,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    // 三轮「死了又收敛成功」：每轮都没有连续两轮健康探测，收敛计数不清零
+    for (let episode = 0; episode < 3; episode += 1) {
+      alive = false
+      for (let i = 0; i < 3; i += 1) {
+        clock.advance(10_000)
+        await engine.heartbeat()
+      }
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+    }
+    alive = false
+    for (let i = 0; i < 3; i += 1) {
+      clock.advance(10_000)
+      await engine.heartbeat()
+    }
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('error')
+    expect(state.running).toBeNull()
+    expect(state.error?.message).toContain('自动恢复 3 次')
+  })
+
+  it('heartbeat：核实命令 ssh 失败 → 状态未知（不判死、不重启、隧道保留）', async () => {
+    const clock = fakeClock()
+    let alive = true
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        if (command.includes('__ACTIVE__')) throw new Error('ssh: connect refused')
+        return undefined
+      },
+      now: clock.now,
+      healthCheck: () => alive,
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const callsBefore = fake.calls.length
+    alive = false
+    clock.advance(10_000)
+    await engine.heartbeat()
+    clock.advance(10_000)
+    await engine.heartbeat()
+    clock.advance(10_000)
+    await engine.heartbeat()
+    const state = engine.stateOf('dev-box')
+    expect(state.phase).toBe('running')
+    expect(state.running?.health).toMatchObject({ state: 'unknown' })
+    expect(state.running?.health?.detail).toContain('ssh: connect refused')
+    expect(fake.calls.length).toBe(callsBefore + 1)
   })
 
   it('save：运行中改基本信息被拒（同步勾选不经 save，直传 startSync）', async () => {

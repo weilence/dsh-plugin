@@ -81,12 +81,43 @@ describe('RemoteStore 阶段迁移检测', () => {
             remotePort: 18730,
             pid: 42,
             since: '2026-01-01T00:00:00.000Z',
+            health: null,
           },
         }),
       ]),
     )
     await store.refresh()
     expect(text(store.getSnapshot().notice)).toBe('已连接「连接 dev」——点卡片上的「打开」进入远端页面')
+    store.stopPolling()
+  })
+
+  it('recover op 的 starting → running 发「已自动恢复」toast（用户没点过连接）', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValueOnce(
+      stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'recover' } })]),
+    )
+    await store.refresh()
+    expect(store.getSnapshot().notice).toBeNull()
+
+    api.state.mockResolvedValueOnce(
+      stateResponse([
+        connRow('dev', {
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    await store.refresh()
+    expect(text(store.getSnapshot().notice)).toBe(
+      '远端实例曾停止，已自动恢复「连接 dev」——点「打开」重新进入',
+    )
     store.stopPolling()
   })
 

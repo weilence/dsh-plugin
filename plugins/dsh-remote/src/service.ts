@@ -6,6 +6,8 @@
  * 进程；远端缺 systemctl / 用户总线 / linger 任一环即显式报错，无回退。
  */
 
+import { shQuote } from './ssh'
+
 /** 远端服务事实（部署段探查产物）：unit 内容的原料。 */
 export interface ServicePaths {
   /** 远端用户 home 绝对路径（探查时 $HOME）。 */
@@ -16,10 +18,28 @@ export interface ServicePaths {
    *  用户管理器的默认 PATH 极简，nvm 的 node、MCP server 的 uv/npx 等裸命令
    *  全靠登录 PATH 解析。每次连接重探重写 unit，内容变化经 cmp 检出后 restart。 */
   path: string
+  /** 实例监听端口：本机选定后写进 unit，之后以 unit 为准（见 PREFERRED_PORT）。 */
+  port: number
 }
 
 /** 远端实例的 systemd 用户单元名：一台机器只有一个远端实例，单元名固定。 */
 export const UNIT_NAME = 'dsh-web.service'
+
+/** 单元文件路径（~ 形态，远端 shell 内展开）。 */
+export const UNIT_PATH = `~/.config/systemd/user/${UNIT_NAME}`
+
+/** 首选的实例端口——就是 dsh web 自己的默认端口：远端 `dsh web` 通常在 3080，
+ *  用户手动 ssh -L 或直接 curl 调试时不必先查端口。被占用时按候选表换一个，
+ *  选定值写进单元、之后始终以单元为准——端口稳定是「重启不打断本地隧道」
+ *  的前提（`--port 0` 每次启动换端口，systemd 自动拉起等于把旧隧道永久弄死）。
+ *  只在单元里没有可用端口时才探测，探测本身不碰运行中的实例。 */
+export const PREFERRED_PORT = 3080
+
+/** 候选端口表：首选 + 紧随其后的九个，都被占用才退回内核分配的临时端口。 */
+export const PORT_CANDIDATES: readonly number[] = Array.from(
+  { length: 10 },
+  (_, index) => PREFERRED_PORT + index,
+)
 
 /** 远端实例日志路径（~ 形态，远端 shell 内展开）。与单元名一样固定——日志
  *  路径若随本地连接 id 变化，同一台机器换个别名连就会改写单元内容并互相
@@ -40,13 +60,16 @@ function escapeQuoted(text: string): string {
  *  - Type=exec：start 在 exec() 成功后才返回，MainPID 无竞态（要求 systemd ≥ 240）；
  *  - 登录 PATH 整体注入：dsh 的 `#!/usr/bin/env node` shebang 与 MCP server 的
  *    裸命令（uvx / npx）都按它解析；
+ *  - `--port <选定端口>`：端口是本机写进单元的事实，不再由 OS 随机分配——重启
+ *    （Restart= / 版本收敛 / 手动 restart）落在同一端口上，既有 ssh -L 隧道与
+ *    浏览器会话 Cookie（认证密钥持久化在远端）都继续有效；
  *  - ExecStartPre 截断日志：重启（含 Restart= 自动拉起）先清旧就绪行，poll
  *    不会命中死实例的旧 token；停止侧（engine stopInstance）再截一次兜底；
  *  - StandardOutput/StandardError append 到既有日志路径：launch.ts 的就绪行
  *    解析与失败时的日志尾部读取保持不变；
  *  - TimeoutStopSec 有界收尾（MCP server 挨个退），对齐旧实现 10s 等待语义。
- *  Description 与日志路径都不含连接 id：单元内容只随机器实况（dsh 路径 /
- *  登录 PATH）变化，同一台机器换别名连不会触发重写与 restart。 */
+ *  Description、日志路径与端口都不含连接 id：单元内容只随机器实况（dsh 路径 /
+ *  登录 PATH / 已定端口）变化，同一台机器换别名连不会触发重写与 restart。 */
 export function buildUnitContent(paths: ServicePaths): string {
   const logPath = `${paths.home}/.dsh/dsh-remote/web.log`
   const lines = [
@@ -58,7 +81,7 @@ export function buildUnitContent(paths: ServicePaths): string {
     '[Service]',
     'Type=exec',
     `Environment="PATH=${escapeQuoted(paths.path)}"`,
-    `ExecStart="${escapeQuoted(paths.dshPath)}" --profile web --no-open --port 0`,
+    `ExecStart="${escapeQuoted(paths.dshPath)}" --profile web --no-open --port ${paths.port}`,
     `ExecStartPre=/bin/sh -c ': > "${escapeQuoted(logPath)}"'`,
     `StandardOutput=append:${escapeSpec(logPath)}`,
     `StandardError=append:${escapeSpec(logPath)}`,
@@ -71,6 +94,32 @@ export function buildUnitContent(paths: ServicePaths): string {
     '',
   ]
   return lines.join('\n')
+}
+
+/** 端口探测命令：按候选表逐个在远端 loopback 上试绑，全被占用才让内核分配。
+ *  输出 `__PORT__<端口>`。只 bind + close，不监听、不留进程；node 由部署段
+ *  保证可用（dsh 自己就是 node 程序）。 */
+export function buildPortProbeCommand(candidates: readonly number[] = PORT_CANDIDATES): string {
+  const script = [
+    'const net=require("net");',
+    `const ports=${JSON.stringify(candidates)};`,
+    'function bind(p){return new Promise(function(resolve){',
+    'const s=net.createServer();',
+    's.once("error",function(){resolve(0)});',
+    's.listen(p,"127.0.0.1",function(){const got=s.address().port;s.close(function(){resolve(got)})})',
+    '})}',
+    '(async function(){',
+    'for(const p of ports){const got=await bind(p);if(got>0){console.log("__PORT__"+got);return}}',
+    'const got=await bind(0);console.log("__PORT__"+got)',
+    '})()',
+  ].join('')
+  return `node -e ${shQuote(script)}`
+}
+
+/** 既有单元里的端口（随部署段探查一并取，不额外建连）：输出 `__UNITPORT__<端口>`。
+ *  单元里没有 `--port`（旧版本写的是 `--port 0`）时输出空串，由调用方探测新端口。 */
+export function buildUnitPortProbe(): string {
+  return `echo __UNITPORT__"$(sed -n 's/.*--port \\([0-9][0-9]*\\).*/\\1/p' ${UNIT_PATH} 2>/dev/null | head -n 1)"`
 }
 
 /** systemd 用户总线的前置环境：ssh 非交互会话通常由 pam_systemd 注入
@@ -139,5 +188,20 @@ export function buildPollCommand(maxAttempts: number, intervalSeconds: number): 
     `sleep ${intervalSeconds};`,
     'done;',
     'exit 1',
+  ].join(' ')
+}
+
+/** 存活核实命令：本地心跳（经隧道 HTTP）判死之后的一次性分类——systemd 认为
+ *  单元处于什么状态、重启过几次、日志尾部说了什么。输出标记行 `__ACTIVE__` /
+ *  `__SUB__` / `__RESTARTS__` / `__LOG__`（日志多行压平成 `|` 分隔，单行协议不
+ *  破坏标记解析）。**只读**：不 start、不 restart——要不要收敛由 engine 决定。 */
+export function buildHealthCommand(): string {
+  return [
+    `${BUS_ENV};`,
+    `command -v systemctl >/dev/null 2>&1 || { echo __NOSYSTEMD__; exit 0; };`,
+    `echo __ACTIVE__"$(systemctl --user show -p ActiveState --value ${UNIT_NAME} 2>&1 | tr -d '\\n')"`,
+    `echo __SUB__"$(systemctl --user show -p SubState --value ${UNIT_NAME} 2>&1 | tr -d '\\n')"`,
+    `echo __RESTARTS__"$(systemctl --user show -p NRestarts --value ${UNIT_NAME} 2>&1 | tr -d '\\n')"`,
+    `echo __LOG__"$(tail -n 6 ${UNIT_LOG} 2>/dev/null | tr '\\n' '|')"`,
   ].join(' ')
 }

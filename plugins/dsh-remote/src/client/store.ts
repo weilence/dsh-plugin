@@ -155,23 +155,27 @@ export class RemoteStore {
 
   /** 轮询间检测阶段 / 操作迁移：连接成功与同步完成发 notice——连接成功
    *  不自动开页（入口常驻在卡片「打开」按钮），同步是长操作且弹窗已关，
-   *  结果靠 toast 呈现。 */
+   *  结果靠 toast 呈现。自动恢复（看门狗发起的 recover）走同一 starting →
+   *  running 迁移，但文案必须区分：用户没有点过连接，是实例停了又被拉起。 */
   private detectTransitions(next: StateResponse): void {
     let notice: PanelMessage | null = null
     for (const row of next.connections) {
       const before = this.prevPhase.get(row.id)
       this.prevPhase.set(row.id, row.state.phase)
+      const prevOp = this.prevOps.get(row.id) ?? null
+      const opKind = row.state.op?.kind ?? null
+      this.prevOps.set(row.id, opKind)
       if (
         notice === null &&
         before === 'starting' &&
         row.state.phase === 'running' &&
         row.state.running !== null
       ) {
-        notice = { key: 'notice.connected', params: { label: row.label } }
+        notice =
+          prevOp === 'recover'
+            ? { key: 'notice.recovered', params: { label: row.label } }
+            : { key: 'notice.connected', params: { label: row.label } }
       }
-      const prevOp = this.prevOps.get(row.id) ?? null
-      const opKind = row.state.op?.kind ?? null
-      this.prevOps.set(row.id, opKind)
       if (notice === null && prevOp !== null && opKind === null && prevOp.startsWith('sync-')) {
         notice = syncDoneNotice(prevOp, row)
       }

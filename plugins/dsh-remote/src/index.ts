@@ -342,6 +342,10 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
           try {
             if (!guard(req, res, 'GET')) return
             await engine.load()
+            // 存活心跳搭在面板轮询上：只探 running 连接、内部 10s 节流、不占本次
+            // 响应（结论在下一轮 /state 里体现）。刻意不用后台定时器——面板关掉
+            // 就没有探测，也就没有无人观察时的自动重启。
+            void engine.heartbeat()
             const profile = profileContextOf(ctx)
             const tools = await probeTools()
             const response: StateResponse = {
