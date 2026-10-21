@@ -95,9 +95,9 @@ describe('通知仅限主代理', () => {
     events.pending('main', 'question:main')
     events.pending('main', 'approval:main', 'approval')
     expect(notifications).toEqual([
-      { title: 'DSH · 主会话', body: '模型处理已完成' },
-      { title: 'DSH · 主会话', body: '等待您的回答' },
-      { title: 'DSH · 主会话', body: '等待批准：工具' },
+      { title: 'DSH：主会话', body: '模型处理已完成' },
+      { title: 'DSH：主会话', body: '等待您的回答' },
+      { title: 'DSH：主会话', body: '等待批准：工具' },
     ])
   })
 
@@ -113,6 +113,6 @@ describe('通知仅限主代理', () => {
   it('普通分叉会话虽有 parentId，仍作为主代理通知', () => {
     const events = setup()
     events.status('fork', false)
-    expect(notifications).toEqual([{ title: 'DSH · 分叉主会话', body: '模型处理已完成' }])
+    expect(notifications).toEqual([{ title: 'DSH：分叉主会话', body: '模型处理已完成' }])
   })
 })

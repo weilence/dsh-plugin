@@ -29,17 +29,24 @@ export function providerName(provider: string, locale: string): string {
   return dayjsLocaleId(locale) === 'zh-cn' ? names.zh : names.en
 }
 
-/** 窗口标签文案：已知时长有专名，其余按分钟显示；时长缺失回退主/次窗口角色名。 */
+/** 窗口标签文案：已知时长有专名，其余按分钟显示；时长缺失回退主/次窗口角色名。
+ *  桶名（provider 下发的原始事实）经组合词条与窗口名组句。 */
 export function windowName(label: UsageWindowLabel, t: ModelsT): string {
+  const plain = windowRoleName(label, t)
+  return label.kind === 'window' && label.bucketName !== undefined
+    ? t('usage.window.withBucket', { bucket: label.bucketName, name: plain })
+    : plain
+}
+
+function windowRoleName(label: UsageWindowLabel, t: ModelsT): string {
   if (label.kind === 'toolCalls') return t('usage.window.toolCalls')
   if (label.kind === 'premiumRequests') return t('usage.window.premiumRequests')
   if (label.kind === 'text') return label.text
-  const prefix = label.bucketName === undefined ? '' : `${label.bucketName} · `
-  if (label.windowMins === 300) return prefix + t('usage.window.hours5')
-  if (label.windowMins === 10080) return prefix + t('usage.window.weekly')
-  if (label.windowMins !== null) return prefix + t('usage.window.minutes', { mins: label.windowMins })
-  if (label.role === 'secondary') return prefix + t('usage.window.secondary')
-  return prefix + t('usage.window.primary')
+  if (label.windowMins === 300) return t('usage.window.hours5')
+  if (label.windowMins === 10080) return t('usage.window.weekly')
+  if (label.windowMins !== null) return t('usage.window.minutes', { mins: label.windowMins })
+  if (label.role === 'secondary') return t('usage.window.secondary')
+  return t('usage.window.primary')
 }
 
 // 英文重置文案用紧凑时长而不是 dayjs 长句（in 5 hours）：浮窗窗口列宽有限，长句会截断。

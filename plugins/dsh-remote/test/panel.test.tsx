@@ -444,7 +444,7 @@ describe('远程开发面板渲染', () => {
     // 阶段文字 pill 不再出现（spinner 表进行中）；浮层只在 hover 后挂载
     expect(html).not.toContain('部署中')
     expect(html).toContain('data-state-dot="ongoing"')
-    expect(html).not.toContain('probe · node / npm / pnpm / dsh')
+    expect(html).not.toContain('node / npm / pnpm / dsh')
     store.stopPolling()
   })
 
@@ -475,7 +475,8 @@ describe('远程开发面板渲染', () => {
     const dialog = renderPanel(store)
     expect(dialog).toContain('远端安装 @deepseek-ai/dsh 失败：ENOENT …')
     expect(dialog).toContain('操作过程')
-    expect(dialog).toContain('probe · node / npm / pnpm / dsh')
+    expect(dialog).toContain('probe')
+    expect(dialog).toContain('node / npm / pnpm / dsh')
     expect(dialog).toContain('line-a')
     expect(dialog).toContain('line-b')
     store.stopPolling()
@@ -532,7 +533,7 @@ describe('远程开发面板渲染', () => {
     await store.testDraft({ target: { kind: 'alias', alias: 'dev-box' } })
     const html = renderPanel(store)
 
-    expect(html).toContain('测试通过：node v22.19.0 · npm 10.8.2 · dsh 0.1.7-rc.2')
+    expect(html).toContain('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
     expect(html).not.toContain('探针')
     store.stopPolling()
   })

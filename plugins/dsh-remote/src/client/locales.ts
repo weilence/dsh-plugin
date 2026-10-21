@@ -100,8 +100,8 @@ export const zh = {
   'notice.syncDoneGeneric.plugins': '同步插件完成',
   'notice.syncDoneGeneric.prompts': '同步提示词完成',
   // 表单测试的一次性结果（toast，事件时间取词即可）
-  'notice.test.ok': '测试通过：node {node} · npm {npm} · dsh {dsh}',
-  'notice.test.okNoDsh': '测试通过：node {node} · npm {npm} · 未安装 dsh',
+  'notice.test.ok': '测试通过：node {node}，npm {npm}，dsh {dsh}',
+  'notice.test.okNoDsh': '测试通过：node {node}，npm {npm}，未安装 dsh',
   'notice.test.failed': '测试失败：{detail}',
   'notice.test.failedNoReason': '测试失败（没有输出）',
 
@@ -130,7 +130,7 @@ export const zh = {
   'form.secretPassword': '密码',
   'form.secretPassphrase': '私钥口令',
   'form.secretHint': '勾选「记住」才会写入本机；否则只在本次运行内有效',
-  'form.secretHintKeep': '留空表示继续使用已有口令',
+  'form.secretHintReuse': '勾选「记住」才会更新已保存的口令；留空表示继续使用已有口令',
   'form.secretSaved': '已保存到本机',
   'form.secretSession': '仅本次运行有效',
   'form.secretNone': '未提供',
@@ -307,8 +307,8 @@ export const en: { [Key in RemoteKey]: string } = {
   'notice.syncDoneGeneric.mcp': 'MCP sync finished',
   'notice.syncDoneGeneric.plugins': 'Plugin sync finished',
   'notice.syncDoneGeneric.prompts': 'Prompt sync finished',
-  'notice.test.ok': 'Test passed: node {node} · npm {npm} · dsh {dsh}',
-  'notice.test.okNoDsh': 'Test passed: node {node} · npm {npm} · dsh not installed',
+  'notice.test.ok': 'Test passed: node {node}, npm {npm}, dsh {dsh}',
+  'notice.test.okNoDsh': 'Test passed: node {node}, npm {npm}, dsh not installed',
   'notice.test.failed': 'Test failed: {detail}',
   'notice.test.failedNoReason': 'Test failed (no output)',
 
@@ -340,7 +340,8 @@ export const en: { [Key in RemoteKey]: string } = {
   'form.secretPassphrase': 'Key passphrase',
   'form.secretHint':
     'Only written to this machine when "Remember" is checked; otherwise valid for this run only',
-  'form.secretHintKeep': 'Leave blank to keep the existing secret',
+  'form.secretHintReuse':
+    'Only updates the saved secret when "Remember" is checked; leave blank to keep the existing one',
   'form.secretSaved': 'saved on this machine',
   'form.secretSession': 'this run only',
   'form.secretNone': 'not provided',

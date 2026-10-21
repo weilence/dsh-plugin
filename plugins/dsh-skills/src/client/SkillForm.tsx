@@ -269,9 +269,10 @@ export function SkillView(props: {
         ) : null}
         <MetaItem
           label={t('view.invocation')}
-          value={`${skill.modelInvocable ? t('view.modelInvocable') : t('view.modelNotInvocable')} · ${
-            skill.userInvocable ? t('view.userInvocable') : t('view.userNotInvocable')
-          }`}
+          value={t('view.invocationValue', {
+            model: t(skill.modelInvocable ? 'view.modelInvocable' : 'view.modelNotInvocable'),
+            user: t(skill.userInvocable ? 'view.userInvocable' : 'view.userNotInvocable'),
+          })}
         />
       </div>
       {props.error ? (

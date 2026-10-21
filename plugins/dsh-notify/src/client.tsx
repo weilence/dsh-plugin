@@ -92,7 +92,7 @@ function notify(ctx: ClientContext, t: NotifyT, sessionId: string, kind: NotifyK
           : t('notify.turn')
     // 点击通知聚焦页面并切换到对应会话（desktop 上 renderer 无法恢复最小化
     // 窗口，由宿主侧代为恢复）。
-    showNotification('DSH · ' + titleOf(ctx, sessionId, t), body, () => {
+    showNotification(t('notify.title', { title: titleOf(ctx, sessionId, t) }), body, () => {
       try {
         ctx.uiWorkspace.openSession(sessionId as SessionId)
       } catch (error) {

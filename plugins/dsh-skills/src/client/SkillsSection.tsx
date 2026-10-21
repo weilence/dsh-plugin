@@ -301,7 +301,7 @@ export function SkillsSection(props: SkillsSectionProps) {
               ...(skill.git !== undefined
                 ? [
                     {
-                      text: <>Git · {repoLabelOf(skill.git.url)}</>,
+                      text: <>Git {repoLabelOf(skill.git.url)}</>,
                       tone: 'brand' as const,
                       title: t('git.pillTitle', {
                         url: skill.git.url,

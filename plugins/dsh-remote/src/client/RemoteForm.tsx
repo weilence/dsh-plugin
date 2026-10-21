@@ -298,9 +298,7 @@ export function RemoteForm(props: {
           <SettingsSecretField
             id={secretId}
             label={draft.login === 'key' ? props.t('form.secretPassphrase') : props.t('form.secretPassword')}
-            hint={`${props.t('form.secretHint')}${
-              reusableSecretOf(props.row, draft) ? ` · ${props.t('form.secretHintKeep')}` : ''
-            }`}
+            hint={props.t(reusableSecretOf(props.row, draft) ? 'form.secretHintReuse' : 'form.secretHint')}
             text={draft.secret}
             disabled={busy}
             onEdit={(secret) => patch({ secret, clearSecret: false })}

@@ -150,12 +150,12 @@ describe('按 Provider 显示真实用量语义', () => {
     ).toMatch(/^更新于 \d{2}:\d{2}$/)
     expect(
       footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, zh, 'zh'),
-    ).toMatch(/^GitHub 私有接口 · 更新于 \d{2}:\d{2}$/)
+    ).toMatch(/^GitHub 私有接口，更新于 \d{2}:\d{2}$/)
     expect(footerNote(null, zh, 'zh')).toBe('仅当前 Provider 显示')
     expect(footerNote(null, en, 'en')).toBe('Only shown for the current provider')
     expect(
       footerNote({ kind: 'quota', provider: 'github-copilot', windows: [], queriedAt: 0 }, en, 'en'),
-    ).toMatch(/^GitHub private API · Updated \d{2}:\d{2}$/)
+    ).toMatch(/^GitHub private API, updated \d{2}:\d{2}$/)
   })
 
   it('重置时间跟随宿主语言：中文走 dayjs zh-cn，英文走紧凑时长，过期与缺失显示 —', () => {

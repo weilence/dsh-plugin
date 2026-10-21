@@ -61,11 +61,11 @@ describe('同步弹窗投影（渲染期取词）', () => {
 
     const deploy = rows[0]!.view(makeT())
     expect(deploy.title).toBe('deploy')
-    expect(deploy.titleMeta).toBe('~/.dsh/skills · 内容不同')
+    expect(deploy.titleMeta).toEqual(['~/.dsh/skills', '内容不同'])
     expect(deploy.lines).toEqual(['部署技能'])
 
     const review = rows[1]!.view(makeT())
-    expect(review.titleMeta).toBe('~/.agents/skills · 无法比对')
+    expect(review.titleMeta).toEqual(['~/.agents/skills', '无法比对'])
     expect(review.lines).toEqual([])
   })
 
@@ -81,10 +81,16 @@ describe('同步弹窗投影（渲染期取词）', () => {
     const rows = rowsOf('plugins', localRows, inventory)
     expect(rows.map((row) => row.status)).toEqual(['diff', 'same'])
 
-    expect(rows[0]!.view(makeT()).titleMeta).toBe('profile 层 · 本地 · v1.0.0 · 与远端版本不同 · 远端 v0.9.0')
+    expect(rows[0]!.view(makeT()).titleMeta).toEqual([
+      'profile 层',
+      '本地',
+      'v1.0.0',
+      '与远端版本不同',
+      '远端 v0.9.0',
+    ])
     // same 行：状态走行尾徽标（醒目），titleMeta 留事实（版本相等时远端版本是重复信息）
     const same = rows[1]!.view(makeT())
-    expect(same.titleMeta).toBe('home 层 · npm · v4.17.21')
+    expect(same.titleMeta).toEqual(['home 层', 'npm', 'v4.17.21'])
     expect(same.tag).toBe('已一致')
   })
 
@@ -95,9 +101,13 @@ describe('同步弹窗投影（渲染期取词）', () => {
     }
     const rows = rowsOf('plugins', localRows, noVersion)
     expect(rows[0]!.status).toBe('unknown')
-    expect(rows[0]!.view(makeT()).titleMeta).toBe(
-      'profile 层 · 本地 · v1.0.0 · 无法比对 · 远端已激活（版本未知）',
-    )
+    expect(rows[0]!.view(makeT()).titleMeta).toEqual([
+      'profile 层',
+      '本地',
+      'v1.0.0',
+      '无法比对',
+      '远端已激活（版本未知）',
+    ])
   })
 
   it('提示词行已一致走徽标、差异走状态文字', () => {
@@ -105,7 +115,7 @@ describe('同步弹窗投影（渲染期取词）', () => {
     expect(rows.map((row) => row.status)).toEqual(['diff'])
     const item = rows[0]!.view(makeT())
     expect(item.title).toBe('system-prompt.md')
-    expect(item.titleMeta).toBe('内容不同')
+    expect(item.titleMeta).toEqual(['内容不同'])
     expect(item.lines).toEqual(['/home/system-prompt.md'])
 
     const sameRows = rowsOf(
@@ -119,6 +129,6 @@ describe('同步弹窗投影（渲染期取词）', () => {
 
   it('同一描述子可按语言重取：判定与事实不变，措辞跟随宿主语言', () => {
     const row = rowsOf('skills', localRows, inventory)[0]!
-    expect(row.view(makeT('en')).titleMeta).toBe('~/.dsh/skills · content differs')
+    expect(row.view(makeT('en')).titleMeta).toEqual(['~/.dsh/skills', 'content differs'])
   })
 })

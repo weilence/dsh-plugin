@@ -6,8 +6,8 @@ import { ToneChip } from './tone'
 export interface PickItem {
   key: string
   title: string
-  /** 与标题同行、以「 · 」衔接的次要元信息。 */
-  titleMeta?: string
+  /** 与标题同行的次要元信息段（层级 / 形态 / 版本等）；组件以「空格 + 次级色」分段渲染。 */
+  titleMeta?: readonly string[]
   lines?: readonly string[]
   /** 更弱化色的附注行（归一化 / 命名提示等）。 */
   notes?: readonly string[]
@@ -45,9 +45,12 @@ export function PickList(props: {
             <span className={shared.pickMain}>
               <span className={shared.pickName}>
                 {item.title}
-                {item.titleMeta !== undefined ? (
-                  <span className={shared.pickMeta}> · {item.titleMeta}</span>
-                ) : null}
+                {(item.titleMeta ?? []).map((segment, index) => (
+                  <span key={index} className={shared.pickMeta}>
+                    {' '}
+                    {segment}
+                  </span>
+                ))}
                 {item.tag !== undefined ? (
                   <span className={shared.pickTag}>
                     <ToneChip tone="ok">{item.tag}</ToneChip>

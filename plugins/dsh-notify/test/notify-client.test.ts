@@ -59,17 +59,17 @@ describe('approvalDetail', () => {
 
   it('工具名 + 原因', () => {
     expect(approvalDetail(t, 'bash', '允许执行 pnpm test 吗？')).toBe(
-      '等待批准：bash · 允许执行 pnpm test 吗？',
+      '等待批准：bash（允许执行 pnpm test 吗？）',
     )
   })
 
   it('超长原因截断到 120 字符加省略号', () => {
-    expect(approvalDetail(t, 'write', 'a'.repeat(200))).toBe('等待批准：write · ' + 'a'.repeat(120) + '…')
+    expect(approvalDetail(t, 'write', 'a'.repeat(200))).toBe('等待批准：write（' + 'a'.repeat(120) + '…）')
   })
 
   it('非法或空白工具名回退「工具」', () => {
-    expect(approvalDetail(t, undefined as unknown as string, 'r')).toBe('等待批准：工具 · r')
-    expect(approvalDetail(t, '   ', 'r')).toBe('等待批准：工具 · r')
+    expect(approvalDetail(t, undefined as unknown as string, 'r')).toBe('等待批准：工具（r）')
+    expect(approvalDetail(t, '   ', 'r')).toBe('等待批准：工具（r）')
   })
 
   it('非法或空白原因不追加', () => {
@@ -114,7 +114,7 @@ describe('interactionDetail', () => {
           reason: '允许执行 pnpm test 吗？',
         }),
       ),
-    ).toBe('等待批准：bash · 允许执行 pnpm test 吗？')
+    ).toBe('等待批准：bash（允许执行 pnpm test 吗？）')
   })
 
   it('未知域与缺失字段回退通用文案', () => {

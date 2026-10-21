@@ -122,11 +122,12 @@ export function McpSection(props: McpSectionProps) {
                 ? ('err' as const)
                 : ('neutral' as const),
           title: badge.title,
-          // 状态徽标带工具数（运行中 · N 工具）时本身即入口：点击打开清单弹窗。
+          // 状态徽标带工具数（运行中（N 工具））时本身即入口：点击打开清单弹窗。
           ...(toolCount > 0
             ? {
                 onClick: () => setToolsRow(row),
-                title: [badge.title, t('row.toolsHint')].filter(Boolean).join(' · '),
+                // 徽标状态与操作提示分两行（title 属性内换行呈现），不拼接成一句。
+                title: [badge.title, t('row.toolsHint')].filter(Boolean).join('\n'),
               }
             : {}),
         },

@@ -79,10 +79,11 @@ function StepTimeline(props: { progress: ConnProgress; title: string }) {
         {props.progress.steps.map((step, index) => (
           <li key={index}>
             <span className={local.opLogAt}>{new Date(step.at).toLocaleTimeString()}</span>
-            {/* step / detail 是 host 侧事实（如 probe-node、版本号），原样展示不翻译 */}
+            {/* step / detail 是 host 侧事实（如 probe-node、版本号），原样展示不翻译；
+             * detail 以空格 + 三级色区分，保持行文本可复制 */}
             <span className={local.opLogStep}>
               {step.step}
-              {step.detail !== undefined ? ` · ${step.detail}` : ''}
+              {step.detail !== undefined ? <span className={local.opLogDetail}> {step.detail}</span> : null}
             </span>
           </li>
         ))}

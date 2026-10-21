@@ -350,7 +350,7 @@ export function ToolsDialog(props: { row: McpRow; t: McpT; onClose(): void }) {
   const shownTools = tools.filter((name) => name.toLowerCase().includes(toolQuery.trim().toLowerCase()))
   return (
     <Dialog
-      title={`${t('view.tools')} · ${row.name}`}
+      title={t('view.toolsTitle', { name: row.name })}
       description={t('view.toolsTotal', { count: tools.length })}
       closeLabel={t('close')}
       size="lg"

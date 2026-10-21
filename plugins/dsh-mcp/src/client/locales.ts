@@ -48,7 +48,7 @@ export const zh = {
   'row.connectFailed': '连接失败',
   'row.unloaded': '已卸载',
   'row.absent': '未挂载',
-  'row.activeTools': '运行中 · {count} 工具',
+  'row.activeTools': '运行中（{count} 工具）',
 
   'delete.title': '删除服务器 {name}',
   'delete.body': '将从 {file} 删除这条声明，运行中的实例随即卸载；不影响其他服务器。',
@@ -93,7 +93,7 @@ export const zh = {
   'view.live': '运行态',
   'view.toolCount': '工具数',
   'view.livePending': '待挂载（尚未挂载）',
-  'view.tools': '已注册工具',
+  'view.toolsTitle': '{name} 的工具',
   'view.toolsSearch': '搜索工具',
   'view.toolsTotal': '共 {count} 个工具',
   'view.toolsNoMatch': '没有匹配的工具',
@@ -172,7 +172,7 @@ export const en: { [Key in McpKey]: string } = {
   'row.connectFailed': 'Connection failed',
   'row.unloaded': 'Unloaded',
   'row.absent': 'Not mounted',
-  'row.activeTools': 'Running · {count} tools',
+  'row.activeTools': 'Running ({count} tools)',
 
   'delete.title': 'Delete server {name}',
   'delete.body':
@@ -220,7 +220,7 @@ export const en: { [Key in McpKey]: string } = {
   'view.live': 'Live state',
   'view.toolCount': 'Tools',
   'view.livePending': 'Not mounted yet',
-  'view.tools': 'Registered tools',
+  'view.toolsTitle': 'Tools for {name}',
   'view.toolsSearch': 'Search tools',
   'view.toolsTotal': '{count} tools in total',
   'view.toolsNoMatch': 'No matching tools',

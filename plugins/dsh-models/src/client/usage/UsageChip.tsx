@@ -117,12 +117,13 @@ function formatQueriedAt(ms: number, active: string) {
   })
 }
 
-/** 已知原因码 → 翻译摘要并保留原始详情；unknown 的详情就是主文案，不猜不吞。 */
+/** 已知原因码 → 翻译摘要并保留原始详情；unknown 的详情就是主文案，不猜不吞。
+ *  摘要与详情以空格分段（摘要可译、详情是事实），同胶囊窗口行的分段惯例。 */
 function failureText(code: UsageFailureCode, detail: string, t: ModelsT) {
   if (code === 'unknown') return detail
   // 四个已知码与词典键一一对应（usage.failure.<code>）；unknown 已提前返回。
   const summary = FAILURE_KEY[code]
-  return detail.length === 0 ? t(summary) : `${t(summary)} · ${detail}`
+  return detail.length === 0 ? t(summary) : `${t(summary)} ${detail}`
 }
 
 const FAILURE_KEY = {
@@ -135,7 +136,9 @@ const FAILURE_KEY = {
 /** Host 缓存下查询时间可能滞后；Copilot 额度来自未公开接口。 */
 export function footerNote(result: ProviderUsage | null, t: ModelsT, active: string): string {
   if (result?.kind === 'quota')
-    return `${result.provider === 'github-copilot' ? t('usage.githubPrivateApi') : ''}${t('usage.updatedAt', { time: formatQueriedAt(result.queriedAt, active) })}`
+    return t(result.provider === 'github-copilot' ? 'usage.updatedAtPrivate' : 'usage.updatedAt', {
+      time: formatQueriedAt(result.queriedAt, active),
+    })
   return t('usage.currentProviderOnly')
 }
 
@@ -154,7 +157,7 @@ function WindowGrid({ windows, t, active }: { windows: readonly UsageWindow[]; t
               {name}
             </div>
             <div className={panel.windowValue} title={reset}>
-              <span className={color}>{pct}</span> · {reset}
+              <span className={color}>{pct}</span> {reset}
             </div>
             {window.remaining != null && window.entitlement != null ? (
               <div className={panel.windowValue}>

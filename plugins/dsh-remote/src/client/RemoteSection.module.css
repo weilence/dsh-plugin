@@ -112,6 +112,11 @@
   overflow-wrap: anywhere;
 }
 
+/* 步骤补充事实（detail）：三级色弱化，与前段以空格分隔。 */
+.opLogDetail {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 /* 失败详情弹窗的错误全文（报障复制目标，保留行结构与滚动）。 */
 .opLogPre {
   margin: 10px 0 0;

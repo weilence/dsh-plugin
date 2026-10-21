@@ -272,7 +272,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0 · npm 10.8.2 · dsh 0.1.7-rc.2')
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
     expect(store.getSnapshot().testing).toBe(false)
 
     api.test.mockResolvedValueOnce({
@@ -283,7 +283,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0 · npm 10.8.2 · 未安装 dsh')
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
 
     api.test.mockResolvedValueOnce({
       ok: false,

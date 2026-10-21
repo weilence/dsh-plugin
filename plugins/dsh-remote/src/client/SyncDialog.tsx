@@ -119,7 +119,7 @@ export function rowsOf(
         view: (t) => ({
           key: 'system-prompt.md',
           title: 'system-prompt.md',
-          ...(status === 'same' ? { tag: t('status.same') } : { titleMeta: statusLabel(kind, status, t) }),
+          ...(status === 'same' ? { tag: t('status.same') } : { titleMeta: [statusLabel(kind, status, t)] }),
           lines: [prompt.path],
         }),
       },
@@ -143,8 +143,8 @@ export function rowsOf(
           title: skill.name,
           titleMeta: [
             skill.root === 'user-dsh' ? '~/.dsh/skills' : '~/.agents/skills',
-            status === 'same' ? null : statusLabel(kind, status, t),
-          ].join(' · '),
+            ...(status === 'same' ? [] : [statusLabel(kind, status, t)]),
+          ],
           ...(status === 'same' ? { tag: t('status.same') } : {}),
           lines: skill.description === null ? [] : [skill.description],
         }),
@@ -184,7 +184,7 @@ export function rowsOf(
       status,
       view: (t) => {
         // same 行由行尾徽标表达状态：titleMeta 留事实（层级 / 形态 / 版本），
-        // 不再缀「已一致 · 远端 v…」（版本相等时是重复信息）
+        // 不再缀状态与远端版本（版本相等时是重复信息）
         const remote =
           status === 'same' || fact === undefined
             ? null
@@ -195,15 +195,11 @@ export function rowsOf(
           key: plugin.name,
           title: plugin.name,
           titleMeta: [
-            `${t(plugin.source === 'profile' ? 'plugin.source.profile' : 'plugin.source.home')} · ${t(
-              plugin.install === 'local' ? 'plugin.install.local' : 'plugin.install.registry',
-            )}${plugin.version === null ? '' : ` · v${plugin.version}`}`,
-            status === 'same'
-              ? null
-              : [statusLabel(kind, status, t), remote].filter((part) => part !== null).join(' · '),
-          ]
-            .filter((part) => part !== null)
-            .join(' · '),
+            t(plugin.source === 'profile' ? 'plugin.source.profile' : 'plugin.source.home'),
+            t(plugin.install === 'local' ? 'plugin.install.local' : 'plugin.install.registry'),
+            ...(plugin.version === null ? [] : [`v${plugin.version}`]),
+            ...(status === 'same' ? [] : [statusLabel(kind, status, t), remote]),
+          ].filter((part): part is string => part !== null),
           ...(status === 'same' ? { tag: t('status.same') } : {}),
         }
       },
@@ -397,7 +393,7 @@ export function SyncDialog(props: {
             <PickList items={[]} empty={t(KIND_EMPTY_KEYS[kind])} picked={pickedOfKind} onToggle={toggle} />
           ) : (
             <>
-              <p className={local.hint}>{summaryParts.join(' · ')}</p>
+              <p className={local.hint}>{summaryParts.join(' ')}</p>
               <div className={local.syncToolbar}>
                 <label className={local.checkAll}>
                   <input type="checkbox" checked={allVisiblePicked} onChange={toggleAll} />

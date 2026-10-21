@@ -81,7 +81,7 @@ export function GitInstallDialog(props: {
     scan?.skills.map((skill) => ({
       key: skill.dir,
       title: skill.name,
-      titleMeta: `${originLabelOf(skill.origin, t)} · ${skill.dir}`,
+      titleMeta: [originLabelOf(skill.origin, t), skill.dir],
       lines: [skill.description.length > 0 ? skill.description : t('pill.noDescription')],
       ...(skill.problem !== undefined ? { problem: t('git.notInstallable', { reason: skill.problem }) } : {}),
     })) ?? []
