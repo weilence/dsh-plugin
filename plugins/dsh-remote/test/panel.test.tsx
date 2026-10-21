@@ -253,7 +253,8 @@ describe('远程开发面板渲染', () => {
     // 无断开操作：运行中动作只有「打开」
     expect(html).not.toContain('断开')
     expect(html).toContain('同步 ▾|同步 Skills,同步 MCP,同步插件,同步提示词')
-    expect(html).toContain('远端 profile web（固定） · 端口 18731 → 18730')
+    expect(html).toContain('端口 18731 → 18730')
+    expect(html).not.toContain('远端 profile')
     // 行上展示心跳查询到的事实（机器 trio + 实例自报身份），不再显示打开用的 token URL
     expect(html).toContain('node')
     expect(html).toContain('v22.19.0')

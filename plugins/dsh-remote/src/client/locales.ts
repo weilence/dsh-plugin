@@ -56,7 +56,6 @@ export const zh = {
 
   'action.open': '打开',
 
-  'card.profile': '远端 profile {profile}（固定）',
   'card.forward': '端口 {local} → {remote}',
   'card.errorDetail.title': '完整错误详情',
   'card.errorDetail.expand': '查看完整',
@@ -266,7 +265,6 @@ export const en: { [Key in RemoteKey]: string } = {
 
   'action.open': 'Open',
 
-  'card.profile': 'remote profile {profile} (fixed)',
   'card.forward': 'ports {local} → {remote}',
   'card.errorDetail.title': 'Full error detail',
   'card.errorDetail.expand': 'Show full',

@@ -20,7 +20,7 @@ import {
 } from '@dsh-plugins/client-ui'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConnOp, ConnProgress, ConnRow, RunningHealth } from '../shared'
-import { REMOTE_PROFILE, targetSummary } from '../shared'
+import { targetSummary } from '../shared'
 import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
 import { SyncDialog } from './SyncDialog'
@@ -530,10 +530,9 @@ function connectionCard(
           ]
         : undefined,
     note:
-      t('card.profile', { profile: REMOTE_PROFILE }) +
-      (running !== null
-        ? ` · ${t('card.forward', { local: running.localPort, remote: running.remotePort })}`
-        : ''),
+      running !== null
+        ? t('card.forward', { local: running.localPort, remote: running.remotePort })
+        : undefined,
     // 连接失败的摘要与全文都收敛进「连接失败」详情弹窗（actions 区入口）；同步失败
     // （连接仍在 running）保持摘要行 + 查看完整机制。
     error: failed ? undefined : row.state.error?.message,
