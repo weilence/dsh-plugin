@@ -4,6 +4,15 @@ import type { ForwardRegistry } from './forwards'
 import { errMsg } from '@dsh-plugins/shared'
 import { parseLaunchFromLog, rewriteLaunchUrl, type RemoteLaunch } from './launch'
 import {
+  buildLaunchCommand,
+  buildPollCommand,
+  buildStopCommand,
+  buildUnitContent,
+  unitName,
+  type InstanceFiles,
+  type ServicePaths,
+} from './service'
+import {
   normalizeConnection,
   normalizeSecret,
   normalizeTarget,
@@ -88,6 +97,17 @@ export function parseToolProbe(stdout: string): ToolProbe {
     npm: version('NPM', /^\d/),
     pnpm: version('PNPM', /^\d/),
   }
+}
+
+/** 解析服务事实探查输出（HOME / DSHBIN / PATH）：systemd 用户单元内容的原料，
+ *  任一缺失为 null（由 ensureDeployed 在启动段前校验并显式报错）。 */
+export function parseServiceProbe(stdout: string): ServicePaths | null {
+  const values = markedValues(stdout)
+  const home = values.get('HOME') ?? ''
+  const dshPath = values.get('DSHBIN') ?? ''
+  const path = values.get('PATH') ?? ''
+  if (home === '' || dshPath === '' || path === '') return null
+  return { home, dshPath, path }
 }
 
 /** 经隧道问到的远端实例运行身份：ok 携带 apply 时定格的版本快照；404 =
@@ -451,15 +471,15 @@ export class RemoteEngine {
 
   /** 连接的部署段：环境探针 + dsh 版本对齐 + 本插件安装；已装齐时立即完成。
    *  失败原样抛给 runConnect 的 catch 统一 fail（error 阶段）。
-   *  六项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记）
-   *  经一条标记行命令一次拿全——探查彼此无依赖，Windows（无连接复用）下
-   *  必经建连从六次缩成一次。 */
-  private async ensureDeployed(id: string): Promise<void> {
+   *  九项只读事实（node/npm/pnpm/dsh 版本、插件 package.json、profile 登记、
+   *  HOME / dsh 路径 / 登录 PATH 三项服务事实）经一条标记行命令一次拿全——
+   *  探查彼此无依赖，Windows（无连接复用）下必经建连从九次缩成一次。 */
+  private async ensureDeployed(id: string): Promise<ServicePaths> {
     const target = this.sshTargetOf(this.connectionOf(id))
     const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
     const remoteProfilePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/package.json`
 
-    this.step(id, 'probe', 'node / npm / pnpm / dsh')
+    this.step(id, 'probe', 'node / npm / pnpm / dsh / systemd')
     const probeCommand = [
       'echo __NODE__"$(node -v 2>&1)"',
       'echo __NPM__"$(npm -v 2>&1)"',
@@ -467,6 +487,9 @@ export class RemoteEngine {
       'echo __DSH__"$(dsh -V 2>&1)"',
       `echo __PLUGIN__"$(cat ${remoteModulePkg} 2>/dev/null | tr -d '\\n\\r')"`,
       `(grep -q ${shQuote(REMOTE_PLUGIN_NAME)} ${remoteProfilePkg} && echo __REG__1) || echo __REG__0`,
+      'echo __HOME__"$HOME"',
+      'echo __DSHBIN__"$(command -v dsh 2>/dev/null)"',
+      'echo __PATH__"$PATH"',
     ].join('; ')
     const probe = await this.deps.exec(target, probeCommand)
     const tools = parseToolProbe(probe.stdout)
@@ -498,10 +521,13 @@ export class RemoteEngine {
     }
     this.step(id, 'install-dsh', wantVersion)
     const remoteDsh = markedValues(probe.stdout).get('DSH')
+    // 服务事实取自探查；dsh 此刻未装（路径空）时由安装命令附带补齐——npm 全局
+    // bin 目录在装与不装之间不变，但路径必须以装完后的实况为准。
+    let servicePaths = parseServiceProbe(probe.stdout)
     if (remoteDsh !== wantVersion) {
       const install = await this.deps.exec(
         target,
-        `npm install -g ${shQuote(`@deepseek-ai/dsh@${wantVersion}`)}`,
+        `npm install -g ${shQuote(`@deepseek-ai/dsh@${wantVersion}`)} && echo __DSHBIN__"$(command -v dsh 2>/dev/null)"`,
         {
           timeoutMs: OP_TIMEOUT_MS,
         },
@@ -514,6 +540,9 @@ export class RemoteEngine {
           mergedOutput(install.stdout, install.stderr),
         )
       }
+      // 装完后补齐的 dsh 路径覆盖探查值（探查时未装为空）
+      const afterInstall = parseServiceProbe(install.stdout)
+      if (afterInstall !== null) servicePaths = afterInstall
     }
 
     // 远端默认只装本插件——tgz 推送安装（无 scope 包名 dsh-remote 在 npm 已被第三方
@@ -577,6 +606,17 @@ export class RemoteEngine {
         )
       }
     }
+
+    // systemd 服务事实齐备才能进启动段（unit 内容的原料）——缺失即显式报错，
+    // 不回退 nohup（远端不支持 systemd 是用户决策下的硬性要求）
+    if (servicePaths === null) {
+      throw new SshFailure(
+        'remote-cmd-failed',
+        '远端服务事实探测不全（HOME / dsh 路径 / PATH 任一为空）：无法生成 systemd 用户单元，已中止',
+        mergedOutput(probe.stdout, probe.stderr),
+      )
+    }
+    return servicePaths
   }
 
   private async runConnect(connection: StoredConnection): Promise<void> {
@@ -591,7 +631,7 @@ export class RemoteEngine {
       runtime.running = null
 
       // 部署段先行（幂等，已装齐时直接跳过）；装配完成进入启动段（阶段驱动面板 pill）
-      await this.ensureDeployed(id)
+      const servicePaths = await this.ensureDeployed(id)
       runtime.phase = 'starting'
 
       // 复用实例先验明正身再接受：版本快照由实例自报（进程内 apply 时定格，
@@ -603,7 +643,7 @@ export class RemoteEngine {
         | { url: string; localPort: number; remotePort: number; pid: number; forward: ForwardHandle }
         | undefined
       for (;;) {
-        const launched = await this.launchInstance(target, id)
+        const launched = await this.launchInstance(target, id, servicePaths)
 
         this.step(id, 'forward', `127.0.0.1 → 远端 :${launched.launch.remotePort}`)
         const localPort = await this.deps.freeLocalPort()
@@ -702,45 +742,74 @@ export class RemoteEngine {
     }
   }
 
-  /** 启动段：start（pid 存活即复用候选）+ poll 就绪行。复用候选是否被接受由
-   *  调用方在版本判定后决定（不匹配则杀旧重来，见 runConnect）。 */
+  /** 启动段：systemd 用户单元幂等落盘（内容不变不重写、变了经 restart 生效）
+   *  + enable-linger（开机自启的前提）+ start（unit 已 active 且未变更即复用
+   *  候选）+ poll 就绪行。远端缺 systemctl / 用户总线 / linger 任一环显式报错
+   *  ——不回退 nohup。复用候选是否被接受由调用方在版本判定后决定（不匹配则
+   *  杀旧重来，见 runConnect）。 */
   private async launchInstance(
     target: SshTarget,
     id: string,
+    paths: ServicePaths,
   ): Promise<{ launch: RemoteLaunch; pid: number; reused: boolean }> {
     const log = `~/.dsh/dsh-remote/${id}.log`
     const pidFile = `~/.dsh/dsh-remote/${id}.pid`
-    this.step(id, 'start', REMOTE_PROFILE)
-    // pid 文件里的实例仍在运行就复用（重试连接不再叠加新实例，token 不变）；
-    // 日志与 pid 由同一次启动写入，存活即两者一致。
-    const start = await this.deps.exec(
-      target,
-      `pid=$(cat ${pidFile} 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo reuse:$pid; else mkdir -p ~/.dsh/dsh-remote; nohup dsh --profile ${shQuote(REMOTE_PROFILE)} --no-open --port 0 > ${log} 2>&1 & echo $! > ${pidFile}; fi`,
-      { timeoutMs: 30_000 },
-    )
-    if (start.code !== 0)
+    const files: InstanceFiles = { unit: unitName(id), log, pidFile }
+    this.step(id, 'start', files.unit)
+    // 单元内容经 stdin 落盘（与同一连接的其余逻辑合并，一次建连完成全部启动
+    // 步骤）；探测 / linger / 总线的失败以标记行分类，逐类给出可操作的指引。
+    const start = await this.deps.exec(target, buildLaunchCommand(files), {
+      stdin: buildUnitContent({
+        id,
+        paths,
+        logPath: `${paths.home}/.dsh/dsh-remote/${id}.log`,
+      }),
+      timeoutMs: 60_000,
+    })
+    // 标记分类先于退出码判定：__STARTFAIL__ 分支以非零码收场，通用检查在前
+    // 会吞掉带 status 尾部的具体原因
+    const markers = markedValues(start.stdout)
+    if (start.code !== 0 && !markers.has('STARTFAIL'))
       throw new SshFailure(
         'remote-cmd-failed',
         `远端实例启动失败：${start.stderr.trim()}`,
-        mergedOutput('', start.stderr),
+        mergedOutput(start.stdout, start.stderr),
       )
+    if (markers.has('NOSYSTEMD'))
+      throw new SshFailure(
+        'remote-cmd-failed',
+        '远端没有可用的 systemctl / loginctl：远端实例现由 systemd 用户服务托管（开机自启、崩溃自动重启），要求远端为启用 systemd 的 Linux 发行版（systemd ≥ 240）。macOS 或无 systemd 的环境不受支持',
+        mergedOutput(start.stdout, start.stderr),
+      )
+    if (markers.has('LINGERFAIL'))
+      throw new SshFailure(
+        'remote-cmd-failed',
+        `远端无法启用 loginctl enable-linger（实例要在 ssh 退出后常驻、开机自启全靠它）：${markers.get('LINGERFAIL') || '原因未知'}。请确认远端 polkit 允许自启用 linger，或由管理员执行 loginctl enable-linger 后重试`,
+        mergedOutput(start.stdout, start.stderr),
+      )
+    if (markers.has('NOBUS'))
+      throw new SshFailure(
+        'remote-cmd-failed',
+        `无法连接 systemd 用户总线（systemctl --user）：${markers.get('NOBUS') || '原因未知'}。确认远端用户管理器在运行（/run/user/$(id -u) 存在）后重试`,
+        mergedOutput(start.stdout, start.stderr),
+      )
+    if (markers.has('STARTFAIL'))
+      throw new SshFailure(
+        'remote-cmd-failed',
+        `systemd 启动远端实例失败：${summarizeOutput(markers.get('STARTFAIL') ?? '', start.stderr)}（可查看 journalctl --user -u ${files.unit} 与远端日志 ${log}）`,
+        mergedOutput(start.stdout, start.stderr),
+      )
+    const reused = start.stdout.includes('reuse:')
 
     this.step(id, 'poll', '等待就绪信号')
     // 轮询整体在远端有界循环：一次建连等到就绪或窗口耗尽（Windows 无连接复
     //  用，拆成每 2s 一条 grep 意味着上百次建连）。本地兜底超时 = 循环上限 +
     // 建连余量；就算本地提前断开，远端循环有界自灭不泄漏进程。pid 附带在同
-    // 一条连接的输出里。
+    // 一条连接的输出里（systemd MainPID）。
     const maxAttempts = Math.ceil(CONNECT_POLL_LIMIT_MS / CONNECT_POLL_INTERVAL_MS)
     const poll = await this.deps.exec(
       target,
-      [
-        `for i in $(seq 1 ${maxAttempts}); do`,
-        `line=$(grep -m1 '^dsh web: ' ${log} 2>/dev/null) && { echo "$line";`,
-        `echo __PID__"$(cat ${pidFile} 2>/dev/null || true)"; exit 0; };`,
-        `sleep ${CONNECT_POLL_INTERVAL_MS / 1000};`,
-        'done;',
-        'exit 1',
-      ].join(' '),
+      buildPollCommand(files, maxAttempts, CONNECT_POLL_INTERVAL_MS / 1000),
       { timeoutMs: CONNECT_POLL_LIMIT_MS + 60_000 },
     )
     const launch = poll.code === 0 ? parseLaunchFromLog(poll.stdout) : undefined
@@ -753,44 +822,32 @@ export class RemoteEngine {
       )
     }
     const pid = Number.parseInt(markedValues(poll.stdout).get('PID') ?? '', 10)
-    return { launch, pid: Number.isInteger(pid) ? pid : 0, reused: start.stdout.includes('reuse:') }
+    return { launch, pid: Number.isInteger(pid) ? pid : 0, reused }
   }
 
-  /** 杀远端实例（版本不匹配 / 复用实例无响应时的收敛动作）：先核验 pid 身份
-   *  ——远端重启后死 pid 会被系统复用，盲目 kill 会误杀无关进程；SIGTERM 后
-   *  有界等待退出（MCP server 挨个收尾，不等会让新旧实例并行），超时 SIGKILL；
-   *  pid 清除、日志截断——旧就绪行必须清掉，否则下次 poll 秒命中死实例的旧
-   *  token。子进程一并补杀：SIGTERM 不传播，孤儿 MCP 与下次启动的依赖下载抢
-   *  缓存锁与带宽。 */
+  /** 停止远端实例（版本不匹配 / 复用实例无响应时的收敛动作）：systemd 按单元
+   *  停整组进程（cgroup 语义连 MCP server 一起收，无 pid 身份核验与补杀的
+   *  必要），随后清旧 pid 文件、截断日志——旧就绪行不清掉，下次 poll 秒命中
+   *  死实例的旧 token。单元保持 enabled：重启收敛与开机自启不受影响。 */
   private async stopInstance(target: SshTarget, id: string): Promise<void> {
-    const pidFile = `~/.dsh/dsh-remote/${id}.pid`
-    const log = `~/.dsh/dsh-remote/${id}.log`
-    const stop = await this.deps.exec(
-      target,
-      [
-        `pid=$(cat ${pidFile} 2>/dev/null);`,
-        `if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && ps -p "$pid" -o command= 2>/dev/null | grep -q dsh; then`,
-        `kill "$pid"; pkill -P "$pid" 2>/dev/null;`,
-        `for i in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done;`,
-        `kill -9 "$pid" 2>/dev/null;`,
-        'fi;',
-        `rm -f ${pidFile};`,
-        `: > ${log} 2>/dev/null || true`,
-      ].join(' '),
-      { timeoutMs: 30_000 },
-    )
-    if (stop.code !== 0)
+    const files: InstanceFiles = {
+      unit: unitName(id),
+      log: `~/.dsh/dsh-remote/${id}.log`,
+      pidFile: `~/.dsh/dsh-remote/${id}.pid`,
+    }
+    const stop = await this.deps.exec(target, buildStopCommand(files), { timeoutMs: 60_000 })
+    if (stop.code !== 0 || markedValues(stop.stdout).has('STOPFAIL'))
       throw new SshFailure(
         'remote-cmd-failed',
         // 摘要走横幅剔除：本机 ssh 客户端对远端 sshd 打 post-quantum 警告污染 stderr
-        `远端实例停止失败：${summarizeOutput('', stop.stderr)}`,
-        mergedOutput('', stop.stderr),
+        `远端实例停止失败：${summarizeOutput(stop.stdout, stop.stderr)}`,
+        mergedOutput(stop.stdout, stop.stderr),
       )
   }
 
   /** 宿主卸载插件（含退出）时杀掉全部本地转发；远端实例不动（常驻远端由用户
-   *  自理，下次连接按 pid 复用）。租约清空是尽力而为（进程退出不等异步写完成），
-   *  漏掉的由下次 load 的清扫兜底（死 pid 直接清记录）。 */
+   *  自理，下次连接按 systemd 单元复用秒连）。租约清空是尽力而为（进程退出不
+   *  等异步写完成），漏掉的由下次 load 的清扫兜底（死 pid 直接清记录）。 */
   dispose(): void {
     for (const runtime of this.runtimes.values()) {
       runtime.forward?.kill()

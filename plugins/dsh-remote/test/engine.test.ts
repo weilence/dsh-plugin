@@ -36,18 +36,34 @@ const OK: SshResult = { code: 0, stdout: '', stderr: '' }
 const hex = (char: string): string => char.repeat(64)
 
 /** 部署段直通脚本：远端已装齐且版本一致（与 makeDeps 缺省版本对齐）——
- *  连接测试不关心装配细节时前置它，让流程直达启动段。六项事实一次探查返回。 */
+ *  连接测试不关心装配细节时前置它，让流程直达启动段。九项事实一次探查返回。 */
 function deployReady(command: string): SshResult | undefined {
   if (command.includes('__NODE__')) {
-    return {
-      code: 0,
-      stdout:
-        '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n' +
-        '__PLUGIN__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n__REG__1\n',
-      stderr: '',
-    }
+    return { code: 0, stdout: probeOutput(), stderr: '' }
   }
   return undefined
+}
+
+/** 探查输出装配：九项标记行（工具链 + 插件登记 + systemd 服务事实）。 */
+function probeOutput(
+  options: {
+    dsh?: string
+    plugin?: string
+    registered?: boolean
+    dshBin?: string
+  } = {},
+): string {
+  const {
+    dsh = '0.1.7-rc.2',
+    plugin = '{"name":"@weilence/dsh-remote","version":"0.1.0"}',
+    registered = true,
+    dshBin = '/usr/local/bin/dsh',
+  } = options
+  return (
+    `__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__${dsh}\n` +
+    `__PLUGIN__${plugin}\n__REG__${registered ? 1 : 0}\n` +
+    `__HOME__/home/u\n__DSHBIN__${dshBin}\n__PATH__/usr/local/bin:/usr/bin:/bin\n`
+  )
 }
 
 /** 就绪轮询命中：launch 行 + 同连接附带的 pid。 */
@@ -327,12 +343,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         if (command.includes('__NODE__')) {
           // 插件未装：PLUGIN 空、REG 0
-          return {
-            code: 0,
-            stdout:
-              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.7-rc.2\n__PLUGIN__\n__REG__0\n',
-            stderr: '',
-          }
+          return { code: 0, stdout: probeOutput({ plugin: '', registered: false }), stderr: '' }
         }
         if (command.includes('dsh plugin --profile') && command.includes(' add ')) {
           // add 同条连接附带 verify 读回：装上了 0.1.0
@@ -425,13 +436,7 @@ describe('RemoteEngine', () => {
     makeEngine({
       respond: (command) => {
         if (command.includes('__NODE__')) {
-          return {
-            code: 0,
-            stdout:
-              '__NODE__v22.19.0\n__NPM__10.8.2\n__PNPM__10.12.0\n__DSH__0.1.0\n' +
-              '__PLUGIN__{"name":"@weilence/dsh-remote","version":"0.1.0"}\n__REG__1\n',
-            stderr: '',
-          }
+          return { code: 0, stdout: probeOutput({ dsh: '0.1.0' }), stderr: '' }
         }
         if (command.includes('dsh plugin --profile') && command.includes(' add ')) {
           return {
@@ -449,9 +454,13 @@ describe('RemoteEngine', () => {
     await waitFor(
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
-    expect(fake.calls.some((call) => call.command === "npm install -g '@deepseek-ai/dsh@0.1.7-rc.2'")).toBe(
-      true,
-    )
+    expect(
+      fake.calls.some(
+        (call) =>
+          call.command ===
+          'npm install -g \'@deepseek-ai/dsh@0.1.7-rc.2\' && echo __DSHBIN__"$(command -v dsh 2>/dev/null)"',
+      ),
+    ).toBe(true)
   })
 
   it('connect 部署段：本机版本探测失败（null）→ 直接失败，不回退安装 latest', async () => {
@@ -675,12 +684,12 @@ describe('RemoteEngine', () => {
     expect(fake.forwardCount()).toBe(1) // 重连杀掉了旧转发
   })
 
-  it('connect：远端实例仍存活且版本一致时复用（不叠加新 nohup 实例）', async () => {
+  it('connect：远端实例仍存活且版本一致时复用（不叠加新实例，单元未变更不 restart）', async () => {
     makeEngine({
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+        if (command.includes('is-active')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
         if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
@@ -691,9 +700,144 @@ describe('RemoteEngine', () => {
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
     expect(engine.stateOf('dev-box').running).toMatchObject({ pid: 4242, remotePort: 4321 })
-    // 复用直连：不杀实例（无 stopInstance 命令）、只建一次转发
-    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(false)
+    // 复用直连：不杀实例（无 stop 命令）、只建一次转发
+    expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(false)
     expect(fake.forwardCount()).toBe(0)
+  })
+
+  it('connect：启动段写入 systemd 用户单元（stdin 携带单元内容，原料来自探查）', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('is-active')) return { code: 0, stdout: '', stderr: '' }
+        if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(
+      () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+    )
+    const launchCall = fake.calls.find((call) => call.command.includes('is-active'))
+    expect(launchCall?.command).toContain(
+      'cat > ~/.config/systemd/user/dsh-remote-dev-box.service.tmp-dsh-remote',
+    )
+    // 单元内容经 stdin：ExecStart 用探查到的 dsh 绝对路径，日志走 append（就绪行解析不变）
+    expect(launchCall?.stdin).toContain('[Unit]')
+    expect(launchCall?.stdin).toContain('Type=exec')
+    expect(launchCall?.stdin).toContain('Environment="PATH=/usr/local/bin:/usr/bin:/bin"')
+    expect(launchCall?.stdin).toContain('ExecStart="/usr/local/bin/dsh" --profile web --no-open --port 0')
+    expect(launchCall?.stdin).toContain(`ExecStartPre=/bin/sh -c ': > "/home/u/.dsh/dsh-remote/dev-box.log"'`)
+    expect(launchCall?.stdin).toContain('StandardOutput=append:/home/u/.dsh/dsh-remote/dev-box.log')
+    expect(launchCall?.stdin).toContain('Restart=on-failure')
+    // 旧 nohup 形态的迁移清理随启动命令一并下发（核验身份后杀，废弃 pid 文件）
+    expect(launchCall?.command).toContain('ps -p "$lp" -o command=')
+    expect(launchCall?.command).toContain('rm -f ~/.dsh/dsh-remote/dev-box.pid;')
+    // enable-linger 是开机自启的前提，每次连接幂等开启并验证
+    expect(launchCall?.command).toContain('loginctl enable-linger')
+  })
+
+  it('connect：远端没有 systemctl → 显式报错，不回退 nohup', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('is-active')) return { code: 0, stdout: '__NOSYSTEMD__\n', stderr: '' }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const state = engine.stateOf('dev-box')
+    expect(state.error?.kind).toBe('remote-cmd-failed')
+    expect(state.error?.message).toContain('systemd 用户服务托管')
+    expect(state.error?.message).toContain('systemd ≥ 240')
+    // 不发生任何启动尝试与转发
+    expect(fake.calls.some((call) => call.command.includes("grep -m1 '^dsh web: '"))).toBe(false)
+    expect(fake.forwardCount()).toBe(0)
+  })
+
+  it('connect：enable-linger 失败 → 显式报错并带远端原因', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('is-active')) {
+          return { code: 0, stdout: '__LINGERFAIL__Not allowed\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const state = engine.stateOf('dev-box')
+    expect(state.error?.message).toContain('enable-linger')
+    expect(state.error?.message).toContain('Not allowed')
+  })
+
+  it('connect：用户总线不可达 → 显式报错', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('is-active')) {
+          return { code: 0, stdout: '__NOBUS__Failed to connect to bus\n', stderr: '' }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    expect(engine.stateOf('dev-box').error?.message).toContain('用户总线')
+  })
+
+  it('connect：systemd 启动单元失败 → 显式报错并指路 journal 与日志', async () => {
+    makeEngine({
+      respond: (command) => {
+        const ready = deployReady(command)
+        if (ready !== undefined) return ready
+        if (command.includes('is-active')) {
+          return {
+            code: 1,
+            stdout: '__STARTFAIL__Job for dsh-remote-dev-box.service failed\n',
+            stderr: '',
+          }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const state = engine.stateOf('dev-box')
+    expect(state.error?.message).toContain('systemd 启动远端实例失败')
+    expect(state.error?.message).toContain('journalctl --user -u dsh-remote-dev-box.service')
+  })
+
+  it('connect：远端服务事实探测不全（无 HOME）→ 部署段显式失败', async () => {
+    makeEngine({
+      respond: (command) => {
+        if (command.includes('__NODE__')) {
+          return {
+            code: 0,
+            stdout: probeOutput().replace('__HOME__/home/u\n', '__HOME__\n'),
+            stderr: '',
+          }
+        }
+        return undefined
+      },
+    })
+    await engine.save(saveRequest())
+    engine.startConnect('dev-box')
+    await waitFor(() => engine.stateOf('dev-box').phase === 'error')
+    const state = engine.stateOf('dev-box')
+    expect(state.error?.kind).toBe('remote-cmd-failed')
+    expect(state.error?.message).toContain('无法生成 systemd 用户单元')
   })
 
   it('connect：token 行迟迟不出现 → timeout 错误并附日志尾部', async () => {
@@ -716,15 +860,15 @@ describe('RemoteEngine', () => {
 
   it('connect：复用实例自报版本落后 → 杀旧重启收敛（一轮回环）', async () => {
     // 场景：本机 dsh 已升级，部署段把磁盘升到新版本，但活实例进程还是旧代码
-    // ——实例经 /version 自报旧版本，不匹配 → 杀旧（身份核验 + 子进程补杀 +
-    // pid 清除 + 日志截断）→ 新启动加载新磁盘 → 二轮判定通过。
+    // ——实例经 /version 自报旧版本，不匹配 → systemctl stop 杀旧（cgroup 整组
+    // 收进程 + pid 文件清理 + 日志截断）→ 新启动加载新磁盘 → 二轮判定通过。
     let startCount = 0
     makeEngine({
       localDshVersion: '0.2.0',
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) {
+        if (command.includes('is-active')) {
           startCount += 1
           return startCount === 1
             ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
@@ -744,8 +888,7 @@ describe('RemoteEngine', () => {
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
     expect(engine.stateOf('dev-box').running).toMatchObject({ pid: 4242 })
-    const stop = fake.calls.find((call) => call.command.includes('ps -p'))
-    expect(stop?.command).toContain('pkill -P "$pid"')
+    const stop = fake.calls.find((call) => call.command.includes('systemctl --user stop'))
     expect(stop?.command).toContain('rm -f')
     expect(stop?.command).toContain(': >')
     // 真实 bash 语法校验全部远端命令：join(' ') 拼接缺分号只在真 shell 暴露
@@ -765,7 +908,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) {
+        if (command.includes('is-active')) {
           startCount += 1
           return startCount === 1
             ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
@@ -782,7 +925,7 @@ describe('RemoteEngine', () => {
     await waitFor(
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
-    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(true)
+    expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(true)
   })
 
   it('connect：版本接口非 404 失败（如认证 401）→ 显式报错，不盲目重启', async () => {
@@ -790,7 +933,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+        if (command.includes('is-active')) return { code: 0, stdout: 'reuse:4242\n', stderr: '' }
         if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
         return undefined
       },
@@ -801,7 +944,7 @@ describe('RemoteEngine', () => {
     await waitFor(() => engine.stateOf('dev-box').phase === 'error')
     expect(engine.stateOf('dev-box').error?.message).toContain('无法确认远端实例版本')
     expect(engine.stateOf('dev-box').error?.message).toContain('401')
-    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(false)
+    expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(false)
   })
 
   it('connect：重启后版本仍不匹配 → 报错终止，不无限回环', async () => {
@@ -811,7 +954,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) {
+        if (command.includes('is-active')) {
           startCount += 1
           return startCount === 1
             ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
@@ -827,7 +970,7 @@ describe('RemoteEngine', () => {
     await waitFor(() => engine.stateOf('dev-box').phase === 'error')
     expect(engine.stateOf('dev-box').error?.message).toContain('重启后版本仍不匹配')
     // 只杀过一次（二轮判定失败即终止）
-    expect(fake.calls.filter((call) => call.command.includes('ps -p'))).toHaveLength(1)
+    expect(fake.calls.filter((call) => call.command.includes('systemctl --user stop'))).toHaveLength(1)
   })
 
   it('connect：复用实例健康检查不过 → 视为实例病了，重启自愈一轮', async () => {
@@ -836,7 +979,7 @@ describe('RemoteEngine', () => {
       respond: (command) => {
         const ready = deployReady(command)
         if (ready !== undefined) return ready
-        if (command.includes('echo reuse:')) {
+        if (command.includes('is-active')) {
           startCount += 1
           return startCount === 1
             ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
@@ -853,7 +996,7 @@ describe('RemoteEngine', () => {
     await waitFor(
       () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
     )
-    expect(fake.calls.some((call) => call.command.includes('ps -p'))).toBe(true)
+    expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(true)
     // 病实例的转发被丢弃后重建（两次 kill：丢弃 + fail 无关……此处只验证成功）
     expect(engine.stateOf('dev-box').running).toMatchObject({ localPort: 19999 })
   })

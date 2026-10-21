@@ -150,7 +150,7 @@ export interface ConnRunning {
   url: string
   localPort: number
   remotePort: number
-  /** 远端实例 pid（版本不符或实例无响应时重启用）。 */
+  /** 远端实例主进程 pid（systemd MainPID，信息展示用；进程存活性由单元管理）。 */
   pid: number
   since: string
 }
