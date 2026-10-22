@@ -504,25 +504,24 @@
   margin: 0 1px;
 }
 
-/* ── Modal 宽度档位：挂在官方卡片 className 上（滚动在 content 区）──── */
-.dialogXs {
-  width: min(560px, 100%);
-  max-height: min(760px, calc(100vh - 48px));
-}
-
+/* ── Modal 宽度档位：挂在官方卡片 className 上（滚动在 content 区）────
+   高度上限对遮罩层内容盒取 100%（官方 Modal 契约：root 顶边 padding 是
+   max(24px, --dsh-frame-overlay-top)，帧内标题栏存在时大于 24px，视口
+   calc 会把卡片算进遮罩区）；数值档只是美学上限，窄屏放开用满高度。 */
 .dialogSm {
-  width: min(720px, calc(100vw - 48px));
+  width: min(720px, 100%);
+  max-height: min(800px, 100%);
 }
 
 .dialogLg {
   width: min(920px, 100%);
-  max-height: min(820px, calc(100vh - 48px));
+  max-height: min(820px, 100%);
 }
 
 @media (max-width: 680px) {
-  .dialogXs,
+  .dialogSm,
   .dialogLg {
-    max-height: calc(100vh - 48px);
+    max-height: 100%;
   }
 }
 
