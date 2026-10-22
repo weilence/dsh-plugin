@@ -41,21 +41,6 @@
   white-space: nowrap;
 }
 
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.badge {
-  padding: 1px 8px;
-  border: 1px solid var(--dsw-alias-border-l4);
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--dsw-alias-label-secondary);
-}
-
 .batchBar {
   display: flex;
   flex-wrap: wrap;
@@ -76,12 +61,6 @@
 
 .batchDivider {
   flex: 1;
-}
-
-.select {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
 }
 
 .batchDialog {
@@ -119,59 +98,26 @@
   user-select: text;
 }
 
-.archives {
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.archiveRow {
+/* 卡片展开体的元数据清单（MetaItem 网格）。 */
+.detailGrid {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--dsw-alias-border-l4);
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 8px 0 4px;
 }
 
-.metadata {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.metadata strong {
-  color: var(--dsw-alias-label-primary);
-  font-size: 14px;
-}
-
-.restoreAction {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  max-width: 45%;
-  flex-shrink: 0;
-}
-
-.rowActions {
-  display: flex;
-  gap: 8px;
-}
-
-.restoreAction p {
+/* 行内动作区的进行中文本（归档 / 删除等单行操作状态）。 */
+.rowStatus {
   margin: 0;
+  align-self: center;
   font-size: 12px;
   line-height: 1.5;
+  white-space: nowrap;
+  user-select: text;
 }
 
-.metadata,
-.detail,
-.restoreAction p {
+/* 快照错误详情（code + message），可选中复制。 */
+.detail {
   overflow-wrap: anywhere;
   user-select: text;
 }

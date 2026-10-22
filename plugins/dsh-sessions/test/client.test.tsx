@@ -10,6 +10,7 @@ import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-worksp
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionsSection } from '../src/client'
 import { PresetDialog } from '../src/client/preset'
+import { ExpandableCard } from '@dsh-plugins/client-ui'
 import {
   createMigrateBridge,
   MigrateDialogEntry,
@@ -38,6 +39,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     ...props
   }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').Input>) => <input {...props} />,
   IconSearchOutlineRegular: () => null,
+  IconChevronDownOutlineRegular: () => null,
   MenuItemButton: ({
     onSelect,
     separatorBefore: _separator,
@@ -254,17 +256,18 @@ const clickButton = (renderer: ReactTestRenderer, label: string): void => {
   })
 }
 
-const rowOf = (renderer: ReactTestRenderer, titleFragment: string): ReactTestInstance =>
-  renderer.root
-    .findAllByType('li')
-    .find((node) =>
-      node
-        .findAll((child) => child.type === 'strong')
-        .some((strong) => String(strong.children[0]).includes(titleFragment)),
-    )!
+// 列表行是共享 ExpandableCard：按组件类型定位、直接读卡片 props，不依赖 DOM 结构。
+const cards = (renderer: ReactTestRenderer): ReactTestInstance[] =>
+  renderer.root.findAllByType(ExpandableCard)
 
-const rowButtons = (row: ReactTestInstance): Array<{ label: string; disabled: unknown }> =>
-  row
+const cardOf = (renderer: ReactTestRenderer, titleFragment: string): ReactTestInstance =>
+  cards(renderer).find((card) => String(card.props.title).includes(titleFragment))!
+
+const cardTitles = (renderer: ReactTestRenderer): string[] =>
+  cards(renderer).map((card) => String(card.props.title))
+
+const cardButtons = (card: ReactTestInstance): Array<{ label: string; disabled: unknown }> =>
+  card
     .findAll((node: ReactTestInstance) => node.type === 'button')
     .map((node) => ({ label: String(node.children[0]), disabled: node.props.disabled }))
 
@@ -283,15 +286,11 @@ describe('会话面板列表', () => {
 
   it('默认排序为最近更新在前，可切换最早更新与标题排序', () => {
     const { renderer } = section()
-    const titles = () =>
-      renderer.root
-        .findAll((node: ReactTestInstance) => node.type === 'strong')
-        .map((node) => String(node.children[0]))
-    expect(titles()).toEqual(['Alpha investigation', 'Running session', 'Beta notes'])
+    expect(cardTitles(renderer)).toEqual(['Alpha investigation', 'Running session', 'Beta notes'])
     setSelect(renderer, 2, 'updated-asc')
-    expect(titles()).toEqual(['Beta notes', 'Running session', 'Alpha investigation'])
+    expect(cardTitles(renderer)).toEqual(['Beta notes', 'Running session', 'Alpha investigation'])
     setSelect(renderer, 2, 'title-asc')
-    expect(titles()[0]).toBe('Alpha investigation')
+    expect(cardTitles(renderer)[0]).toBe('Alpha investigation')
   })
 
   it('搜索匹配标题、会话 ID、cwd 与工作区路径', () => {
@@ -339,10 +338,10 @@ describe('会话面板列表', () => {
   it('运行中的会话禁用删除，subagent 禁用迁移与预设入口', () => {
     const { renderer } = section()
     expect(
-      rowButtons(rowOf(renderer, 'Running session')).find((button) => button.label === '删除')?.disabled,
+      cardButtons(cardOf(renderer, 'Running session')).find((button) => button.label === '删除')?.disabled,
     ).toBe(true)
     expect(
-      rowButtons(rowOf(renderer, 'Beta notes')).find((button) => button.label === '删除')?.disabled,
+      cardButtons(cardOf(renderer, 'Beta notes')).find((button) => button.label === '删除')?.disabled,
     ).toBe(false)
   })
 })
@@ -498,17 +497,20 @@ describe('批量操作', () => {
   const enterBatch = (renderer: ReactTestRenderer): void => {
     clickButton(renderer, '批量操作')
   }
-  const rowCheckbox = (row: ReactTestInstance): ReactTestInstance => row.findByProps({ type: 'checkbox' })
 
-  it('进出批量模式：复选框出现、行操作隐藏，退出清空选择', () => {
+  it('进出批量模式：行首复选框出现、行操作隐藏，退出清空选择', () => {
     const { renderer, store } = section()
-    expect(renderer.root.findAllByType('li').some((row) => row.findAllByType('input').length > 0)).toBe(false)
+    // 普通模式：卡片无选择框，行内动作齐备。
+    expect(cards(renderer).every((card) => card.findAllByProps({ type: 'checkbox' }).length === 0)).toBe(true)
+    expect(cards(renderer).every((card) => card.props.actions !== undefined)).toBe(true)
     enterBatch(renderer)
-    const rows = renderer.root.findAllByType('li')
-    expect(rows.every((row) => row.findAllByProps({ type: 'checkbox' }).length === 1)).toBe(true)
+    const rows = cards(renderer)
+    expect(rows.every((card) => card.findAllByProps({ type: 'checkbox' }).length === 1)).toBe(true)
+    expect(rows.every((card) => card.props.selection !== undefined)).toBe(true)
+    expect(rows.every((card) => card.props.actions === undefined)).toBe(true)
     expect(text(renderer).some((value) => value.includes('归档'))).toBe(true)
     act(() => {
-      rowCheckbox(rows[0]!).props.onChange()
+      rows[0]!.props.selection!.onToggle()
     })
     expect(store.getSnapshot().batch.selection).toHaveLength(1)
     clickButton(renderer, '退出批量')

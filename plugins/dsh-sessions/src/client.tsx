@@ -12,7 +12,14 @@ import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controlle
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { errMsg } from '@dsh-plugins/shared'
-import { ConfirmDialog, Panel, SearchBox, useWideSettingsDialog } from '@dsh-plugins/client-ui'
+import {
+  CardList,
+  ConfirmDialog,
+  MetaItem,
+  Panel,
+  SearchBox,
+  useWideSettingsDialog,
+} from '@dsh-plugins/client-ui'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { importFiles, type FileResult } from './client/api'
 import {
@@ -281,6 +288,8 @@ export function SessionsSection({
   const [showSubagents, setShowSubagents] = useState(false)
   const [runningOnly, setRunningOnly] = useState(false)
   const [showBlank, setShowBlank] = useState(false)
+  /** 展开中的卡片行：一次只展开一张（与 dsh-skills 列表同款交互）。 */
+  const [openId, setOpenId] = useState<SessionId | undefined>(undefined)
   // 面板卸载即清空一次性反馈；store 跨挂载存活，不清会在下次打开时重放旧提示。
   useEffect(() => () => store.dismissFeedback(), [store])
   const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
@@ -436,113 +445,149 @@ export function SessionsSection({
         </p>
       ) : !ready ? (
         <p role="status">{t('archive.loading')}</p>
-      ) : rows.length === 0 ? (
-        <p>
-          {keyword === '' && workspaceFilter === '' && statusFilter === 'all'
-            ? t('archive.emptyList')
-            : t('archive.noMatch')}
-        </p>
       ) : null}
-      <ul className={styles.archives}>
-        {rows.map((row) => {
+      {/* 会话列表：与 dsh-skills 同款可展开卡片（批量模式行首出选择框、隐藏行内动作）。 */}
+      <CardList
+        items={rows}
+        getKey={(row) => row.id}
+        empty={
+          ready && rows.length === 0 ? (
+            <p className={styles.empty}>
+              {keyword === '' &&
+              workspaceFilter === '' &&
+              statusFilter === 'all' &&
+              !showSubagents &&
+              !runningOnly &&
+              !showBlank
+                ? t('archive.emptyList')
+                : t('archive.noMatch')}
+            </p>
+          ) : null
+        }
+        renderCard={(row) => {
           const { id, summary } = row
           const state = rowWorking(id)
-          return (
-            <li key={id} className={styles.archiveRow}>
-              <div className={styles.metadata}>
-                <strong>{summary?.displayTitle ?? id}</strong>
-                <code>{id}</code>
-                <div className={styles.badges}>
-                  {row.archived ? <span className={styles.badge}>{t('badge.archived')}</span> : null}
-                  {summary?.running ? <span className={styles.badge}>{t('badge.running')}</span> : null}
-                  {summary?.origin === 'subagent' ? (
-                    <span className={styles.badge}>{t('badge.subagent')}</span>
-                  ) : null}
-                  {summary?.blank ? <span className={styles.badge}>{t('badge.blank')}</span> : null}
-                </div>
-                {row.workspaceTitle !== undefined ? (
-                  <span>
-                    {row.workspaceTitle} — {row.workspacePath}
-                  </span>
-                ) : (
-                  <span>{t('archive.ungrouped')}</span>
-                )}
-                {summary?.cwd !== undefined && summary.cwd !== row.workspacePath ? (
-                  <code>{summary.cwd}</code>
+          const title = summary?.displayTitle ?? id
+          const open = openId === id
+          const updatedLabel =
+            summary !== undefined &&
+            Number.isFinite(summary.updatedAt) &&
+            !Number.isNaN(new Date(summary.updatedAt).getTime())
+              ? formatTime(summary.updatedAt)
+              : undefined
+          return {
+            selection: batch.active
+              ? {
+                  checked: batch.selection.includes(id),
+                  disabled: batch.running,
+                  label: title,
+                  onToggle: () => store.toggleSelected(id),
+                }
+              : undefined,
+            title,
+            meta: id,
+            pills: [
+              ...(row.archived ? [{ text: t('badge.archived') }] : []),
+              ...(summary?.running ? [{ text: t('badge.running'), tone: 'ok' as const }] : []),
+              ...(summary?.origin === 'subagent' ? [{ text: t('badge.subagent') }] : []),
+              ...(summary?.blank ? [{ text: t('badge.blank') }] : []),
+            ],
+            description:
+              row.workspaceTitle !== undefined
+                ? `${row.workspaceTitle} — ${row.workspacePath}`
+                : t('archive.ungrouped'),
+            info:
+              updatedLabel !== undefined ? [{ label: t('detail.updated'), value: updatedLabel }] : undefined,
+            note: summary === undefined ? t('archive.metadataLoading') : undefined,
+            path: summary?.cwd !== undefined && summary.cwd !== row.workspacePath ? summary.cwd : undefined,
+            open,
+            onToggle: () => {
+              if (busy) return
+              setOpenId(open ? undefined : id)
+            },
+            actions: batch.active ? (
+              state !== undefined ? (
+                <p role="status" className={styles.rowStatus}>
+                  {state}
+                </p>
+              ) : undefined
+            ) : (
+              <>
+                {state !== undefined ? (
+                  <p role="status" className={styles.rowStatus}>
+                    {state}
+                  </p>
                 ) : null}
-                {summary === undefined ? (
-                  <span>{t('archive.metadataLoading')}</span>
-                ) : Number.isFinite(summary.updatedAt) &&
-                  !Number.isNaN(new Date(summary.updatedAt).getTime()) ? (
-                  <time dateTime={new Date(summary.updatedAt).toISOString()}>
-                    {t('archive.updated', { time: formatTime(summary.updatedAt) })}
-                  </time>
+                {row.archived ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || !ready}
+                    onClick={() => void store.restore(id, title)}
+                  >
+                    {t('archive.restore')}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy || !ready}
+                    onClick={() => void store.archive(id, title)}
+                  >
+                    {t('archive.archive')}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || !ready || summary?.origin === 'subagent'}
+                  onClick={() => bridge.open({ sessionId: id, title })}
+                >
+                  {t('migrate')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || !ready || summary?.origin === 'subagent'}
+                  onClick={() => setPresetTarget({ sessionId: id, title })}
+                >
+                  {t('preset.entry')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={styles.dangerGhost}
+                  disabled={busy || !ready || summary?.running === true}
+                  onClick={() => store.askDelete({ id, title })}
+                >
+                  {t('archive.delete')}
+                </Button>
+              </>
+            ),
+            children: open ? (
+              <div className={styles.detailGrid}>
+                <MetaItem label={t('detail.id')} value={id} wide />
+                <MetaItem
+                  label={t('detail.workspace')}
+                  value={
+                    row.workspaceTitle !== undefined
+                      ? `${row.workspaceTitle} — ${row.workspacePath}`
+                      : undefined
+                  }
+                  wide
+                />
+                <MetaItem label={t('detail.cwd')} value={summary?.cwd} wide />
+                {summary?.origin === 'subagent' ? (
+                  <MetaItem label={t('detail.parent')} value={summary.parentId} wide />
+                ) : null}
+                {updatedLabel !== undefined ? (
+                  <MetaItem label={t('detail.updated')} value={updatedLabel} />
                 ) : null}
               </div>
-              <div className={styles.restoreAction}>
-                {state !== undefined ? <p role="status">{state}</p> : null}
-                {batch.active ? (
-                  <label className={styles.select}>
-                    <input
-                      type="checkbox"
-                      checked={batch.selection.includes(id)}
-                      disabled={batch.running}
-                      onChange={() => store.toggleSelected(id)}
-                    />
-                  </label>
-                ) : (
-                  <div className={styles.rowActions}>
-                    {row.archived ? (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !ready}
-                        onClick={() => void store.restore(id, summary?.displayTitle ?? id)}
-                      >
-                        {t('archive.restore')}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={busy || !ready}
-                        onClick={() => void store.archive(id, summary?.displayTitle ?? id)}
-                      >
-                        {t('archive.archive')}
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy || !ready || summary?.origin === 'subagent'}
-                      onClick={() => bridge.open({ sessionId: id, title: summary?.displayTitle ?? id })}
-                    >
-                      {t('migrate')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy || !ready || summary?.origin === 'subagent'}
-                      onClick={() => setPresetTarget({ sessionId: id, title: summary?.displayTitle ?? id })}
-                    >
-                      {t('preset.entry')}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className={styles.dangerGhost}
-                      disabled={busy || !ready || summary?.running === true}
-                      onClick={() => store.askDelete({ id, title: summary?.displayTitle ?? id })}
-                    >
-                      {t('archive.delete')}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </li>
-          )
-        })}
-      </ul>
+            ) : null,
+          }
+        }}
+      />
       {notice !== null ? (
         // 提示信息统一走 notice（官方 Toast 横幅）：成功与失败同流，淡出后清空、下次操作即替换。
         <Toast
