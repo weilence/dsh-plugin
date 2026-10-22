@@ -4,13 +4,21 @@ import {
   IMPORT_PATH,
   DELETE_PATH,
   MIGRATE_PATH,
+  PRESET_PATH,
+  PRESETS_PATH,
+  BATCH_PATH,
   MAX_ARCHIVE_BYTES,
+  type BatchRequest,
+  type BatchResult,
   type DeleteRequest,
   type DeleteResult,
   type ImportRequest,
   type ImportResult,
   type MigrateRequest,
   type MigrateResult,
+  type PresetRequest,
+  type PresetResult,
+  type PresetsResult,
 } from '../shared'
 import type { Message } from './locales'
 
@@ -45,7 +53,7 @@ export async function importFiles(
   }
 }
 
-export async function deleteArchivedSession(sessionId: string): Promise<DeleteResult> {
+export async function deleteSession(sessionId: string): Promise<DeleteResult> {
   const body: DeleteRequest = { sessionId }
   return api.request<DeleteResult>(DELETE_PATH, { method: 'POST', body: JSON.stringify(body) })
 }
@@ -56,4 +64,18 @@ export async function migrateSessionToWorkspace(
 ): Promise<MigrateResult> {
   const body: MigrateRequest = { sessionId, workspaceId }
   return api.request<MigrateResult>(MIGRATE_PATH, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function fetchPresets(): Promise<string[]> {
+  const result = await api.request<PresetsResult>(PRESETS_PATH, { method: 'POST', body: '{}' })
+  return result.presets
+}
+
+export async function migrateSessionPreset(sessionId: string, toPreset: string): Promise<PresetResult> {
+  const body: PresetRequest = { sessionId, toPreset }
+  return api.request<PresetResult>(PRESET_PATH, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function runBatch(request: BatchRequest): Promise<BatchResult> {
+  return api.request<BatchResult>(BATCH_PATH, { method: 'POST', body: JSON.stringify(request) })
 }

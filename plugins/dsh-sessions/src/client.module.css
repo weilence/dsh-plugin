@@ -10,6 +10,115 @@
   min-width: 0;
 }
 
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.filters label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.filters select {
+  padding: 4px 8px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: inherit;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.toggle {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.batchBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.batchCount {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.batchDivider {
+  flex: 1;
+}
+
+.select {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.batchDialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.batchTargets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.batchTargets li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.batchTargets li strong {
+  color: var(--dsw-alias-label-primary);
+}
+
+.batchTargets li code,
+.batchTargets li span {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .archives {
   margin: 12px 0 0;
   padding: 0;

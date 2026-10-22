@@ -1,7 +1,7 @@
 {
   "name": "@weilence/dsh-sessions",
   "version": "0.1.0",
-  "description": "Import DeepSeek Harness session ZIPs, restore or permanently delete archived sessions, and migrate sessions between workspaces from the Sessions settings page and the sidebar session menu.",
+  "description": "Search, filter, archive, migrate (in-place across workspaces), migrate Agent presets, or cascade-delete DeepSeek Harness sessions; import official session ZIPs from the Sessions settings page and the sidebar session menu.",
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",

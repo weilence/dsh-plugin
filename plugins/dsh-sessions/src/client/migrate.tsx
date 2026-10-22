@@ -11,8 +11,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import { errMsg } from '@dsh-plugins/shared'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { migrateSessionToWorkspace } from './api'
-import type { MigrateStage } from '../shared'
-import { messageText, NS, type Message, type SessionsKey, type SessionsT } from './locales'
+import { messageText, NS, type Message, type SessionsT } from './locales'
 import localStyles from '../client.module.css'
 
 const styles = { ...sharedStyles, ...localStyles }
@@ -83,17 +82,6 @@ export function MigrateMenuItem({
   )
 }
 
-// 每个失败步骤一条固定文案，键在编译期与 MigrateStage 对齐。
-const stageFailureKeys: Record<MigrateStage, SessionsKey> = {
-  loaded: 'migrate.loadedFailed',
-  activity: 'migrate.activityFailed',
-  attach: 'migrate.attachFailed',
-  export: 'migrate.exportFailed',
-  archive: 'migrate.archiveFailed',
-  delete: 'migrate.deleteFailed',
-  import: 'migrate.importFailed',
-}
-
 export interface MigrateDialogInjected {
   bridge: MigrateBridge
   // 命名避开全局标准席位的 useWorkspaces 选择器钩子，注入面保持自有事实源。
@@ -136,9 +124,7 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
   const snapshot = useWorkspaceList()
   const [workspaceId, setWorkspaceId] = useState('')
   const [busy, setBusy] = useState(false)
-  const [failure, setFailure] = useState<Message | null>(null)
   const [notice, setNotice] = useState<Message | null>(null)
-  const [recovery, setRecovery] = useState<{ archive: string; cwd: string } | null>(null)
   const working = useRef(false)
   const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
   const targetWorkspace = snapshot.items.find((workspace) => workspace.workspaceId === workspaceId)
@@ -146,57 +132,31 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
   const current = snapshot.items.find((workspace) => workspace.sessionIds.includes(target.sessionId))
   const choices = snapshot.items.filter((workspace) => workspace !== current)
 
-  const downloadRecovery = () => {
-    if (recovery === null) return
-    const bytes = Uint8Array.from(atob(recovery.archive), (char) => char.charCodeAt(0))
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }))
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `dsh-session-${target.sessionId}.zip`
-    document.body.append(anchor)
-    anchor.click()
-    anchor.remove()
-    URL.revokeObjectURL(url)
-  }
-
   const submit = async () => {
     if (working.current || workspaceId === '') return
     if (!ready || targetWorkspace === undefined) {
-      setFailure({ key: 'workspace.unavailable' })
+      setNotice({ key: 'workspace.unavailable' })
       return
     }
     working.current = true
     setBusy(true)
-    setFailure(null)
-    setRecovery(null)
     setNotice(null)
     try {
       const result = await migrateSessionToWorkspace(target.sessionId, workspaceId)
-      if (result.ok) {
-        setNotice(
-          result.attached === true
-            ? {
-                key: 'migrate.attached',
-                params: { title: target.title, workspace: targetWorkspace.title },
-              }
-            : result.archiveClearError !== undefined
-              ? { key: 'migrate.archiveClearFailed', params: { detail: result.archiveClearError } }
-              : {
-                  key: 'migrate.done',
-                  params: { title: target.title, workspace: targetWorkspace.title },
-                },
-        )
-        try {
-          await refreshSessions()
-        } catch (error) {
-          setFailure({ key: 'migrate.refreshFailed', params: { detail: errMsg(error) } })
-        }
-      } else {
-        setFailure({ key: stageFailureKeys[result.stage], params: { detail: result.error } })
-        if (result.recoverable !== undefined) setRecovery(result.recoverable)
+      setNotice(
+        result.membershipPending !== undefined
+          ? { text: result.membershipPending }
+          : result.moved
+            ? { key: 'migrate.done', params: { title: target.title, workspace: targetWorkspace.title } }
+            : { key: 'migrate.attached', params: { title: target.title, workspace: targetWorkspace.title } },
+      )
+      try {
+        await refreshSessions()
+      } catch (error) {
+        setNotice({ key: 'migrate.refreshFailed', params: { detail: errMsg(error) } })
       }
     } catch (error) {
-      setFailure({ text: errMsg(error) })
+      setNotice({ text: errMsg(error) })
     } finally {
       working.current = false
       setBusy(false)
@@ -215,7 +175,7 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
       footer={
         <div className={styles.footer}>
           <div className={styles.feedback} aria-live="polite">
-            {/* 一次性成功提示走官方 Toast（z-1100 盖过 Modal 的 1000 遮罩）；淡出后清空。 */}
+            {/* 提示信息统一走 notice（官方 Toast，z-1100 盖过 Modal 的 1000 遮罩）；成功与失败同流。 */}
             {notice !== null ? (
               <Toast
                 key={messageText(notice, t)}
@@ -223,15 +183,6 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
                 holdMs={5000}
                 onDone={() => setNotice(null)}
               />
-            ) : null}
-            {failure !== null ? <p role="alert">{messageText(failure, t)}</p> : null}
-            {recovery !== null ? (
-              <p>
-                {t('migrate.recoverHint', { cwd: recovery.cwd })}{' '}
-                <Button size="sm" variant="outline" onClick={downloadRecovery}>
-                  {t('migrate.recover')}
-                </Button>
-              </p>
             ) : null}
             {busy ? <p role="status">{t('migrate.working')}</p> : null}
           </div>
@@ -260,7 +211,7 @@ function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }
             disabled={busy || !ready}
             onChange={(event) => {
               setWorkspaceId(event.target.value)
-              setFailure(null)
+              setNotice(null)
             }}
           >
             <option value="">{t('workspace.choose')}</option>

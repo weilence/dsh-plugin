@@ -1,6 +1,9 @@
 export const IMPORT_PATH = '/dsh-sessions/import'
 export const DELETE_PATH = '/dsh-sessions/delete'
 export const MIGRATE_PATH = '/dsh-sessions/migrate'
+export const PRESET_PATH = '/dsh-sessions/preset'
+export const PRESETS_PATH = '/dsh-sessions/presets'
+export const BATCH_PATH = '/dsh-sessions/batch'
 
 export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 export const MAX_EXPANDED_BYTES = 256 * 1024 * 1024
@@ -10,6 +13,7 @@ export const MAX_ARCHIVE_ENTRIES = 4096
 export const MAX_ARCHIVE_SESSIONS = 256
 export const MAX_SESSION_EVENTS = 100_000
 export const MAX_REQUEST_BYTES = Math.ceil(MAX_ARCHIVE_BYTES / 3) * 4 + 1024 * 1024
+export const MAX_BATCH_SESSIONS = 200
 
 export interface ImportRequest {
   archive: string
@@ -42,6 +46,8 @@ export interface DeleteResult {
   filesRemoved: boolean
   archiveCleared: boolean
   archiveClearError?: string
+  /** 随主会话级联删除的子会话 id。 */
+  deletedSubagents: string[]
 }
 
 export interface MigrateRequest {
@@ -49,23 +55,44 @@ export interface MigrateRequest {
   workspaceId: string
 }
 
-/** 迁移停在哪个受控步骤；客户端按步骤给本地化摘要，error 保留宿主原文。 */
-export type MigrateStage = 'loaded' | 'activity' | 'attach' | 'export' | 'archive' | 'delete' | 'import'
-
-export interface MigrateSuccess {
+export interface MigrateResult {
   ok: true
-  filesRemoved: boolean
-  archiveClearError?: string
-  /** 快路径：会话 cwd 已等于目标路径，仅补挂工作区账本，未动日志文件。 */
-  attached?: true
+  /** 是否移动了日志文件；false 表示快路径只补了工作区归属。 */
+  moved: boolean
+  attached: boolean
+  /** 文件已迁移但归属未完成时的补救指引；宿主重启后再次迁移将走快路径。 */
+  membershipPending?: string
 }
 
-export interface MigrateFailure {
-  ok: false
-  stage: MigrateStage
-  error: string
-  /** 日志已删除而导入未完成时，随响应返回导出 ZIP（Base64）与目标目录，供手动恢复导入。 */
-  recoverable?: { archive: string; cwd: string }
+export interface PresetsResult {
+  presets: string[]
 }
 
-export type MigrateResult = MigrateSuccess | MigrateFailure
+export interface PresetRequest {
+  sessionId: string
+  toPreset: string
+}
+
+export interface PresetResult {
+  migrated: boolean
+  oldPreset?: string
+  newPreset: string
+}
+
+export type BatchAction = 'delete' | 'migrate' | 'preset'
+
+export interface BatchRequest {
+  action: BatchAction
+  sessionIds: string[]
+  payload?: { workspaceId?: string; toPreset?: string }
+}
+
+export type BatchItem =
+  | { sessionId: string; ok: true; result: DeleteResult | MigrateResult | PresetResult }
+  /** 删除级联去重命中：该项已随前一项主会话的删除一并移除。 */
+  | { sessionId: string; ok: true; cascaded: true }
+  | { sessionId: string; ok: false; error: string }
+
+export interface BatchResult {
+  items: BatchItem[]
+}
