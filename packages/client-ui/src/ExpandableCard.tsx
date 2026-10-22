@@ -29,11 +29,23 @@ export function ErrorDetailDialog(props: ExpandableCardErrorDetail & { onClose()
   )
 }
 
+/** 行首选择框素材（批量多选模式）；共享组件不内嵌文案，label 由调用方传入。 */
+export interface ExpandableCardSelection {
+  checked: boolean
+  /** 无障碍名（通常是行标题，用于区分各行的选择框）。 */
+  label: string
+  disabled?: boolean
+  onToggle(): void
+}
+
 /**
  * 可展开卡片行：整行可点展开、行头可拖拽（dragHandlers）；标题行各文本区
  * （meta / 描述 / 信息值 / 路径）带 data-drag-skip 参与按下手势仲裁。
  */
 export interface ExpandableCardProps {
+  /** 行首选择列：传入即渲染（批量多选模式）；整列纵向热区（含选择框上下
+   *  空白）点击只切换勾选，行头其余区域仍触发行展开。 */
+  selection?: ExpandableCardSelection
   open: boolean
   onToggle(): void
   title: ReactNode
@@ -115,6 +127,33 @@ export function ExpandableCard(props: ExpandableCardProps) {
           }
         }}
       >
+        {props.selection !== undefined ? (
+          // 行首选择列：整条纵向区域（含选择框上下的空白）都是选择热区，
+          // 点击只切换勾选；行头其余区域仍触发展开 / 收起。
+          <span
+            className={styles.selectColumn}
+            // 按下点在选择列上时不武装行拖拽（与可选值文本同一仲裁标记）。
+            data-drag-skip
+            onClick={(event) => {
+              // 列内任意位置的点击都只属于选择，不触发行展开 / 收起。
+              event.stopPropagation()
+              if (props.selection?.disabled !== true) props.selection?.onToggle()
+            }}
+            // 选择框的键盘操作在列内终结，不触发行头的 Enter / Space 展开。
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className={styles.select}
+              aria-label={props.selection.label}
+              checked={props.selection.checked}
+              disabled={props.selection.disabled}
+              // 点击选择框本体时阻断冒泡：勾选只走自身 onChange，与热区不重复。
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => props.selection?.onToggle()}
+            />
+          </span>
+        ) : null}
         <div className={styles.headMain}>
           <span className={styles.titleRow}>
             <span className={styles.title}>{props.title}</span>

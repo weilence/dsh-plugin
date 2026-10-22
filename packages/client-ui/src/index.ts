@@ -10,6 +10,7 @@ export {
   type ExpandableCardErrorDetail,
   type ExpandableCardInfoItem,
   type ExpandableCardProps,
+  type ExpandableCardSelection,
 } from './ExpandableCard'
 export { CardList, type CardListProps } from './CardList'
 export { MetaItem } from './MetaItem'
