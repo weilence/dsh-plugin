@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { RootMatcher, agentsSkillsDir, findProjectRoot, isUnder, managedRoots } from '../src/roots'
 import { sourceLabelT } from '../src/client/locales'
 import { makeT } from './i18n'
@@ -75,8 +75,9 @@ describe('RootMatcher 归属判定', () => {
 
 describe('环境变量解析', () => {
   it('DSH_AGENTS_HOME 覆盖默认 ~/.agents', () => {
+    // resolve 依赖当前驱动器/工作目录，期望值须同法解析，不能硬编码盘符。
     expect(agentsSkillsDir({ DSH_AGENTS_HOME: '/custom/agents' } as Record<string, string>)).toBe(
-      process.platform === 'win32' ? 'D:\\custom\\agents\\skills' : '/custom/agents/skills',
+      resolve('/custom/agents', 'skills'),
     )
   })
 
