@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { errMsg } from '@dsh-plugins/shared'
 import type { GitCommitInfo, GitFileChange } from '../shared'
 import type { CommitLayout } from './graph'
@@ -10,6 +11,13 @@ import css from './CommitGraph.module.css'
 const LANE_WIDTH = 14
 const ROW_HEIGHT = 28
 const DOT_RADIUS = 3.5
+
+/** 悬停卡片的 portal 目标：卡片是视口级 fixed 覆盖面，必须挂在 body——留在面板
+ *  树内会被 dock 泳道单元的 z-10 层叠上下文封顶，宿主在侧栏左缘的隐形拖拽把手
+ *  （8px 全高命中条，z-11，刻意压在右栏之上）会截走侧栏边界上的命中，指针跨过
+ *  即触发卡片 mouseleave 整卡收起。挂 body 后以自身 z-index 参与顶层层序（层表
+ *  见 CommitGraph.module.css 的 .card）。无 DOM 环境（node 单测）降级原位渲染。 */
+const portalTarget = typeof document === 'undefined' ? null : document.body
 
 /** 悬停卡片锚点：触发弹出时的指针 x 与所在行缘（卡片贴行缘、横向对齐指针）。 */
 interface HoverAnchor {
@@ -273,8 +281,9 @@ function CommitRow({
 /** 泳道提交图：每行一段 SVG strip（穿越竖线 + 进出弧线 + 提交点）加文本列；展开与
  *  悬停按需读取文件变更并缓存（失败可重试，切换仓库清空）；悬停行驻留可配置延时
  *  后在行缘之外紧贴行弹出提交卡片（作者、相对 / 绝对时间、主题、正文、变更统计、
- *  短提交号，横向对齐指针，放不下自动翻面），卡片可移入并选中复制；卡片只属于
- *  一次驻留——换到另一行立即收起并重新驻留，离开行与卡片、点击切换、滚动即隐藏。 */
+ *  短提交号，横向对齐指针，放不下自动翻面）；卡片经 portal 挂 body——视口级覆盖面
+ *  须脱离面板树的层叠上下文，可移入并选中复制；卡片只属于一次驻留——换到另一行
+ *  立即收起并重新驻留，离开行与卡片、点击切换、滚动即隐藏。 */
 export function CommitGraph({
   repo,
   commits,
@@ -404,6 +413,43 @@ export function CommitGraph({
         }
       : null
 
+  const card =
+    hover === null ? null : (
+      <div
+        ref={cardRef}
+        className={css.card}
+        style={cardPos ?? { visibility: 'hidden' }}
+        role="tooltip"
+        data-hover-card=""
+        onMouseLeave={(event) => {
+          // 移回本行不隐藏（行上悬停原样保留），其余离开立即隐藏
+          const next = event.relatedTarget as Element | null
+          if (next !== null && next.closest(`[data-hash="${hover.commit.hash}"]`) !== null) return
+          cancelHover()
+        }}
+      >
+        <p className={css.cardHead}>
+          <span className={css.cardAuthor}>{hover.commit.authorName}</span>
+          <span className={css.cardTime}>
+            {formatRelative(hover.commit.timestamp * 1000)} ({formatTime(hover.commit.timestamp * 1000)})
+          </span>
+        </p>
+        <p className={css.cardSubject}>{hover.commit.subject}</p>
+        {/* host half 未重启的升级窗口内 body 字段可能缺席 */}
+        {hoverBody.length > 0 && <p className={css.cardBody}>{hoverBody}</p>}
+        {hoverSummary !== null && hoverSummary.count > 0 && (
+          <p className={css.cardSummary}>
+            {t('log.summary', {
+              count: hoverSummary.count,
+              added: hoverSummary.added,
+              deleted: hoverSummary.deleted,
+            })}
+          </p>
+        )}
+        <p className={css.cardHash}>{hover.commit.hash.slice(0, 7)}</p>
+      </div>
+    )
+
   return (
     <div className={css.wrap}>
       <ul className={css.commits} onScroll={cancelHover}>
@@ -432,41 +478,8 @@ export function CommitGraph({
         <span>{t('log.count', { count: commits.length })}</span>
         {truncated ? <span>{t('log.truncated')}</span> : null}
       </footer>
-      {hover !== null && (
-        <div
-          ref={cardRef}
-          className={css.card}
-          style={cardPos ?? { visibility: 'hidden' }}
-          role="tooltip"
-          data-hover-card=""
-          onMouseLeave={(event) => {
-            // 移回本行不隐藏（行上悬停原样保留），其余离开立即隐藏
-            const next = event.relatedTarget as Element | null
-            if (next !== null && next.closest(`[data-hash="${hover.commit.hash}"]`) !== null) return
-            cancelHover()
-          }}
-        >
-          <p className={css.cardHead}>
-            <span className={css.cardAuthor}>{hover.commit.authorName}</span>
-            <span className={css.cardTime}>
-              {formatRelative(hover.commit.timestamp * 1000)} ({formatTime(hover.commit.timestamp * 1000)})
-            </span>
-          </p>
-          <p className={css.cardSubject}>{hover.commit.subject}</p>
-          {/* host half 未重启的升级窗口内 body 字段可能缺席 */}
-          {hoverBody.length > 0 && <p className={css.cardBody}>{hoverBody}</p>}
-          {hoverSummary !== null && hoverSummary.count > 0 && (
-            <p className={css.cardSummary}>
-              {t('log.summary', {
-                count: hoverSummary.count,
-                added: hoverSummary.added,
-                deleted: hoverSummary.deleted,
-              })}
-            </p>
-          )}
-          <p className={css.cardHash}>{hover.commit.hash.slice(0, 7)}</p>
-        </div>
-      )}
+      {/* 视口级覆盖面挂 body（缘由见 portalTarget 注释）；原位渲染只出现在无 DOM 的测试环境 */}
+      {card !== null && (portalTarget !== null ? createPortal(card, portalTarget) : card)}
     </div>
   )
 }

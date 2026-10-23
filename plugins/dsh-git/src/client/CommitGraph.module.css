@@ -232,7 +232,11 @@
 
 .card {
   position: fixed;
-  z-index: 20;
+  /* 顶层层序（挂 body 后参与，宿主 frame 层表）：侧栏拖拽把手 11、frame overlays
+   * 20、右栏全屏 40、dockkit 浮动面板 60、官方弹窗 1000+。取 50——高于把手与
+   * overlays（否则跨侧栏边界的命中被把手截走、卡片被 mouseleave 收起），也高于
+   * 全屏面板自身内容；低于浮动面板与弹窗。 */
+  z-index: 50;
   display: flex;
   flex-direction: column;
   gap: 6px;
