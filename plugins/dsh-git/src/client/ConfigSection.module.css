@@ -1,29 +1,33 @@
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.label {
-  font-size: 14px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.input {
-  width: 100%;
-  height: 36px;
-  font-size: 14px;
-  color: inherit;
-  background: var(--dsw-alias-bg-layer-3);
-  border: 1px solid var(--dsw-alias-border-l3);
-  border-radius: 10px;
-  padding: 0 12px;
-}
+/* 插件详情页配置面板：字段（标题 / 输入框 / 说明与错误 / 覆盖徽标）由官方
+   SettingsValueField 原语自带样式，本表只放保存行——样式对齐官方
+   SettingsForm 页脚的实心反色保存按钮（原语未把页脚导出成组件）。 */
 
 .actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 12px;
+}
+
+.save {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: var(--dsw-radius-md);
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-bg-layer-3);
+}
+
+.save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.save:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid
+    var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
 }

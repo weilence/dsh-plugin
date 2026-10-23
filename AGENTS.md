@@ -70,6 +70,8 @@
 
 ## 面板交互约定
 
+- **控件优先用官方原语**（`@deepseek-ai/dsh-client-ui-primitives`，样式随宿主主题）：按钮 `Button`、单行文本 `Input`（带前导图标槽）、勾选 `Checkbox`（纯文案标签）、开关 `Switch`、徽标 `Tag` / `Pill`、状态点 `StateDot`、菜单 `Menu`、弹层 `Modal` / `MenuSurface`、提示 `Tooltip` / `Toast`、折叠 `DisclosureRow`、分段 `SegmentedControl`、设置字段 `SettingsValueField` / `SettingsSecretField`（字段标题 + 输入 + 说明/错误单槽 + 「已覆盖」徽标与「恢复默认」）。官方原语满足不了（如需要富内容标签、列表行组合、官方未导出的控件）才自绘，并在样式注释说明缘由；官方**没有**对应组件的既定自绘件：`select` 下拉、`textarea` 多行、文件选择 `input[type=file]`、清单页同款 `SearchBox`（官方清单页自身也是手绘）、富标签勾选行（`PickList`）、文字链按钮（错误详情入口等）。整卡设置表单 `SettingsForm` 需要文档模型状态（available / writable / dirty / revision…），简单插件 store 用不上时按官方页脚样式自绘保存按钮（`ConfigSection` 先例）。
+- **字段交互统一为官方 SettingsValueField 契约**（共享 kit `TextField` / `SelectField` / `TextAreaField` 一处实现）：`error` 非空即非法态——控件 `aria-invalid` 红边、说明槽**原位**显示红字错误（与 `hint` 互斥，不再用带底色的错误块）；`hint` 是字段说明行；`override`（`FieldOverride`：徽标文案 + 重置文案 + `onReset`）在标题行右侧渲染「已覆盖」徽标（官方 `Tag neutral`）+「恢复默认」文字按钮——**重置只把字段清回继承态，提交仍由表单保存完成**；字段没有继承语义就不传 `override`，整组不出现。dsh-git 插件详情页直接用官方 `SettingsValueField`（同一契约的原语形态）。
 - 设置分区统一三段式：`Panel` 标题 → 一两句简短描述（`subtitle`，zh / en 同步入词典）→ 设置内容；描述缺失或过长的分区以官方设置页 Agent presets 为参照对齐。例外：插件详情页（`plugins.bundle.config` 槽位）的页面头部已是插件名与描述，`Panel` 可整体无头部，避免标题逐字重复。
 - 列表过滤搜索统一用 `@dsh-plugins/client-ui` 的 `SearchBox`（样式对齐官方插件清单页搜索：放大镜前导 + `type="search"`，占位 / aria-label / 隐藏标签共用一词）；不自绘其他搜索框样式。
 - 用户可能引用的可见文本（URL、端点、id、路径、错误详情）一律可选中复制；与整行点击展开 / 拖拽排序的冲突用手势仲裁解决（按按下点判定归属），不得靠禁用文本选择迁就。

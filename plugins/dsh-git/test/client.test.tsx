@@ -20,6 +20,48 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   ),
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   IconRefreshOutlineRegular: () => null,
+  // 官方 Checkbox 的桩：镜像「input + 文案标签」契约，测试按 type=checkbox 驱动。
+  Checkbox: ({
+    checked,
+    onChange,
+    label,
+  }: {
+    checked: boolean
+    onChange: (next: boolean) => void
+    label: string
+  }) => (
+    <label>
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  ),
+  // SettingsValueField 的桩：真实产物外置依赖过多无法整体加载，这里按官方 DOM
+  // 契约镜像其结构——覆盖徽标 + 恢复默认同现、aria-invalid、说明与错误单槽互斥。
+  SettingsValueField: (
+    props: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').SettingsValueField>,
+  ) => (
+    <div>
+      <div>
+        <label htmlFor={props.id}>{props.label}</label>
+        {props.overridden ? (
+          <span>
+            <span>{props.overriddenLabel}</span>
+            <button type="button" disabled={props.disabled} onClick={props.onReset}>
+              {props.resetLabel}
+            </button>
+          </span>
+        ) : null}
+      </div>
+      <input
+        id={props.id}
+        value={props.text}
+        disabled={props.disabled}
+        {...(props.invalid ? { 'aria-invalid': true } : {})}
+        onChange={(event) => props.onEdit(event.target.value)}
+      />
+      {props.invalid ? <p>{props.invalidLabel}</p> : props.hint !== undefined ? <p>{props.hint}</p> : null}
+    </div>
+  ),
 }))
 
 const t = makeT()
@@ -466,36 +508,59 @@ describe('Git 仓库标签体', () => {
     }
   })
 
-  it('插件详情页配置面板：编辑后经保存写入共享 store，非法输入禁用保存', async () => {
+  it('插件详情页配置面板：编辑后经保存写入共享 store，覆盖徽标与恢复默认，非法输入禁用保存', async () => {
     let tree!: ReactTestRenderer
     try {
       await act(async () => {
         tree = create(<ConfigSection {...({} as ComponentProps<typeof ConfigSection>)} t={t} />)
       })
-      const input = () => tree.root.findByProps({ id: 'dsh-git-hover-delay' })
-      const save = () =>
+      // id 同时出现在外层 SettingsValueField 与内层 input 上，须按元素类型过滤
+      const input = () =>
+        tree.root.findAll(
+          (node: ReactTestInstance) => node.type === 'input' && node.props['id'] === 'dsh-git-hover-delay',
+        )[0]!
+      const buttonWith = (label: string) =>
         tree.root
           .findAll((node: ReactTestInstance) => node.type === 'button')
-          .find((node) => node.props.children === t('config.save'))!
+          .find((node) => node.props.children === label)!
+      const save = () => buttonWith(t('config.save'))
       expect(input().props.value).toBe(String(DEFAULT_HOVER_DELAY_MS))
       expect(save().props.disabled).toBe(true)
-      // 编辑为 300：保存前不落库，保存后写入 store 并回显
+      expect(texts(tree)).not.toContain(t('config.overridden'))
+      // 编辑为 300（与默认不同）：保存前不落库，右上出现覆盖徽标与恢复默认
       await act(async () => {
         input().props.onChange({ target: { value: '300' } })
       })
       expect(getHoverDelay()).toBe(DEFAULT_HOVER_DELAY_MS)
+      expect(texts(tree)).toContain(t('config.overridden'))
       expect(save().props.disabled).toBe(false)
+      // 恢复默认：只暂存回默认值，保存禁用、徽标消失，store 未动
+      await act(async () => {
+        buttonWith(t('config.resetDefault')).props.onClick()
+      })
+      expect(input().props.value).toBe(String(DEFAULT_HOVER_DELAY_MS))
+      expect(getHoverDelay()).toBe(DEFAULT_HOVER_DELAY_MS)
+      expect(save().props.disabled).toBe(true)
+      expect(texts(tree)).not.toContain(t('config.overridden'))
+      // 重新编辑并保存：写入 store 并回显，已存值 ≠ 默认 → 徽标常驻
+      await act(async () => {
+        input().props.onChange({ target: { value: '300' } })
+      })
       await act(async () => {
         save().props.onClick()
       })
       expect(getHoverDelay()).toBe(300)
       expect(input().props.value).toBe('300')
       expect(save().props.disabled).toBe(true)
-      // 越界输入：按钮旁行内报错，保存禁用
+      expect(texts(tree)).toContain(t('config.overridden'))
+      // 越界输入：下方说明行换成错误信息（不额外加行），输入框标红，保存禁用，徽标消失
       await act(async () => {
         input().props.onChange({ target: { value: '9999' } })
       })
+      expect(input().props['aria-invalid']).toBe(true)
       expect(texts(tree)).toContain(t('config.invalid'))
+      expect(texts(tree)).not.toContain(t('config.hoverDelayHint'))
+      expect(texts(tree)).not.toContain(t('config.overridden'))
       expect(save().props.disabled).toBe(true)
     } finally {
       setHoverDelay(DEFAULT_HOVER_DELAY_MS)

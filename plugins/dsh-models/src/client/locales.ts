@@ -129,6 +129,8 @@ export const zh = {
   'form.compatInvalidJson': 'compat 不是合法 JSON：{detail}',
   'form.duplicateId': '模型 id「{id}」已存在于本 Provider',
   'form.defaultPlaceholder': '默认',
+  'form.overridden': '已覆盖',
+  'form.resetDefault': '恢复默认',
   'efforts.none': '无推理',
   'efforts.default': '默认',
 
@@ -324,6 +326,8 @@ export const en: { [Key in ModelsKey]: string } = {
   'form.compatInvalidJson': 'compat is not valid JSON: {detail}',
   'form.duplicateId': 'Model id "{id}" already exists in this provider',
   'form.defaultPlaceholder': 'Default',
+  'form.overridden': 'Overridden',
+  'form.resetDefault': 'Reset to default',
   'efforts.none': 'No reasoning',
   'efforts.default': 'Default',
 

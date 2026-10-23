@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react'
-import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Input, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import shared from './shared.module.css'
 import local from './field.module.css'
 
@@ -12,13 +12,55 @@ export function fieldInputCls(disabled?: boolean): string {
 /** 无标签工具行里的裸 select 取用同一套 select 样式（Field 之外使用）。 */
 export const selectCls: string = styles.select
 
-// 字段行统一单列全宽：官方 settings 表单的既定惯例。
-export function Field(props: { label: ReactNode; wide?: boolean; children: ReactNode }) {
+/** 覆盖默认值交互（对齐官方 SettingsValueField）：标题行右侧「已覆盖」徽标 +
+ *  「恢复默认」入口；重置只把字段清回继承态，提交仍由表单保存完成。 */
+export interface FieldOverride {
+  /** 徽标文案（调用方词典，如「已覆盖」）。 */
+  label: string
+  /** 重置入口文案（如「恢复默认」）。 */
+  resetLabel: string
+  /** 清回继承态（只改草稿，不落库）。 */
+  onReset(): void
+}
+
+/** 字段行外壳：标题行（标签 + 可选覆盖徽标）→ 控件 → 说明 / 错误单槽。
+ *  错误与说明互斥同槽（错误优先），非法时控件层以 aria-invalid 标红。 */
+export function Field(props: {
+  label: ReactNode
+  /** 控件 id：传入即 label 以 htmlFor 关联（含覆盖徽标的字段必须传，
+   *  徽标内按钮不得嵌进 label）。 */
+  htmlFor?: string
+  wide?: boolean
+  /** 说明文案（无错误时显示）。 */
+  hint?: string
+  /** 非法态：控件标红，说明槽原位换成错误文案。 */
+  invalid?: boolean
+  invalidLabel?: string
+  override?: FieldOverride
+  children: ReactNode
+}) {
+  const { label, htmlFor, wide, hint, invalid, invalidLabel, override } = props
+  const message = invalid === true ? (invalidLabel ?? '') : hint
   return (
-    <label className={props.wide ? styles.fieldWide : styles.field}>
-      <span className={styles.label}>{props.label}</span>
+    <div className={wide ? styles.fieldWide : styles.field}>
+      <div className={styles.fieldHead}>
+        <label className={styles.label} htmlFor={htmlFor}>
+          {label}
+        </label>
+        {override ? (
+          <span className={styles.badges}>
+            <Tag tone="neutral">{override.label}</Tag>
+            <button type="button" className={styles.reset} onClick={override.onReset}>
+              {override.resetLabel}
+            </button>
+          </span>
+        ) : null}
+      </div>
       {props.children}
-    </label>
+      {message !== undefined && message.length > 0 ? (
+        <p className={invalid ? styles.fieldInvalid : styles.fieldHint}>{message}</p>
+      ) : null}
+    </div>
   )
 }
 
@@ -40,8 +82,12 @@ export function TextField(props: {
   wide?: boolean
   /** 联动按钮（文本 + 回调；样式与输入框等高，不收缩不换行）。 */
   addon?: { label: string; onClick(): void; disabled?: boolean }
-  /** 控件下方的单条校验错误。 */
+  /** 字段校验错误：非空即非法态（输入框标红，说明槽原位显示本条红字）。 */
   error?: string
+  /** 说明文案（无错误时显示）。 */
+  hint?: string
+  /** 覆盖默认值交互（见 FieldOverride）。 */
+  override?: FieldOverride
   /** 联想候选：传入即渲染内置 datalist 并自动关联（优先于 list）。 */
   datalist?: readonly { value: string; label?: string }[]
 }) {
@@ -59,14 +105,20 @@ export function TextField(props: {
     wide,
     addon,
     error,
+    hint,
+    override,
     datalist,
   } = props
+  const id = useId()
   // datalist id 只在组件树内唯一即可，useId 免去调用方手工起名。
   const listId = useId()
   const listAttr = datalist !== undefined ? listId : list
+  const invalid = error !== undefined && error.length > 0
   const input = (
     <Input
-      className={fieldInputCls(disabled)}
+      id={id}
+      className={invalid ? `${fieldInputCls(disabled)} ${styles.fieldInputInvalid}` : fieldInputCls(disabled)}
+      aria-invalid={invalid || undefined}
       type={type}
       value={value}
       placeholder={placeholder}
@@ -79,7 +131,15 @@ export function TextField(props: {
     />
   )
   return (
-    <Field label={label} wide={wide}>
+    <Field
+      label={label}
+      htmlFor={id}
+      wide={wide}
+      hint={hint}
+      invalid={invalid}
+      invalidLabel={error}
+      override={override}
+    >
       {addon === undefined ? (
         input
       ) : (
@@ -104,7 +164,6 @@ export function TextField(props: {
           ))}
         </datalist>
       ) : null}
-      {error !== undefined && error.length > 0 ? <div className={styles.error}>{error}</div> : null}
     </Field>
   )
 }
@@ -116,14 +175,24 @@ export function SelectField<T extends string>(props: {
   options: readonly { value: T; label: string; disabled?: boolean }[]
   disabled?: boolean
   onChange(value: T): void
+  /** 字段校验错误：非空即非法态（下拉标红，说明槽原位显示本条红字）。 */
+  error?: string
+  /** 说明文案（无错误时显示）。 */
+  hint?: string
+  /** 覆盖默认值交互（见 FieldOverride）。 */
+  override?: FieldOverride
 }) {
-  const { label, value, options, disabled, onChange } = props
+  const { label, value, options, disabled, onChange, error, hint, override } = props
+  const id = useId()
+  const invalid = error !== undefined && error.length > 0
   return (
-    <Field label={label}>
+    <Field label={label} htmlFor={id} hint={hint} invalid={invalid} invalidLabel={error} override={override}>
       <select
+        id={id}
         className={styles.select}
         value={value}
         disabled={disabled}
+        aria-invalid={invalid || undefined}
         // option 的 value 都来自 T 类型的 options，DOM 只回传 string
         onChange={(event) => onChange(event.target.value as T)}
       >
@@ -148,17 +217,28 @@ export function TextAreaField(props: {
   /** 覆盖默认 96px 的最小高度（多行正文 / 代码原文）。 */
   minHeight?: number
   spellCheck?: boolean
+  /** 字段校验错误：非空即非法态（文本域标红，说明槽原位显示本条红字）。 */
+  error?: string
+  /** 说明文案（无错误时显示）。 */
+  hint?: string
+  /** 覆盖默认值交互（见 FieldOverride）。 */
+  override?: FieldOverride
 }) {
-  const { label, value, onChange, placeholder, readOnly, minHeight, spellCheck } = props
+  const { label, value, onChange, placeholder, readOnly, minHeight, spellCheck, error, hint, override } =
+    props
+  const id = useId()
+  const invalid = error !== undefined && error.length > 0
   return (
-    <Field label={label}>
+    <Field label={label} htmlFor={id} hint={hint} invalid={invalid} invalidLabel={error} override={override}>
       <textarea
+        id={id}
         className={styles.textarea}
         style={minHeight === undefined ? undefined : { minHeight }}
         value={value}
         placeholder={placeholder}
         readOnly={readOnly}
         spellCheck={spellCheck}
+        aria-invalid={invalid || undefined}
         onChange={(event) => onChange?.(event.target.value)}
       />
     </Field>

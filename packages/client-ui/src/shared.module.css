@@ -87,10 +87,8 @@
   overflow-wrap: anywhere;
 }
 
-/* select 与 textarea 没有官方对应组件，保留自绘样式；
-   .input 仍被小号数字输入框使用（三者共用同一套规则，不拆分）。
-   高度对齐官方 Input 原语的 32px，与并排的官方输入框等高。 */
-.input,
+/* select 与 textarea 没有官方对应组件，保留自绘样式（单行文本一律用官方
+   Input 原语，不再自绘）。 */
 .select,
 .textarea {
   box-sizing: border-box;
@@ -113,14 +111,18 @@
   resize: vertical;
 }
 
-.input:focus,
 .select:focus,
 .textarea:focus {
   outline: none;
   border-color: var(--dsw-alias-brand-primary);
 }
 
-.input:disabled,
+/* 非法态红边：排在 :focus 之后，压过聚焦品牌色（对齐官方 aria-invalid）。 */
+.select[aria-invalid='true'],
+.textarea[aria-invalid='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
 .select:disabled {
   opacity: 0.55;
 }

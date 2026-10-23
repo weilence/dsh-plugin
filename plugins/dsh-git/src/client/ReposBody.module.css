@@ -26,19 +26,6 @@
   padding: 0 8px;
 }
 
-.check {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-  /* 控件标签不做文本选择，与列表行的交互约定一致 */
-  user-select: none;
-  cursor: pointer;
-}
-
 .summary {
   display: flex;
   align-items: center;

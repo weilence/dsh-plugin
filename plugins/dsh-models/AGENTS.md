@@ -21,6 +21,7 @@
 - host half 不解释 models.dev 业务字段：解析、筛选、协议映射、能力编辑、写入全在 client half。
 - 写入策略：一次改动 = 一个 `settings.mutate`，只 set / unset 目标 route 的子树并携带读取时 revision；`settings/conflict` 自动刷新后重试一次。只作用 `llm-pi-ai` 用户层，不重建组合 base、不碰 `llm-deepseek`。
 - 单模型编辑写 `modelOverrides.<id>`（单模型定点覆盖，与 `models` 互斥）；新增目录未描述的模型、删除目录内模型都触发整份 `models` 展开为显式清单（UI 先警告，草稿进入显式态后提示常驻）；编辑结果与目录默认等价时删除该 override；目录外的 override 条目（历史遗留）删除只删条目本身。
+- ModelForm 的继承字段（`contextWindow` / `maxTokens` / `compat`）统一接共享 kit 的覆盖交互（`override`，对齐官方 SettingsValueField）：**空 = 继承目录 / route 默认**（placeholder 显示默认），非空即「已覆盖」（标题行右侧徽标 + 「恢复默认」）；重置只把草稿清回空（继承态），写入仍由外层保存完成；字段校验错误经 `error` 走统一非法态（aria-invalid 红边 + 说明槽红字）。
 - 字段映射（models.dev → llm-pi-ai）：`limit.context`→`contextWindow`、`limit.output`→`maxTokens`、`modalities.input` 的 text/image→`input`、`reasoning_options[effort].values`→`reasoningEfforts`（`none`/`off`→`off: null`）；价格 / 日期 / benchmark 只浏览不写入。导入合并语义：已有用户字段优先，导入只补缺失。
 - `reasoningEfforts` 的六条官方规则在 client 保存前逐条前置校验，与 host half 的 `resolveModelReasoning()` 一一对应——改一侧必须同步另一侧。
 - 协议、推理强度、`thinkingFormat` 与模态选项从 `llm-pi-ai` namespace 的 schema envelope 内省，schema 不可读时回退内置常量（FALLBACK_CHOICES）。

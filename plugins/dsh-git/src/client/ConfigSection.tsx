@@ -1,14 +1,15 @@
 /** 插件详情页配置面板（plugins.bundle.config 槽位，keyed 包名）：悬停弹出延时。
- *  详情页头部已带插件名与描述，Panel 整体无头部；布局对齐官方插件配置页——
- *  字段标题、通宽输入框、辅助说明、保存按钮（未改动或非法时禁用）。 */
+ *  详情页头部已带插件名与描述，Panel 整体无头部；字段用官方 SettingsValueField——
+ *  说明与错误同槽互斥、与默认值不同时右上「已覆盖」徽标 + 「恢复默认」入口。
+ *  重置与官方同口径：只把默认值暂存进草稿，写入仍由保存完成。 */
 
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsValueField } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Panel } from '@dsh-plugins/client-ui'
-import shared from '@dsh-plugins/client-ui/styles'
 import type { NS } from './locales'
 import {
+  DEFAULT_HOVER_DELAY_MS,
   MAX_HOVER_DELAY_MS,
   MIN_HOVER_DELAY_MS,
   getHoverDelay,
@@ -30,34 +31,37 @@ export function ConfigSection({ t }: ConfigSectionProps) {
   const parsed = Number.parseInt(draft, 10)
   const valid = Number.isFinite(parsed) && parsed >= MIN_HOVER_DELAY_MS && parsed <= MAX_HOVER_DELAY_MS
   const changed = valid && parsed !== hoverDelayMs
+  // 覆盖徽标（暂存口径）：保存后会留下与默认不同的值；重置暂存默认值即消失
+  const overridden = valid && parsed !== DEFAULT_HOVER_DELAY_MS
 
   return (
     <Panel>
-      <div className={styles.field}>
-        <label className={styles.label} htmlFor="dsh-git-hover-delay">
-          {t('config.hoverDelay')}
-        </label>
-        <input
-          id="dsh-git-hover-delay"
-          className={styles.input}
-          type="number"
-          min={MIN_HOVER_DELAY_MS}
-          max={MAX_HOVER_DELAY_MS}
-          step={50}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-        />
-        <p className={shared.hint}>{t('config.hoverDelayHint')}</p>
-      </div>
+      <SettingsValueField
+        id="dsh-git-hover-delay"
+        label={t('config.hoverDelay')}
+        hint={t('config.hoverDelayHint')}
+        overriddenLabel={t('config.overridden')}
+        resetLabel={t('config.resetDefault')}
+        invalidLabel={t('config.invalid')}
+        numeric
+        disabled={false}
+        text={draft}
+        overridden={overridden}
+        invalid={!valid}
+        onEdit={setDraft}
+        onReset={() => {
+          setDraft(String(DEFAULT_HOVER_DELAY_MS))
+        }}
+      />
       <div className={styles.actions}>
-        {!valid && (
-          <span className={shared.error} role="alert">
-            {t('config.invalid')}
-          </span>
-        )}
-        <Button variant="outline" size="sm" disabled={!changed} onClick={() => setHoverDelay(parsed)}>
+        <button
+          type="button"
+          className={styles.save}
+          disabled={!changed}
+          onClick={() => setHoverDelay(parsed)}
+        >
           {t('config.save')}
-        </Button>
+        </button>
       </div>
     </Panel>
   )

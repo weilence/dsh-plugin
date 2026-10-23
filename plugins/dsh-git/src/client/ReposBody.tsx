@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Button, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { errMsg } from '@dsh-plugins/shared'
 import type { GitLog, GitRepoInfo, GitRepoScan } from '../shared'
@@ -112,10 +112,7 @@ export function ReposBody({ sessionId, useSessions, t, formatTime, formatRelativ
             </option>
           ))}
         </select>
-        <label className={css.check}>
-          <input type="checkbox" checked={showMeta} onChange={(event) => setShowMeta(event.target.checked)} />
-          {t('options.authorTime')}
-        </label>
+        <Checkbox checked={showMeta} onChange={setShowMeta} label={t('options.authorTime')} />
         <Tooltip label={t('refresh')} side="bottom" delayMs={500}>
           <Button
             variant="ghost"

@@ -1,5 +1,71 @@
-/* 表单控件层（form.tsx）：官方 Input 的全宽覆写与问题清单。
-   字段布局（.field / .label）与状态反馈类见 shared.module.css。 */
+/* 表单控件层（form.tsx）：字段头（覆盖徽标）、官方 Input 的全宽覆写、
+   说明 / 错误单槽与问题清单。字段布局（.field / .label）见 shared.module.css。 */
+
+/* 字段标题行：标签占满剩余宽度，覆盖徽标 + 恢复默认靠右（对齐官方
+   SettingsValueField 的 head 结构）。 */
+.fieldHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldHead > .label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 覆盖徽标行：官方 Tag（neutral）+ 文字链「恢复默认」（官方 .reset 同款）。 */
+.badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.reset {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.reset:hover:not(:disabled) {
+  color: var(--dsw-alias-label-primary);
+}
+
+.reset:disabled {
+  cursor: default;
+}
+
+/* 说明 / 错误单槽（互斥渲染）：错误为纯红字无底色，对齐官方 .invalid。 */
+.fieldHint,
+.fieldInvalid {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.fieldHint {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fieldInvalid {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* 官方 Input 外框的非法态：双类提高特异性，压过官方 :focus-within 的品牌色。 */
+.fieldInput.fieldInputInvalid {
+  border-color: var(--dsw-alias-state-error-primary);
+}
+
+.fieldInput.fieldInputInvalid:focus-within {
+  border-color: var(--dsw-alias-state-error-primary);
+}
 
 /* 官方 Input 的全宽变体：三重保险让外框（.wrap）铺满字段列且不越界——
    box-sizing: border-box 必须显式声明（官方 .wrap 没写，默认 content-box

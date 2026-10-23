@@ -29,6 +29,11 @@
   align-items: center;
 }
 
+/* 官方 Input 原语的包裹层是 inline-flex：撑满网格第二列须显式 width。 */
+.effortInput {
+  width: 100%;
+}
+
 @media (max-width: 680px) {
   .effortRow {
     grid-template-columns: 1fr;

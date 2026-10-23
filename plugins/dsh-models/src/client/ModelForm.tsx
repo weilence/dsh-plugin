@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DisclosureRow, Switch, IconSettingsOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  DisclosureRow,
+  Input,
+  Switch,
+  IconSettingsOutlineRegular,
+} from '@deepseek-ai/dsh-client-ui-primitives'
 import { THINKING_LEVELS, type PiAiModelEntry, type PiAiModality, type ThinkingLevel } from '../pi-ai/types'
 import type { ModelsDevLookup } from '../catalog/matching'
 import { jsonEqual } from '../pi-ai/ops'
@@ -340,6 +345,16 @@ export function ModelForm(props: ModelFormProps) {
               t,
             )}
             onChange={(value) => setDraft({ ...draft, contextWindow: value })}
+            // 空 = 继承目录 / route 默认：非空即覆盖，恢复默认 = 清回继承态
+            override={
+              draft.contextWindow.trim().length > 0
+                ? {
+                    label: t('form.overridden'),
+                    resetLabel: t('form.resetDefault'),
+                    onReset: () => setDraft({ ...draft, contextWindow: '' }),
+                  }
+                : undefined
+            }
           />
           <TextField
             label={t('form.maxTokens')}
@@ -353,6 +368,15 @@ export function ModelForm(props: ModelFormProps) {
               t,
             )}
             onChange={(value) => setDraft({ ...draft, maxTokens: value })}
+            override={
+              draft.maxTokens.trim().length > 0
+                ? {
+                    label: t('form.overridden'),
+                    resetLabel: t('form.resetDefault'),
+                    onReset: () => setDraft({ ...draft, maxTokens: '' }),
+                  }
+                : undefined
+            }
           />
         </div>
         {props.creating && autofillStatus !== undefined ? (
@@ -424,8 +448,8 @@ export function ModelForm(props: ModelFormProps) {
                   />
                   <code className={styles.code}>{level}</code>
                 </label>
-                <input
-                  className={styles.input}
+                <Input
+                  className={styles.effortInput}
                   value={value ?? ''}
                   disabled={!checked || props.busy || draft.disableEfforts}
                   placeholder={level === 'off' ? t('form.offPlaceholder') : level}
@@ -453,9 +477,19 @@ export function ModelForm(props: ModelFormProps) {
             label={t('form.compatLabel')}
             value={draft.compatText}
             placeholder={'{\n  "thinkingFormat": "openai"\n}'}
+            hint={t('form.compatHint')}
+            // 空 = 不写 compat 覆盖：非空即覆盖，恢复默认 = 清回继承态
+            override={
+              draft.compatText.trim().length > 0
+                ? {
+                    label: t('form.overridden'),
+                    resetLabel: t('form.resetDefault'),
+                    onReset: () => setDraft({ ...draft, compatText: '' }),
+                  }
+                : undefined
+            }
             onChange={(value) => setDraft({ ...draft, compatText: value })}
           />
-          <p className={styles.hint}>{t('form.compatHint')}</p>
         </DisclosureRow>
       </section>
     </div>

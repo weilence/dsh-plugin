@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { Dialog, IssueList, PickList, type PickItem } from '@dsh-plugins/client-ui'
 import shared from '@dsh-plugins/client-ui/styles'
 import { errMsg } from '@dsh-plugins/shared'
@@ -395,10 +395,7 @@ export function SyncDialog(props: {
             <>
               <p className={local.hint}>{summaryParts.join(' ')}</p>
               <div className={local.syncToolbar}>
-                <label className={local.checkAll}>
-                  <input type="checkbox" checked={allVisiblePicked} onChange={toggleAll} />
-                  {t('sync.selectAll')}
-                </label>
+                <Checkbox checked={allVisiblePicked} onChange={toggleAll} label={t('sync.selectAll')} />
                 <span className={local.hideSameRow}>
                   <span className={local.hideSameText}>{t('sync.hideSame', { count: counts.same })}</span>
                   <Switch

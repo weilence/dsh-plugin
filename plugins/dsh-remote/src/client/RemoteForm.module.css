@@ -110,20 +110,12 @@
   overflow-wrap: anywhere;
 }
 
-/* 同步弹窗清单工具行：左「全选」勾选，右「隐藏已一致」开关（纯视图过滤）。 */
+/* 同步弹窗清单工具行：左「全选」（官方 Checkbox），右「隐藏已一致」开关（纯视图过滤）。 */
 .syncToolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-.checkAll {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  user-select: none;
-  cursor: pointer;
 }
 
 .hideSameRow {
