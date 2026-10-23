@@ -37,7 +37,8 @@
     "prepack": "tsdown",
     "watch": "tsdown --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run test/unit",
+    "test:integration": "vitest run test/integration"
   },
   "license": "MIT",
   "keywords": [

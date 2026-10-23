@@ -14,6 +14,7 @@
     "watch": "pnpm -r --parallel watch",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:integration": "pnpm -r test:integration",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },

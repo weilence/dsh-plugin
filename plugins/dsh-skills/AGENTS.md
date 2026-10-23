@@ -28,4 +28,4 @@
 
 ## 测试
 
-`pnpm --filter @weilence/dsh-skills test`：scan / frontmatter / roots / store 纯函数与临时目录单测；gitInstall / gitUpdate 为真 git 集成测试（`test/integration/`，partial clone / sparse checkout / 更新跟踪全链路）；host.test.ts 做路由的请求-响应集成测试；涉及文案断言的单测经 `test/i18n.ts` 的 `makeT` 取词（含 common 词条快照）。
+`pnpm --filter @weilence/dsh-skills test`（默认单测）：scan / frontmatter / roots / store 纯函数与临时目录单测；host.test.ts 做路由的请求-响应测试；涉及文案断言的单测经 `test/i18n.ts` 的 `makeT` 取词（含 common 词条快照）。集成测试手动 `test:integration`：gitInstall / gitUpdate 真 git 全链路（`test/integration/`，partial clone / sparse checkout / 更新跟踪）。
