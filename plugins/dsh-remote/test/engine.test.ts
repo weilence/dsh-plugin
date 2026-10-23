@@ -1998,8 +1998,13 @@ describe('RemoteEngine', () => {
     await writeFile(join(pkgRoot, 'package.json'), JSON.stringify({ name: 'x', version: '1.0.0' }), 'utf8')
     const absent = join(pkgRoot, 'empty')
     await mkdir(absent)
+    // 剔除本机代理开关：NODE_USE_ENV_PROXY 会让子进程 stderr 带 UNDICI 实验特性
+    // 警告，与被测脚本无关；剔除后 stderr 断言只对脚本自身的报错有效
+    const env = { ...process.env }
+    delete env.NODE_USE_ENV_PROXY
     const run = spawnSync(process.execPath, ['-e', REMOTE_PLUGIN_FACTS_SCRIPT, pkgRoot, absent], {
       encoding: 'utf8',
+      env,
     })
     expect(run.status).toBe(0)
     expect(run.stderr).toBe('')
