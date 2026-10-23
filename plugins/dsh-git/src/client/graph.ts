@@ -92,3 +92,34 @@ export function layoutLanes(commits: readonly { hash: string; parents: readonly 
 
   return { rows, laneCount }
 }
+
+/** 悬停卡片与视口边缘的安全边距（像素）。 */
+export const CARD_MARGIN_PX = 8
+
+/**
+ * 悬停卡片落点（行缘贴合锚定）：卡片紧贴所在行缘、显示在行之外——纵向默认行
+ * 下方（顶缘贴行底），下方放不下翻到行上方（底缘贴行顶），上下都放不下贴视口
+ * 收拢；横向对齐指针 x——右侧放得下卡片左缘对齐指针（右下 / 右上），放不下右缘
+ * 对齐指针（左下 / 左上），两侧都放不下贴视口左缘收拢。行与卡片 0 缝隙。
+ */
+export function placeCard(
+  pointerX: number,
+  rowTop: number,
+  rowBottom: number,
+  cardWidth: number,
+  cardHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): { top: number; left: number } {
+  let top = rowBottom
+  if (rowBottom + cardHeight > viewportHeight - CARD_MARGIN_PX) {
+    top = rowTop - cardHeight
+    if (top < CARD_MARGIN_PX) top = CARD_MARGIN_PX
+  }
+  let left = pointerX
+  if (pointerX + cardWidth > viewportWidth - CARD_MARGIN_PX) {
+    left = pointerX - cardWidth
+    if (left < CARD_MARGIN_PX) left = CARD_MARGIN_PX
+  }
+  return { top, left }
+}

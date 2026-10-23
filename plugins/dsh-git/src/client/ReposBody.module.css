@@ -17,11 +17,26 @@
   min-width: 0;
   height: 28px;
   font-size: 13px;
+  font-weight: 600;
   color: inherit;
-  background: var(--dsw-alias-bg-layer-2);
-  border: 1px solid var(--dsw-alias-border-subtle);
+  /* 比面板背景亮一档，保证控件有区分度 */
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-l3);
   border-radius: 8px;
   padding: 0 8px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  /* 控件标签不做文本选择，与列表行的交互约定一致 */
+  user-select: none;
+  cursor: pointer;
 }
 
 .summary {
@@ -31,18 +46,6 @@
   padding: 0 12px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-subtle);
   min-width: 0;
-}
-
-.summaryPath {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.summaryBranch {
-  flex-shrink: 0;
 }
 
 .summaryKind {

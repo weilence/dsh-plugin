@@ -20,6 +20,8 @@
   min-width: 0;
   padding-right: 8px;
   cursor: pointer;
+  /* 行内不做文本选择 / 复制，交互只保留点击与悬停 */
+  user-select: none;
 }
 
 .commit:focus-visible {
@@ -27,12 +29,15 @@
   outline-offset: -2px;
 }
 
+/* 行悬停与展开的底色区分（用户已确认）：官方交互色，悬停浅一层、展开深一层；
+ * 浅色主题 bg-layer-1/2/3 同值，不可用作行底色 */
 .commit:hover {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* 顺序在 :hover 之后：展开行悬停时保持展开底色，不回落到悬停色 */
 .commit[data-expanded] {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-interactive-bg-active);
 }
 
 .strip {
@@ -48,20 +53,17 @@
   padding: 4px 0;
 }
 
-.line1 {
+.line {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
 .chips {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  flex-shrink: 0;
-  max-width: 60%;
-  overflow: hidden;
 }
 
 .chip {
@@ -104,26 +106,21 @@
   white-space: nowrap;
 }
 
-.line2 {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  font-size: 11px;
-  line-height: 16px;
-}
-
 .author {
-  color: var(--dsw-alias-label-secondary);
+  flex-shrink: 0;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .time {
   flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
   color: var(--dsw-alias-label-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -134,17 +131,11 @@
   gap: 2px;
   font-size: 11px;
   line-height: 16px;
-}
-
-.hash,
-.email {
-  font-family: var(--ds-font-family-code);
-  word-break: break-all;
-  user-select: text;
-}
-
-.email {
-  color: var(--dsw-alias-label-secondary);
+  /* 详情区不参与行底色：盖回面板底色（右栏即 bg-base）；负右边距抵到行缘保持
+   * 通宽（8px 对应 .commit 的 padding-right） */
+  background: var(--dsw-alias-bg-base);
+  margin-right: -8px;
+  padding-right: 8px;
 }
 
 .filesNote {
@@ -159,12 +150,6 @@
   flex-direction: column;
   gap: 3px;
   min-width: 0;
-}
-
-.filesCount {
-  font-size: 11px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-secondary);
 }
 
 .files {
@@ -218,7 +203,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  user-select: text;
 }
 
 .fileAdded,
@@ -244,4 +228,67 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
+}
+
+.card {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: min(440px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  background: var(--dsw-alias-bg-layer-3);
+  border: 1px solid var(--dsw-alias-border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  overflow-y: auto;
+  /* 卡片可移入、内容可选中复制（行内才是 user-select: none） */
+  pointer-events: auto;
+  user-select: text;
+}
+
+.card p {
+  margin: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cardAuthor {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.cardTime {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.cardSubject {
+  font-weight: 600;
+}
+
+.cardBody {
+  white-space: pre-line;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cardSummary {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.cardHash {
+  font-family: var(--ds-font-family-code);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
 }

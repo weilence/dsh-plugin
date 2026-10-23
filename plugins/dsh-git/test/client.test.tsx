@@ -2,6 +2,8 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReposBody } from '../src/client/ReposBody'
+import { ConfigSection } from '../src/client/ConfigSection'
+import { DEFAULT_HOVER_DELAY_MS, getHoverDelay, setHoverDelay } from '../src/client/hoverDelay'
 import {
   FILES_PATH,
   LOG_PATH,
@@ -22,6 +24,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
 
 const t = makeT()
 const formatTime = (timestampMs: number): string => `T${timestampMs}`
+const formatRelative = (timestampMs: number): string => `R${timestampMs}`
 
 function renderBody(cwd: string | undefined): ReactTestRenderer {
   const sessionsState = { byId: cwd === undefined ? {} : { session: { cwd } } }
@@ -30,6 +33,7 @@ function renderBody(cwd: string | undefined): ReactTestRenderer {
     useSessions: (selector: (state: typeof sessionsState) => unknown) => selector(sessionsState),
     t,
     formatTime,
+    formatRelative,
   } as ComponentProps<typeof ReposBody>
   return create(<ReposBody {...props} />)
 }
@@ -66,6 +70,7 @@ const logOf = (): GitLog => ({
       authorEmail: 'lilei@example.com',
       timestamp: 1_700_000_100,
       subject: 'merge feature',
+      body: '合并 feature 分支',
       headBranch: 'main',
       branches: ['main'],
       remotes: ['origin/main'],
@@ -78,6 +83,7 @@ const logOf = (): GitLog => ({
       authorEmail: 'han@example.com',
       timestamp: 1_700_000_000,
       subject: 'add feature',
+      body: '',
       branches: [],
       remotes: [],
       tags: ['v1.0.0'],
@@ -89,6 +95,7 @@ const logOf = (): GitLog => ({
       authorEmail: 'lilei@example.com',
       timestamp: 1_699_999_900,
       subject: 'init',
+      body: '',
       branches: [],
       remotes: [],
       tags: [],
@@ -136,7 +143,7 @@ function stubFetch(
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Git 仓库标签体', () => {
-  it('扫描后默认选中首个仓库并渲染提交图、refs 芯片与计数', async () => {
+  it('扫描后默认选中首个仓库；收起行默认只显示主题，勾选后显示作者与时间，refs 芯片在展开详情', async () => {
     const fetchMock = stubFetch()
     vi.stubGlobal('fetch', fetchMock)
     let tree!: ReactTestRenderer
@@ -155,16 +162,36 @@ describe('Git 仓库标签体', () => {
       }),
     )
     expect(tree.root.findAll((node: ReactTestInstance) => node.type === 'option')).toHaveLength(2)
+    const collapsed = () =>
+      tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] === false)
+    // 收起行默认只有主题；作者与时间不显示，顶部也不再有路径与分支
     const visible = texts(tree)
-    expect(visible).toContain('HEAD → main')
-    expect(visible).toContain('origin/main')
-    expect(visible).toContain('v1.0.0')
     expect(visible).toContain('merge feature')
-    expect(visible).toContain('Li Lei')
-    expect(visible).toContain(formatTime(1_700_000_100 * 1000))
+    expect(visible).not.toContain('Li Lei')
+    expect(visible).not.toContain(formatTime(1_700_000_100 * 1000))
     expect(visible).toContain(t('log.count', { count: 3 }))
-    expect(visible).toContain('/workspace/alpha')
-    expect(visible).toContain('main')
+    expect(visible).toContain('alpha（alpha）')
+    expect(visible).not.toContain('/workspace/alpha')
+    expect(visible).not.toContain('HEAD → main')
+    // 勾选「显示作者 / 时间」后行内出现作者与时间
+    await act(async () => {
+      tree.root.findByProps({ type: 'checkbox' }).props.onChange({ target: { checked: true } })
+    })
+    const withMeta = texts(tree)
+    expect(withMeta).toContain('Li Lei')
+    expect(withMeta).toContain(formatTime(1_700_000_100 * 1000))
+    // 展开顶部提交：refs 芯片进详情（提交号 / 邮箱只在悬停卡片）
+    await act(async () => {
+      collapsed()[0]!.props.onClick({})
+    })
+    const head = texts(tree)
+    expect(head).toContain('HEAD → main')
+    expect(head).toContain('origin/main')
+    // 展开第二个提交：标签芯片显示
+    await act(async () => {
+      collapsed()[0]!.props.onClick({})
+    })
+    expect(texts(tree)).toContain('v1.0.0')
   })
 
   it('切换仓库下拉即改读对应仓库的提交', async () => {
@@ -221,16 +248,16 @@ describe('Git 仓库标签体', () => {
     expect(visible).not.toContain('git 不可用')
   })
 
-  it('整行点击展开提交号、邮箱与文件变更；缓存后重开不再请求；划选文本不触发展开', async () => {
+  it('整行点击展开 refs 芯片与文件变更清单；详情区点击不收起；缓存后重开不再请求', async () => {
     const fetchMock = stubFetch()
     vi.stubGlobal('fetch', fetchMock)
-    // 整行点击的选区仲裁读 window.getSelection（node 测试环境无该 API）
-    vi.stubGlobal('window', { getSelection: () => null })
     let tree!: ReactTestRenderer
     await act(async () => {
       tree = renderBody('/workspace')
     })
-    const rows = tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] === false)
+    const collapsedRows = () =>
+      tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] === false)
+    const rows = collapsedRows()
     expect(rows).toHaveLength(3)
     await act(async () => {
       rows[0]!.props.onClick({})
@@ -240,39 +267,239 @@ describe('Git 仓库标签体', () => {
     expect(filesCalls).toHaveLength(1)
     expect(JSON.parse(String(filesCalls[0]![1].body))).toEqual({ repo: '/workspace/alpha', hash: HEAD_HASH })
     const expanded = texts(tree)
-    expect(expanded).toContain(HEAD_HASH)
-    expect(expanded).toContain('lilei@example.com')
-    expect(expanded).toContain(t('log.files', { count: 4 }))
+    expect(expanded).toContain('HEAD → main')
+    expect(expanded).toContain('origin/main')
     expect(expanded).toContain('src/new.ts')
     expect(expanded).toContain('+12')
     expect(expanded).toContain('-3')
     expect(expanded).toContain('src/origin.ts → src/moved.ts')
     expect(expanded).toContain('src/binary.png')
+    // 提交号、邮箱与变更计数只在悬停卡片，不在展开详情
+    expect(expanded).not.toContain(HEAD_HASH)
+    expect(expanded).not.toContain('<lilei@example.com>')
+    expect(expanded).not.toContain(t('log.summary', { count: 4, added: 13, deleted: 3 }))
+    // 详情区（refs / 文件清单）点击完全不参与切换，展开保持
+    await act(async () => {
+      tree.root.findByProps({ 'aria-expanded': true }).props.onClick({ target: { closest: () => ({}) } })
+    })
+    expect(texts(tree)).toContain('src/new.ts')
+    // 键盘收起
     await act(async () => {
       tree.root
         .findByProps({ 'aria-expanded': true })
         .props.onKeyDown({ key: 'Enter', preventDefault: () => {} })
     })
-    expect(texts(tree)).not.toContain(HEAD_HASH)
+    expect(texts(tree)).not.toContain('src/new.ts')
     // 重开命中缓存，不再发文件请求
     await act(async () => {
       rows[0]!.props.onClick({})
     })
     expect(fetchMock.mock.calls.filter(([path]: readonly unknown[]) => path === FILES_PATH)).toHaveLength(1)
     expect(texts(tree)).toContain('src/new.ts')
+    // 紧凑行点击收起
     await act(async () => {
-      tree.root
-        .findByProps({ 'aria-expanded': true })
-        .props.onKeyDown({ key: 'Enter', preventDefault: () => {} })
+      tree.root.findByProps({ 'aria-expanded': true }).props.onClick({})
     })
-    // 划选行内文本松开时派发的 click 只当选择
-    vi.stubGlobal('window', { getSelection: () => ({ isCollapsed: false, anchorNode: {} }) })
-    await act(async () => {
-      rows[0]!.props.onClick({ currentTarget: { contains: () => true } })
-    })
-    expect(
-      tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] === false),
-    ).toHaveLength(3)
+    expect(collapsedRows()).toHaveLength(3)
+  })
+
+  it('悬停驻留弹出提交卡片，离开立即隐藏，移向卡片不隐藏；展开行同样弹出', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    vi.useFakeTimers()
+    try {
+      let tree!: ReactTestRenderer
+      await act(async () => {
+        tree = renderBody('/workspace')
+      })
+      const row = () =>
+        tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] !== undefined)[0]!
+      const enter = () =>
+        row().props.onMouseEnter({
+          currentTarget: { getBoundingClientRect: () => ({ top: 0, bottom: 100 }) },
+          clientX: 100,
+        })
+      await act(async () => {
+        enter()
+      })
+      // 延时未到不弹卡片
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 悬停期间移动指针：卡片弹在最新指针位置（定位几何由 placeCard 单测覆盖）
+      await act(async () => {
+        row().props.onMouseMove({
+          currentTarget: { getBoundingClientRect: () => ({ top: 0, bottom: 100 }) },
+          clientX: 300,
+        })
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      const card = texts(tree)
+      expect(card).toContain('Li Lei')
+      expect(card).toContain(formatRelative(1_700_000_100 * 1000))
+      expect(card).toContain(formatTime(1_700_000_100 * 1000))
+      expect(card).toContain('merge feature')
+      expect(card).toContain('合并 feature 分支')
+      expect(card).toContain(HEAD_HASH.slice(0, 7))
+      expect(card).toContain(t('log.summary', { count: 4, added: 13, deleted: 3 }))
+      // 离开行立即隐藏，无宽限定时
+      await act(async () => {
+        row().props.onMouseLeave({ relatedTarget: null })
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 行移向卡片不隐藏：卡片可移入停留选中复制
+      await act(async () => {
+        enter()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+      await act(async () => {
+        row().props.onMouseLeave({ relatedTarget: { closest: () => ({}) } })
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+      // 从卡片离开到别处：立即隐藏
+      await act(async () => {
+        tree.root.findByProps({ role: 'tooltip' }).props.onMouseLeave({ relatedTarget: null })
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 从卡片移回本行：原样保留，无需重新驻留
+      await act(async () => {
+        enter()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      await act(async () => {
+        tree.root
+          .findByProps({ role: 'tooltip' })
+          .props.onMouseLeave({ relatedTarget: { closest: () => ({}) } })
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+      // 展开行同样挂悬停入口：驻留后弹出卡片（用户已确认）
+      await act(async () => {
+        row().props.onClick({})
+      })
+      await act(async () => {
+        enter()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('卡片只属于一次驻留：换行立即收起并重新计时', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    vi.useFakeTimers()
+    try {
+      let tree!: ReactTestRenderer
+      await act(async () => {
+        tree = renderBody('/workspace')
+      })
+      const rows = () =>
+        tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] !== undefined)
+      const enter = (index: number) =>
+        rows()[index]!.props.onMouseEnter({
+          currentTarget: { getBoundingClientRect: () => ({ top: 0, bottom: 100 }) },
+          clientX: 100,
+        })
+      await act(async () => {
+        enter(0)
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+      // 换到另一行：立即收起旧卡片，而不是给它续命
+      await act(async () => {
+        rows()[0]!.props.onMouseLeave({ relatedTarget: null })
+        enter(1)
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 新行重新驻留：满 500ms 才弹出新行内容，不因旧卡片在场而提前
+      await act(async () => {
+        vi.advanceTimersByTime(120)
+      })
+      expect(texts(tree)).not.toContain('Han Meimei')
+      await act(async () => {
+        vi.advanceTimersByTime(380)
+      })
+      expect(texts(tree)).toContain('Han Meimei')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('悬停弹出延时可在插件详情页配置，改动即时生效', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    vi.useFakeTimers()
+    try {
+      setHoverDelay(1000)
+      let tree!: ReactTestRenderer
+      await act(async () => {
+        tree = renderBody('/workspace')
+      })
+      const row = () =>
+        tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] !== undefined)[0]!
+      await act(async () => {
+        row().props.onMouseEnter({
+          currentTarget: { getBoundingClientRect: () => ({ top: 0, bottom: 100 }) },
+          clientX: 100,
+        })
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      // 默认 500ms 已过，配置的 1000ms 未到：不弹
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+    } finally {
+      vi.useRealTimers()
+      setHoverDelay(DEFAULT_HOVER_DELAY_MS)
+    }
+  })
+
+  it('插件详情页配置面板：编辑后经保存写入共享 store，非法输入禁用保存', async () => {
+    let tree!: ReactTestRenderer
+    try {
+      await act(async () => {
+        tree = create(<ConfigSection {...({} as ComponentProps<typeof ConfigSection>)} t={t} />)
+      })
+      const input = () => tree.root.findByProps({ id: 'dsh-git-hover-delay' })
+      const save = () =>
+        tree.root
+          .findAll((node: ReactTestInstance) => node.type === 'button')
+          .find((node) => node.props.children === t('config.save'))!
+      expect(input().props.value).toBe(String(DEFAULT_HOVER_DELAY_MS))
+      expect(save().props.disabled).toBe(true)
+      // 编辑为 300：保存前不落库，保存后写入 store 并回显
+      await act(async () => {
+        input().props.onChange({ target: { value: '300' } })
+      })
+      expect(getHoverDelay()).toBe(DEFAULT_HOVER_DELAY_MS)
+      expect(save().props.disabled).toBe(false)
+      await act(async () => {
+        save().props.onClick()
+      })
+      expect(getHoverDelay()).toBe(300)
+      expect(input().props.value).toBe('300')
+      expect(save().props.disabled).toBe(true)
+      // 越界输入：按钮旁行内报错，保存禁用
+      await act(async () => {
+        input().props.onChange({ target: { value: '9999' } })
+      })
+      expect(texts(tree)).toContain(t('config.invalid'))
+      expect(save().props.disabled).toBe(true)
+    } finally {
+      setHoverDelay(DEFAULT_HOVER_DELAY_MS)
+    }
   })
 
   it('扫描截断与空提交分别给出提示', async () => {

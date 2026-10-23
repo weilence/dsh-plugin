@@ -1,11 +1,13 @@
-/** 右侧栏「Git 仓库」标签：注册标签类型与标签体。 */
+/** 右侧栏「Git 仓库」标签：注册标签类型、标签体与插件详情页配置面板。 */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import { ConfigSection } from './client/ConfigSection'
 import { GuideArtworkGit } from './client/GuideArtworkGit'
 import { ReposBody, type ReposBodyInjected } from './client/ReposBody'
 import { en, NS, zh } from './client/locales'
@@ -51,9 +53,40 @@ export function apply(ctx: Context): void {
               dateStyle: 'short',
               timeStyle: 'short',
             }),
+          formatRelative: (timestampMs) => {
+            const diff = timestampMs - Date.now()
+            const units: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
+              ['year', 365 * 86_400_000],
+              ['month', 30 * 86_400_000],
+              ['week', 7 * 86_400_000],
+              ['day', 86_400_000],
+              ['hour', 3_600_000],
+              ['minute', 60_000],
+              ['second', 1_000],
+            ]
+            const formatter = new Intl.RelativeTimeFormat(ctx.locale.getSnapshot().active, {
+              numeric: 'auto',
+            })
+            for (const [unit, span] of units) {
+              if (Math.abs(diff) >= span) return formatter.format(Math.round(diff / span), unit)
+            }
+            return formatter.format(0, 'second')
+          },
         }),
       },
       ReposBody,
+    ),
+  )
+  // 插件详情页配置面板（keyed 包名）：设置 → 插件 → 点开「Git 仓库」即见，
+  // 悬停弹出延时的编辑入口收敛在此，不再占提交图头部
+  ctx.slots.inject('plugins.bundle.config', () =>
+    ctx.slots.register(
+      {
+        name: 'plugins.bundle.config',
+        key: GIT_ID,
+        locale: NS,
+      },
+      ConfigSection,
     ),
   )
 }

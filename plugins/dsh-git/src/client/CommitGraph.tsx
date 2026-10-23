@@ -1,15 +1,29 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { errMsg } from '@dsh-plugins/shared'
 import type { GitCommitInfo, GitFileChange } from '../shared'
 import type { CommitLayout } from './graph'
-import { layoutLanes } from './graph'
+import { layoutLanes, placeCard } from './graph'
 import { readCommitFiles } from './api'
 import type { GitT } from './locales'
 import css from './CommitGraph.module.css'
 
 const LANE_WIDTH = 14
-const ROW_HEIGHT = 44
+const ROW_HEIGHT = 28
 const DOT_RADIUS = 3.5
+
+/** 悬停卡片锚点：触发弹出时的指针 x 与所在行缘（卡片贴行缘、横向对齐指针）。 */
+interface HoverAnchor {
+  commit: GitCommitInfo
+  pointerX: number
+  rowTop: number
+  rowBottom: number
+}
+
+/** 行上悬停指针事件的最小切片（指针 x 与所在行缘）。 */
+interface HoverPointerEvent {
+  currentTarget: { getBoundingClientRect: () => { top: number; bottom: number } }
+  clientX: number
+}
 /** 泳道固定调色板（GitLens 风格的多色系）。 */
 const LANE_COLORS = ['#4a9eff', '#ff7b72', '#3fb950', '#d29922', '#bc8cff', '#39c5cf', '#f778ba', '#8b949e']
 
@@ -40,6 +54,9 @@ type FilesView =
   | { phase: 'failed'; error: string }
 
 function RefChips({ commit }: { commit: GitCommitInfo }) {
+  if (commit.branches.length === 0 && commit.remotes.length === 0 && commit.tags.length === 0) {
+    return null
+  }
   return (
     <span className={css.chips}>
       {commit.branches.map((branch) => (
@@ -81,7 +98,6 @@ function CommitFiles({ view, t }: { view: FilesView | undefined; t: GitT }) {
   if (view.files.length === 0) return <p className={css.filesNote}>{t('log.noFiles')}</p>
   return (
     <div className={css.filesBlock}>
-      <span className={css.filesCount}>{t('log.files', { count: view.files.length })}</span>
       <ul className={css.files}>
         {view.files.map((file) => {
           const display = file.oldPath === undefined ? file.path : `${file.oldPath} → ${file.path}`
@@ -105,15 +121,20 @@ function CommitFiles({ view, t }: { view: FilesView | undefined; t: GitT }) {
 
 /** 单行提交：strip 高度跟随内容列实测高度（取 max(常规行高)）。不能反过来观察
  *  行本身——strip 高度会撑住行高，收起详情时行尺寸不变、观察器不触发，高度回
- *  不去；内容列高度只由文本与详情决定，无反馈回路。穿越线与出边画到行底，与
- *  相邻行的连线保持连续；提交点恒锚在常规行高中点，与主题行对齐。 */
+ *  不去；内容列高度只由文本与详情决定，无反馈回路。穿越线全程直线；出边曲线
+ *  固定在常规行高内完成转向，展开区只延伸竖直直线到行底，与相邻行的连线保持
+ *  连续——展开不拉伸曲线；提交点恒锚在常规行高中点，与主题行对齐。 */
 function CommitRow({
   commit,
   row,
   width,
   expanded,
   filesView,
+  showMeta,
   onToggleExpanded,
+  onHoverStart,
+  onHoverMove,
+  onHoverLeave,
   t,
   formatTime,
 }: {
@@ -122,7 +143,11 @@ function CommitRow({
   width: number
   expanded: boolean
   filesView: FilesView | undefined
+  showMeta: boolean
   onToggleExpanded: () => void
+  onHoverStart: (event: HoverPointerEvent) => void
+  onHoverMove: (event: HoverPointerEvent) => void
+  onHoverLeave: () => void
   t: GitT
   formatTime: (timestampMs: number) => string
 }) {
@@ -158,19 +183,22 @@ function CommitRow({
       tabIndex={0}
       aria-expanded={expanded}
       data-expanded={expanded || undefined}
+      data-hash={commit.hash}
       onClick={(event) => {
-        // 拖选行内文本（主题 / 提交号 / 邮箱 / 文件路径）松开时也派发 click，选中即
-        // 切换会让选择刚完成就触发展开 / 收起——选区锚点在本行内的 click 只当选择
-        const selection = window.getSelection()
-        if (
-          selection !== null &&
-          !selection.isCollapsed &&
-          selection.anchorNode !== null &&
-          event.currentTarget.contains(selection.anchorNode)
-        ) {
-          return
-        }
+        // 展开的详情区（refs 芯片 / 文件变更清单，data-detail 标记）点击完全不参
+        // 与切换——那里是查阅与滚动的区域；收起只由紧凑行的点击与键盘承担
+        const target = event.target as Element | null | undefined
+        if (target !== undefined && target !== null && target.closest('[data-detail]') !== null) return
         onToggleExpanded()
+      }}
+      onMouseEnter={onHoverStart}
+      onMouseMove={onHoverMove}
+      onMouseLeave={(event) => {
+        // 离开立即隐藏（用户已确认，无宽限）：relatedTarget 指向悬停卡片时不隐藏，
+        // 卡片可移入选中复制；其余去向（换行 / 离窗）立即收起
+        const next = event.relatedTarget as Element | null
+        if (next !== null && next.closest('[data-hover-card]') !== null) return
+        onHoverLeave()
       }}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -199,31 +227,41 @@ function CommitRow({
           />
         ))}
         {row.outgoing.map((edge, i) => (
-          <path
-            key={`o${i}`}
-            d={edgePath(edge.from, edge.to, mid, height)}
-            stroke={laneColor(edge.to)}
-            strokeWidth="1.5"
-            fill="none"
-          />
+          <Fragment key={`o${i}`}>
+            {/* 出边曲线固定在常规行高内完成转向（与普通行一致），展开撑出的高度
+                只以竖直直线延伸到行底——展开不把曲线拉伸开 */}
+            <path
+              d={edgePath(edge.from, edge.to, mid, ROW_HEIGHT)}
+              stroke={laneColor(edge.to)}
+              strokeWidth="1.5"
+              fill="none"
+            />
+            {height > ROW_HEIGHT && (
+              <path
+                d={`M${laneX(edge.to)},${ROW_HEIGHT}L${laneX(edge.to)},${height}`}
+                stroke={laneColor(edge.to)}
+                strokeWidth="1.5"
+                fill="none"
+              />
+            )}
+          </Fragment>
         ))}
         <circle cx={laneX(row.lane)} cy={mid} r={DOT_RADIUS} fill={laneColor(row.lane)} />
       </svg>
       <div ref={mainRef} className={css.main}>
-        <div className={css.line1}>
-          <RefChips commit={commit} />
-          <span className={css.subject} title={commit.subject}>
-            {commit.subject}
-          </span>
-        </div>
-        <div className={css.line2}>
-          <span className={css.author}>{commit.authorName}</span>
-          <span className={css.time}>{formatTime(commit.timestamp * 1000)}</span>
+        <div className={css.line}>
+          {/* 不挂原生 title：悬停有提交卡片，原生提示会与之重复 */}
+          <span className={css.subject}>{commit.subject}</span>
+          {showMeta && (
+            <>
+              <span className={css.author}>{commit.authorName}</span>
+              <span className={css.time}>{formatTime(commit.timestamp * 1000)}</span>
+            </>
+          )}
         </div>
         {expanded && (
-          <div className={css.detail}>
-            <span className={css.hash}>{commit.hash}</span>
-            <span className={css.email}>{commit.authorEmail}</span>
+          <div className={css.detail} data-detail="">
+            <RefChips commit={commit} />
             <CommitFiles view={filesView} t={t} />
           </div>
         )}
@@ -232,55 +270,143 @@ function CommitRow({
   )
 }
 
-/** 泳道提交图：每行一段 SVG strip（穿越竖线 + 进出弧线 + 提交点）加文本列；展开的
- *  提交按需读取文件变更并缓存（失败可重试，切换仓库清空）。 */
+/** 泳道提交图：每行一段 SVG strip（穿越竖线 + 进出弧线 + 提交点）加文本列；展开与
+ *  悬停按需读取文件变更并缓存（失败可重试，切换仓库清空）；悬停行驻留可配置延时
+ *  后在行缘之外紧贴行弹出提交卡片（作者、相对 / 绝对时间、主题、正文、变更统计、
+ *  短提交号，横向对齐指针，放不下自动翻面），卡片可移入并选中复制；卡片只属于
+ *  一次驻留——换到另一行立即收起并重新驻留，离开行与卡片、点击切换、滚动即隐藏。 */
 export function CommitGraph({
   repo,
   commits,
   truncated,
+  showMeta,
+  hoverDelayMs,
   t,
   formatTime,
+  formatRelative,
 }: {
   repo: string
   commits: readonly GitCommitInfo[]
   truncated: boolean
+  showMeta: boolean
+  hoverDelayMs: number
   t: GitT
   formatTime: (timestampMs: number) => string
+  formatRelative: (timestampMs: number) => string
 }) {
   const layout = useMemo(() => layoutLanes(commits), [commits])
   const [expanded, setExpanded] = useState<string | null>(null)
   const [filesCache, setFilesCache] = useState<ReadonlyMap<string, FilesView>>(new Map())
   const requested = useRef<ReadonlySet<string>>(new Set())
+  const [hover, setHover] = useState<HoverAnchor | null>(null)
+  const [cardPos, setCardPos] = useState<{ top: number; left: number } | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pointerRef = useRef<{ x: number; rowTop: number; rowBottom: number }>({
+    x: 0,
+    rowTop: 0,
+    rowBottom: 0,
+  })
   const width = layout.laneCount * LANE_WIDTH
 
-  // 请求过的哈希记在 ref：缓存写入不重触发拉取，收起再展开直接命中缓存
+  // 卡片渲染后同步量实际尺寸、行缘贴合定位：layout effect 跑在绘制前，无闪动。
+  // 纵向贴行底（放不下贴行顶），横向对齐指针 x（placeCard 纯函数）。
+  useLayoutEffect(() => {
+    if (hover === null) {
+      setCardPos(null)
+      return
+    }
+    const element = cardRef.current
+    if (element === null) return
+    setCardPos(
+      placeCard(
+        hover.pointerX,
+        hover.rowTop,
+        hover.rowBottom,
+        element.offsetWidth,
+        element.offsetHeight,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    )
+  }, [hover])
+
+  // 立即收起卡片并中止未触发的弹出（用户已确认：离开立即隐藏，无宽限定时）。
+  // 「移向卡片 / 移回本行不隐藏」由行与卡片的 onMouseLeave 以 relatedTarget 判向。
+  const cancelHover = (): void => {
+    if (hoverTimer.current !== null) {
+      clearTimeout(hoverTimer.current)
+      hoverTimer.current = null
+    }
+    setHover(null)
+  }
+
+  useEffect(() => cancelHover, [])
+
+  // 展开与悬停共用同一份按需缓存：悬停半秒即触发拉取，点击展开时多半已就绪
+  const activeHash = expanded ?? hover?.commit.hash ?? null
   useEffect(() => {
-    if (expanded === null || requested.current.has(expanded)) return
-    requested.current = new Set(requested.current).add(expanded)
+    if (activeHash === null || requested.current.has(activeHash)) return
+    requested.current = new Set(requested.current).add(activeHash)
     const controller = new AbortController()
-    setFilesCache((cache) => new Map(cache).set(expanded, { phase: 'loading' }))
-    readCommitFiles(repo, expanded, controller.signal)
+    setFilesCache((cache) => new Map(cache).set(activeHash, { phase: 'loading' }))
+    readCommitFiles(repo, activeHash, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return
-        setFilesCache((cache) => new Map(cache).set(expanded, { phase: 'done', files: result.files }))
+        setFilesCache((cache) => new Map(cache).set(activeHash, { phase: 'done', files: result.files }))
       })
       .catch((error: unknown) => {
-        // 失败不驻留缓存，重新展开即重试
-        requested.current = new Set([...requested.current].filter((hash) => hash !== expanded))
+        // 失败不驻留缓存，重新展开 / 悬停即重试
+        requested.current = new Set([...requested.current].filter((hash) => hash !== activeHash))
         if (controller.signal.aborted) return
-        setFilesCache((cache) => new Map(cache).set(expanded, { phase: 'failed', error: errMsg(error) }))
+        setFilesCache((cache) => new Map(cache).set(activeHash, { phase: 'failed', error: errMsg(error) }))
       })
     return () => controller.abort()
-  }, [expanded, repo])
+  }, [activeHash, repo])
 
   useEffect(() => {
     requested.current = new Set()
     setFilesCache(new Map())
   }, [repo])
 
+  // 卡片只属于一次驻留（用户已确认）：指针换到另一行，旧卡片立即收起、清空定时
+  // 后重新驻留，扫过列表不会触发；同一行（含从卡片移回本行）不重置计时、不挪锚点。
+  // 同行判断先行，其余一律先收再驻——不依赖离开 / 进入两次事件间的渲染刷新。
+  const scheduleHover = (commit: GitCommitInfo, event: HoverPointerEvent): void => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    pointerRef.current = { x: event.clientX, rowTop: rect.top, rowBottom: rect.bottom }
+    if (hover !== null && hover.commit.hash === commit.hash) return
+    cancelHover()
+    hoverTimer.current = setTimeout(() => {
+      hoverTimer.current = null
+      setHover({
+        commit,
+        pointerX: pointerRef.current.x,
+        rowTop: pointerRef.current.rowTop,
+        rowBottom: pointerRef.current.rowBottom,
+      })
+    }, hoverDelayMs)
+  }
+
+  const toggle = (hash: string): void => {
+    cancelHover()
+    setExpanded((current) => (current === hash ? null : hash))
+  }
+
+  const hoverFiles = hover === null ? undefined : filesCache.get(hover.commit.hash)
+  const hoverBody = hover === null ? '' : (hover.commit.body ?? '')
+  const hoverSummary =
+    hoverFiles?.phase === 'done'
+      ? {
+          count: hoverFiles.files.length,
+          added: hoverFiles.files.reduce((total, file) => total + (file.added ?? 0), 0),
+          deleted: hoverFiles.files.reduce((total, file) => total + (file.deleted ?? 0), 0),
+        }
+      : null
+
   return (
     <div className={css.wrap}>
-      <ul className={css.commits}>
+      <ul className={css.commits} onScroll={cancelHover}>
         {commits.map((commit, index) => (
           <CommitRow
             key={commit.hash}
@@ -289,7 +415,14 @@ export function CommitGraph({
             width={width}
             expanded={expanded === commit.hash}
             filesView={expanded === commit.hash ? filesCache.get(commit.hash) : undefined}
-            onToggleExpanded={() => setExpanded(expanded === commit.hash ? null : commit.hash)}
+            showMeta={showMeta}
+            onToggleExpanded={() => toggle(commit.hash)}
+            onHoverStart={(event) => scheduleHover(commit, event)}
+            onHoverMove={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              pointerRef.current = { x: event.clientX, rowTop: rect.top, rowBottom: rect.bottom }
+            }}
+            onHoverLeave={cancelHover}
             t={t}
             formatTime={formatTime}
           />
@@ -299,6 +432,41 @@ export function CommitGraph({
         <span>{t('log.count', { count: commits.length })}</span>
         {truncated ? <span>{t('log.truncated')}</span> : null}
       </footer>
+      {hover !== null && (
+        <div
+          ref={cardRef}
+          className={css.card}
+          style={cardPos ?? { visibility: 'hidden' }}
+          role="tooltip"
+          data-hover-card=""
+          onMouseLeave={(event) => {
+            // 移回本行不隐藏（行上悬停原样保留），其余离开立即隐藏
+            const next = event.relatedTarget as Element | null
+            if (next !== null && next.closest(`[data-hash="${hover.commit.hash}"]`) !== null) return
+            cancelHover()
+          }}
+        >
+          <p className={css.cardHead}>
+            <span className={css.cardAuthor}>{hover.commit.authorName}</span>
+            <span className={css.cardTime}>
+              {formatRelative(hover.commit.timestamp * 1000)} ({formatTime(hover.commit.timestamp * 1000)})
+            </span>
+          </p>
+          <p className={css.cardSubject}>{hover.commit.subject}</p>
+          {/* host half 未重启的升级窗口内 body 字段可能缺席 */}
+          {hoverBody.length > 0 && <p className={css.cardBody}>{hoverBody}</p>}
+          {hoverSummary !== null && hoverSummary.count > 0 && (
+            <p className={css.cardSummary}>
+              {t('log.summary', {
+                count: hoverSummary.count,
+                added: hoverSummary.added,
+                deleted: hoverSummary.deleted,
+              })}
+            </p>
+          )}
+          <p className={css.cardHash}>{hover.commit.hash.slice(0, 7)}</p>
+        </div>
+      )}
     </div>
   )
 }

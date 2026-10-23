@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutLanes } from '../src/client/graph'
+import { layoutLanes, placeCard } from '../src/client/graph'
 
 const commit = (hash: string, ...parents: string[]) => ({ hash, parents })
 
@@ -69,5 +69,27 @@ describe('提交图泳道布局', () => {
       outgoing: [],
       through: [],
     })
+  })
+})
+
+describe('悬停卡片落点', () => {
+  it('空间充足时贴行下缘、左缘对齐指针（右下）', () => {
+    expect(placeCard(100, 100, 128, 300, 200, 1920, 1080)).toEqual({ left: 100, top: 128 })
+  })
+
+  it('右侧放不下翻到指针左侧：右缘对齐指针（左下）', () => {
+    expect(placeCard(1700, 100, 128, 300, 200, 1920, 1080)).toEqual({ left: 1400, top: 128 })
+  })
+
+  it('下方放不下翻到行上方：底缘贴行顶（右上）', () => {
+    expect(placeCard(100, 950, 978, 300, 200, 1920, 1080)).toEqual({ left: 100, top: 750 })
+  })
+
+  it('右下都放不下则同时翻面（左上）', () => {
+    expect(placeCard(1700, 950, 978, 300, 200, 1920, 1080)).toEqual({ left: 1400, top: 750 })
+  })
+
+  it('极小视口都放不下时贴边缘收拢', () => {
+    expect(placeCard(100, 0, 28, 300, 200, 200, 100)).toEqual({ left: 8, top: 8 })
   })
 })

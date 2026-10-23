@@ -1,17 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Button, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { errMsg } from '@dsh-plugins/shared'
-import sharedStyles from '@dsh-plugins/client-ui/styles'
 import type { GitLog, GitRepoInfo, GitRepoScan } from '../shared'
 import { readLog, scanRepos } from './api'
 import { CommitGraph } from './CommitGraph'
+import { getHoverDelay, subscribeHoverDelay } from './hoverDelay'
 import type { GitT } from './locales'
 import css from './ReposBody.module.css'
 
 export interface ReposBodyInjected {
   /** 按宿主语言格式化时间戳（毫秒）。 */
   formatTime: (timestampMs: number) => string
+  /** 按宿主语言格式化为相对时间（如「17 小时前」）。 */
+  formatRelative: (timestampMs: number) => string
 }
 
 export type ReposBodyProps = PropsRuntime<'sidebar.right.pane.tab'> &
@@ -38,12 +40,16 @@ function selectDefault(
   return repos[0]?.root ?? null
 }
 
-export function ReposBody({ sessionId, useSessions, t, formatTime }: ReposBodyProps) {
+export function ReposBody({ sessionId, useSessions, t, formatTime, formatRelative }: ReposBodyProps) {
   const cwd = useSessions((state) => state.byId[sessionId]?.cwd)
   const [scan, setScan] = useState<Scan>({ phase: 'loading' })
   const [selected, setSelected] = useState<string | null>(null)
   const [log, setLog] = useState<Log>({ phase: 'idle' })
   const [refreshTick, setRefreshTick] = useState(0)
+  // 行内是否显示作者与时间；默认不显示，保持单行克制
+  const [showMeta, setShowMeta] = useState(false)
+  // 悬停弹出延时（毫秒）：插件详情页配置面板编辑，store 同步到本面板
+  const hoverDelayMs = useSyncExternalStore(subscribeHoverDelay, getHoverDelay, getHoverDelay)
   // 请求序号：新请求开始即作废未完成的旧结果，迟到响应不落屏
   const scanEpoch = useRef(0)
   const logEpoch = useRef(0)
@@ -106,6 +112,10 @@ export function ReposBody({ sessionId, useSessions, t, formatTime }: ReposBodyPr
             </option>
           ))}
         </select>
+        <label className={css.check}>
+          <input type="checkbox" checked={showMeta} onChange={(event) => setShowMeta(event.target.checked)} />
+          {t('options.authorTime')}
+        </label>
         <Tooltip label={t('refresh')} side="bottom" delayMs={500}>
           <Button
             variant="ghost"
@@ -117,19 +127,11 @@ export function ReposBody({ sessionId, useSessions, t, formatTime }: ReposBodyPr
           />
         </Tooltip>
       </header>
-      {selectedRepo !== undefined && (
+      {selectedRepo !== undefined && selectedRepo.kind !== 'standard' && (
         <div className={css.summary}>
-          <span className={`${sharedStyles.code} ${css.summaryPath}`} title={selectedRepo.root}>
-            {selectedRepo.root}
+          <span className={css.summaryKind}>
+            {t(selectedRepo.kind === 'bare' ? 'repo.bare' : 'repo.linked')}
           </span>
-          {selectedRepo.branch !== undefined && (
-            <span className={`${sharedStyles.code} ${css.summaryBranch}`}>{selectedRepo.branch}</span>
-          )}
-          {selectedRepo.kind !== 'standard' && (
-            <span className={css.summaryKind}>
-              {t(selectedRepo.kind === 'bare' ? 'repo.bare' : 'repo.linked')}
-            </span>
-          )}
         </div>
       )}
       {scan.phase === 'done' && scan.scan.truncated && <p className={css.note}>{t('scan.truncated')}</p>}
@@ -162,8 +164,11 @@ export function ReposBody({ sessionId, useSessions, t, formatTime }: ReposBodyPr
           repo={effectiveSelected!}
           commits={log.log.commits}
           truncated={log.log.truncated}
+          showMeta={showMeta}
+          hoverDelayMs={hoverDelayMs}
           t={t}
           formatTime={formatTime}
+          formatRelative={formatRelative}
         />
       )}
     </div>

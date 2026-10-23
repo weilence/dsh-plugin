@@ -46,6 +46,8 @@ export interface GitCommitInfo {
   /** 作者时间，Unix 秒。 */
   timestamp: number
   subject: string
+  /** 提交正文（subject 之外的消息体）；无正文为空字符串。 */
+  body: string
   /** 当前检出的本地分支短名；HEAD 指向的提交上给出。 */
   headBranch?: string
   /** 指向该提交的本地分支短名。 */

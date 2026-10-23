@@ -4,8 +4,8 @@ import type { GitCommitFiles, GitCommitInfo, GitFileChange, GitLog } from './sha
 
 const exec = promisify(execFile)
 
-// 字段/记录分隔符用 C0 控制字符，subject 里的可见字符不会与之冲突
-const LOG_FORMAT = '--pretty=format:%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1e'
+// 字段/记录分隔符用 C0 控制字符，subject 与正文里的可见字符（含换行）不会与之冲突
+const LOG_FORMAT = '--pretty=format:%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%b%x1e'
 const REF_FORMAT = '--format=%(HEAD)%00%(refname)%00%(objectname)'
 const GIT_TIMEOUT_MS = 10_000
 const MAX_BUFFER = 8 * 1024 * 1024
@@ -62,11 +62,12 @@ function parseLog(output: string) {
     authorEmail: string
     timestamp: number
     subject: string
+    body: string
   }[] = []
   for (const record of output.split('\x1e')) {
     const trimmed = record.trim()
     if (trimmed.length === 0) continue
-    const [hash, parents, authorName, authorEmail, timestamp, subject] = trimmed.split('\x1f')
+    const [hash, parents, authorName, authorEmail, timestamp, subject, body = ''] = trimmed.split('\x1f')
     commits.push({
       hash,
       parents: parents.length === 0 ? [] : parents.split(' '),
@@ -74,6 +75,7 @@ function parseLog(output: string) {
       authorEmail,
       timestamp: Number(timestamp),
       subject,
+      body,
     })
   }
   return commits
