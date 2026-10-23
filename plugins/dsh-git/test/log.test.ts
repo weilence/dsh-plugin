@@ -36,7 +36,9 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true })
+  // Windows 上刚退出的 git 子进程的 cwd 句柄释放有滞后（杀软扫描也会短暂持有），
+  // rm 会偶发 EBUSY；maxRetries 内建重试恰好覆盖，POSIX 无错误时不触发——同一写法两平台一致
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
 describe('git log 读取', () => {
