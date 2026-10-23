@@ -476,6 +476,67 @@ describe('Git 仓库标签体', () => {
     }
   })
 
+  it('展开详情不属于行驻留：移入即收起，从相邻行直入不驻留，移回紧凑行重新驻留', async () => {
+    vi.stubGlobal('fetch', stubFetch())
+    vi.useFakeTimers()
+    try {
+      let tree!: ReactTestRenderer
+      await act(async () => {
+        tree = renderBody('/workspace')
+      })
+      const row = () =>
+        tree.root.findAll((node: ReactTestInstance) => node.props['aria-expanded'] !== undefined)[0]!
+      // 展开行远高于紧凑行，验证锚点与驻留判定都只认紧凑行部分
+      const rect = { top: 40, bottom: 300 }
+      const enter = (target?: unknown) =>
+        row().props.onMouseEnter({
+          currentTarget: { getBoundingClientRect: () => rect },
+          clientX: 100,
+          target,
+        })
+      const move = (clientX: number, target?: unknown) =>
+        row().props.onMouseMove({ currentTarget: { getBoundingClientRect: () => rect }, clientX, target })
+      const detailTarget = { closest: (selector: string) => (selector === '[data-detail]' ? {} : null) }
+      await act(async () => {
+        row().props.onClick({})
+      })
+      // 从相邻行直接进入展开详情：不算进入行，不驻留
+      await act(async () => {
+        enter(detailTarget)
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 进入紧凑行驻留弹出后，移入详情等同离开：立即收起
+      await act(async () => {
+        enter()
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(500)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+      await act(async () => {
+        move(120, detailTarget)
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      // 移回紧凑行重新驻留：不满延时不弹，满延时再弹
+      await act(async () => {
+        move(130)
+      })
+      await act(async () => {
+        vi.advanceTimersByTime(120)
+      })
+      expect(texts(tree)).not.toContain('合并 feature 分支')
+      await act(async () => {
+        vi.advanceTimersByTime(380)
+      })
+      expect(texts(tree)).toContain('合并 feature 分支')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('悬停弹出延时可在插件详情页配置，改动即时生效', async () => {
     vi.stubGlobal('fetch', stubFetch())
     vi.useFakeTimers()

@@ -3,13 +3,12 @@ import { createPortal } from 'react-dom'
 import { errMsg } from '@dsh-plugins/shared'
 import type { GitCommitInfo, GitFileChange } from '../shared'
 import type { CommitLayout } from './graph'
-import { layoutLanes, placeCard } from './graph'
+import { layoutLanes, placeCard, ROW_HEIGHT, rowAnchorSpan } from './graph'
 import { readCommitFiles } from './api'
 import type { GitT } from './locales'
 import css from './CommitGraph.module.css'
 
 const LANE_WIDTH = 14
-const ROW_HEIGHT = 28
 const DOT_RADIUS = 3.5
 
 /** 悬停卡片的 portal 目标：卡片是视口级 fixed 覆盖面，必须挂在 body——留在面板
@@ -31,6 +30,12 @@ interface HoverAnchor {
 interface HoverPointerEvent {
   currentTarget: { getBoundingClientRect: () => { top: number; bottom: number } }
   clientX: number
+}
+
+/** 指针是否落在展开详情区（refs 芯片 / 文件清单）：该区域不属于行驻留（用户已确认）。 */
+const overDetail = (event: { target?: EventTarget | null }): boolean => {
+  const target = event.target as Element | null | undefined
+  return target !== undefined && target !== null && target.closest('[data-detail]') !== null
 }
 /** 泳道固定调色板（GitLens 风格的多色系）。 */
 const LANE_COLORS = ['#4a9eff', '#ff7b72', '#3fb950', '#d29922', '#bc8cff', '#39c5cf', '#f778ba', '#8b949e']
@@ -199,8 +204,20 @@ function CommitRow({
         if (target !== undefined && target !== null && target.closest('[data-detail]') !== null) return
         onToggleExpanded()
       }}
-      onMouseEnter={onHoverStart}
-      onMouseMove={onHoverMove}
+      onMouseEnter={(event) => {
+        // 从相邻行直接进入展开详情不算进入行：详情区不属于行驻留，不驻留
+        if (overDetail(event)) return
+        onHoverStart(event)
+      }}
+      onMouseMove={(event) => {
+        // 移入展开详情等同离开（用户已确认）：立即收起；锚点跟踪与重新驻留只
+        // 发生在紧凑行上
+        if (overDetail(event)) {
+          onHoverLeave()
+          return
+        }
+        onHoverMove(event)
+      }}
       onMouseLeave={(event) => {
         // 离开立即隐藏（用户已确认，无宽限）：relatedTarget 指向悬停卡片时不隐藏，
         // 卡片可移入选中复制；其余去向（换行 / 离窗）立即收起
@@ -378,13 +395,18 @@ export function CommitGraph({
     setFilesCache(new Map())
   }, [repo])
 
-  // 卡片只属于一次驻留（用户已确认）：指针换到另一行，旧卡片立即收起、清空定时
-  // 后重新驻留，扫过列表不会触发；同一行（含从卡片移回本行）不重置计时、不挪锚点。
-  // 同行判断先行，其余一律先收再驻——不依赖离开 / 进入两次事件间的渲染刷新。
+  // 卡片只属于一次驻留（用户已确认），mouseenter 与 mousemove 共用本调度：同行
+  // 已有卡片原样保留（不重置计时、不挪锚点）；驻留进行中只跟踪锚点——mousemove
+  // 高频触发，重置计时会让弹出永不到来；其余（换行 / 驻留被取消后行内移动）一
+  // 律先收再驻、重新计时，不依赖离开 / 进入两次事件间的渲染刷新。锚点行缘只取
+  // 紧凑行（rowAnchorSpan）——卡片贴选中行底，不贴展开详情之下的整行底。
   const scheduleHover = (commit: GitCommitInfo, event: HoverPointerEvent): void => {
-    const rect = event.currentTarget.getBoundingClientRect()
-    pointerRef.current = { x: event.clientX, rowTop: rect.top, rowBottom: rect.bottom }
+    pointerRef.current = {
+      x: event.clientX,
+      ...rowAnchorSpan(event.currentTarget.getBoundingClientRect().top),
+    }
     if (hover !== null && hover.commit.hash === commit.hash) return
+    if (hoverTimer.current !== null) return
     cancelHover()
     hoverTimer.current = setTimeout(() => {
       hoverTimer.current = null
@@ -464,10 +486,7 @@ export function CommitGraph({
             showMeta={showMeta}
             onToggleExpanded={() => toggle(commit.hash)}
             onHoverStart={(event) => scheduleHover(commit, event)}
-            onHoverMove={(event) => {
-              const rect = event.currentTarget.getBoundingClientRect()
-              pointerRef.current = { x: event.clientX, rowTop: rect.top, rowBottom: rect.bottom }
-            }}
+            onHoverMove={(event) => scheduleHover(commit, event)}
             onHoverLeave={cancelHover}
             t={t}
             formatTime={formatTime}

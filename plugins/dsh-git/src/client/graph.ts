@@ -96,6 +96,17 @@ export function layoutLanes(commits: readonly { hash: string; parents: readonly 
 /** 悬停卡片与视口边缘的安全边距（像素）。 */
 export const CARD_MARGIN_PX = 8
 
+/** 常规（收起）行高：泳道几何、行高亮带与悬停锚点的基准；展开行由内容撑高。 */
+export const ROW_HEIGHT = 28
+
+/**
+ * 悬停锚点的行缘区间（用户已确认）：只取紧凑行部分——行顶到行顶加常规行高，
+ * 展开详情不算行缘，卡片贴紧凑行缘而非整行底（展开时整行底在详情之下）。
+ */
+export function rowAnchorSpan(rectTop: number): { rowTop: number; rowBottom: number } {
+  return { rowTop: rectTop, rowBottom: rectTop + ROW_HEIGHT }
+}
+
 /**
  * 悬停卡片落点（行缘贴合锚定）：卡片紧贴所在行缘、显示在行之外——纵向默认行
  * 下方（顶缘贴行底），下方放不下翻到行上方（底缘贴行顶），上下都放不下贴视口

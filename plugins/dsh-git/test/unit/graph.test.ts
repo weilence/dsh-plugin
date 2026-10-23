@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { layoutLanes, placeCard } from '../../src/client/graph'
+import { layoutLanes, placeCard, ROW_HEIGHT, rowAnchorSpan } from '../../src/client/graph'
 
 const commit = (hash: string, ...parents: string[]) => ({ hash, parents })
 
@@ -69,6 +69,13 @@ describe('提交图泳道布局', () => {
       outgoing: [],
       through: [],
     })
+  })
+})
+
+describe('悬停锚点行缘', () => {
+  it('只取紧凑行：区间为行顶到行顶加常规行高，与行的实际（展开）高度无关', () => {
+    expect(rowAnchorSpan(40)).toEqual({ rowTop: 40, rowBottom: 68 })
+    expect(rowAnchorSpan(0)).toEqual({ rowTop: 0, rowBottom: ROW_HEIGHT })
   })
 })
 
