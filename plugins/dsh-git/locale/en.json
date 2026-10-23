@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git repositories",
+    "description": "Adds a \"Git repositories\" tab to the right sidebar: recursively scans the current session directory and its subdirectories, listing every Git repository's root, branch, and remote."
+  }
+}

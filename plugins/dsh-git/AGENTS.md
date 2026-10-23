@@ -1,0 +1,13 @@
+# dsh-git
+
+- 仓库判定三类：目录含 `.git` 目录（standard）、含 `.git` 文件（linked，按 `gitdir:` 指针解析，相对 / 绝对路径均可）、目录直接含 HEAD + objects + refs（bare）。分支解析 `HEAD`（`ref: refs/heads/` 前缀剥离；detached 40 位十六进制给短提交号），远端解析 `config` 的 `[remote "origin"]` url——**扫描发现链路全部读文件，不 spawn git**。
+- 扫描语义（用户已确认）：发现仓库后**继续下探**工作树（能发现嵌套仓库与子模块），但不进入 `.git` 内部、剪枝目录（`node_modules` 等，见 `scan.ts` 的 `PRUNED_DIRS`）与裸仓库内部；符号链接目录不跟随（dirent 判定天然如此）。深度 / 目录 / 仓库三上限超限置 `truncated`；深度之外未访问不算截断。
+- 提交图链路（`src/log.ts`，用户已确认）：host spawn git——仓库先例 dsh-mcp。只读命令 `git log --topo-order --all` 与 `git for-each-ref`；execFile 无 shell、args 数组直传、10s 超时、`GIT_OPTIONAL_LOCKS=0`；字段分隔 `\x1f`、记录分隔 `\x1e`（subject 不冲突）。refs 分类走 for-each-ref 的命名空间前缀（`REF_NAMESPACES`：branch→heads / remote→remotes / tag→tags），不解析 `%D`——本地分支可含 `/`，装饰串无法与远端区分。空仓库（stderr `does not have any commits yet`）是空列表不是错误；git 缺失（ENOENT）给明确中文错误。limit 默认 500、上限 1000，取 limit+1 条探测截断。
+- 文件变更链路（`src/log.ts` 的 `readCommitFiles`，路由 `POST /plugins/dsh-git/files`，hash 校验 4–40 位十六进制）：`git show --numstat -z` 给行数、`git show --raw -z` 给状态字母，按新路径合并。`-z` 下路径无引号无花括号压缩；重命名记录两个字段 **old 在前 new 在后**（实证），numstat 重命名的路径字段为空、后跟 old/new 两个 NUL 字段；二进制行数是 `-`（置 undefined）。状态折并：T→modified、C→renamed。`--first-parent` 让合并提交展示相对第一父提交的变更（即合入内容），对普通提交无影响。client 侧展开时按需拉取并缓存（`requested` ref 防缓存写入重触发；失败不驻留缓存，重开即重试；切换仓库清空）。
+- 泳道布局（`src/client/graph.ts` 纯函数）：拓扑序（子先于父）输入，每泳道记「期待的下一个提交」；命中归 lane、多命中合并、首父直行或并入既有 lane、次父开新 lane；输出每行 `incoming`（行顶入点）/`outgoing`（行底出边）/`through`（穿越竖线），渲染端每行一段 SVG strip（`CommitGraph.tsx`），无需全局协调。strip 高度必须跟随**内容列**实测高度（取 max(常规行高)，展开详情等把行撑高时穿越线与出边延伸到行底，否则与相邻行断线）；禁止改为观察行本身——strip 高度会反过来撑住行高，收起时行尺寸不变、高度回不去。展开/收起与文件清单异步到达的高度更新必须在 `useLayoutEffect([expanded, filesView?.phase])` 里同步测量落屏——`ResizeObserver` 回调的 setState 走并发调度、晚于当帧绘制，会闪一帧旧高度；RO 只兜底文本换行类被动变化。提交点恒锚在常规行高中点。
+- host 路由（`src/index.ts`）：`POST /plugins/dsh-git/repos` 与 `POST /plugins/dsh-git/log`，guard 模式与 dsh-sessions 相同（`requestRejection` + `isTrustedFetch` + `x-dsh-git: 1`）；目录参数先 `stat` 预检，limit 非法直接 400。host 与 client 的路由常量和 wire 类型集中在 `src/shared.ts`。
+- client 两段式注册（`src/client.tsx`）：标签类型进 `ctx.sidebarRightTabs.register`（`extension` 优先带缺省，指南入口 order 40 排在官方 files / terminal / browser 之后）；标签体进 keyed 槽位 `sidebar.right.pane.tab`（key = 类型 id `@weilence/dsh-git`）。扫描根取 `PropsRuntime` 标准份额 `sessionId` 对应的 `SessionSummary.cwd`；无 cwd 显示原因、不发请求；扫描与读提交各自以序号防串台。
+- ReposBody 注入 `formatTime`（事件时间取词，跟随宿主语言）；仓库选择默认「会话目录所在仓库 → 首个仓库」，重扫后选中仓库消失则回落，未消失不换。
+- 提交行整行点击展开（`li` 上 `role="button"` + Enter / Space 键盘切换）；划选仲裁与 ExpandableCard 同款：`window.getSelection()` 非空选区且锚点在本行内的 click 只当选择、不触发切换——不得靠禁用文本选择迁就整行点击。
+- 词典命名空间 `dsh-git`（`src/client/locales.ts`），zh 是键集事实源，en 逐键补全。
+- `@deepseek-ai/dsh-client-ui-sidebar-right` 在 `pnpm-workspace.yaml` catalog 中随平台版本升级（插件 devDependencies 一律 `catalog:`）。
