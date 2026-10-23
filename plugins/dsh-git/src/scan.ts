@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { basename, join, relative, resolve } from 'node:path'
+import { basename, join, relative, resolve, sep } from 'node:path'
 import type { GitRepoInfo, GitRepoKind, GitRepoScan } from './shared'
 
 /** 不下探的依赖与构建目录：体量大且不含用户仓库。 */
@@ -112,7 +112,9 @@ async function repoInfo(
   const info: GitRepoInfo = {
     root,
     name: basename(root),
-    relPath: relative(scanRoot, root) || '.',
+    // relPath 是 wire / 展示字段，统一 / 分隔——Windows 的 path.relative 产出 \；
+    // 用 split(sep) 而非替换字面反斜杠（POSIX 上它是合法文件名字符）
+    relPath: relative(scanRoot, root).split(sep).join('/') || '.',
     kind,
   }
   if (gitDir === undefined) return info
