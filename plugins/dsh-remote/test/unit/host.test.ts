@@ -1,0 +1,448 @@
+// host 路由：假 ctx/webServer 上的路由集成往返——守卫（Host / sec-fetch /
+// method）、state / local-rows 读取（临时目录两层 patch）、save 校验、
+// 操作触发的 404/409/400 语义。
+
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ConnectionRequestRejection } from '@deepseek-ai/dsh-client-connection'
+import { applyWithEngine } from '../../src/index'
+import { RemoteEngine } from '../../src/engine'
+import { ForwardRegistry } from '../../src/forwards'
+import { mcpSignature } from '../../src/shared'
+
+function postReq(body: unknown, headers: Record<string, string | string[] | undefined>): IncomingMessage {
+  const payload = Buffer.from(JSON.stringify(body))
+  return {
+    headers,
+    method: 'POST',
+    url: '/',
+    async *[Symbol.asyncIterator]() {
+      yield payload
+    },
+  } as unknown as IncomingMessage
+}
+
+interface CapturedResponse {
+  status: number
+  body: Record<string, unknown>
+}
+
+function fakeRes(): { res: ServerResponse; done: Promise<CapturedResponse> } {
+  const captured: CapturedResponse = { status: 0, body: {} }
+  const res = {
+    writeHead(status: number) {
+      captured.status = status
+    },
+    end(payload?: Buffer) {
+      try {
+        captured.body = JSON.parse((payload ?? Buffer.alloc(0)).toString('utf8')) as Record<string, unknown>
+      } catch {
+        captured.body = {}
+      }
+    },
+  } as unknown as ServerResponse
+  return { res, done: Promise.resolve(captured) }
+}
+
+interface Harness {
+  home: string
+  profileDir: string
+  homeDir: string
+  engine: RemoteEngine
+  rejectRequests(rejection: ConnectionRequestRejection): void
+  request(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<CapturedResponse>
+}
+
+async function makeHarness(): Promise<Harness> {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-remote-test-'))
+  const profileDir = join(root, 'profiles', 'web')
+  const homeDir = join(root, 'home')
+  await mkdir(profileDir, { recursive: true })
+  await mkdir(homeDir, { recursive: true })
+  await writeFile(
+    join(profileDir, 'cordis.patch.yml'),
+    [
+      '# 本机 profile 层',
+      '- insert:',
+      '    - id: dsh-mcp',
+      "      name: '@weilence/dsh-mcp'",
+      '- insert:',
+      '    - id: registry-plugin',
+      "      name: 'some-registry-plugin'",
+      '',
+    ].join('\n'),
+    'utf8',
+  )
+  // 全局 MCP 档：dsh-mcp 插件管理的同一文件（条目名 = serverName）
+  await writeFile(
+    join(homeDir, 'mcp.json'),
+    JSON.stringify({ mcpServers: { demo: { command: 'npx', args: ['-y', 'pkg'] } } }),
+    'utf8',
+  )
+  // 层 package.json：link spec（本地）与 semver spec（registry）各一；registry 实体
+  // 造在层内 node_modules 下（pnpm 的 symlink 场景在真仓验证，这里用真目录）
+  const linkedRoot = join(root, 'linked-plugin')
+  await mkdir(join(linkedRoot), { recursive: true })
+  await writeFile(
+    join(linkedRoot, 'package.json'),
+    JSON.stringify({ name: '@weilence/dsh-mcp', version: '2.0.0' }),
+    'utf8',
+  )
+  const registryRoot = join(profileDir, 'node_modules', 'some-registry-plugin')
+  await mkdir(registryRoot, { recursive: true })
+  await writeFile(
+    join(registryRoot, 'package.json'),
+    JSON.stringify({ name: 'some-registry-plugin', version: '1.4.2' }),
+    'utf8',
+  )
+  await writeFile(
+    join(profileDir, 'package.json'),
+    JSON.stringify({
+      name: 'dsh-profile-web',
+      dependencies: {
+        '@weilence/dsh-mcp': `link:${linkedRoot.replaceAll('\\', '/')}`,
+        'some-registry-plugin': '^1.4.0',
+      },
+      // bundles 激活清单是本机插件的主要登记处（@deepseek-ai/* 平台包应被过滤；
+      // 与 patch 行同名的按 patch 行去重）
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@weilence/dsh-mcp', 'extra-bundle-plugin'] } },
+    }),
+    'utf8',
+  )
+  const registrations = new Map<string, (req: IncomingMessage, res: ServerResponse) => Promise<void>>()
+  let rejection: ConnectionRequestRejection
+  const ctx = {
+    connection: { requestRejection: () => rejection },
+    effect: (register: () => unknown) => register(),
+    webServer: {
+      host: '127.0.0.1',
+      register(options: {
+        path: string
+        handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
+      }) {
+        registrations.set(options.path, options.handler)
+        return () => registrations.delete(options.path)
+      },
+    },
+    get: (name: string): unknown => {
+      if (name === 'profileContext') {
+        return { name: 'web', patchPath: join(profileDir, 'cordis.patch.yml'), home: homeDir }
+      }
+      return undefined
+    },
+  }
+  const engine = new RemoteEngine({
+    exec: async () => ({ code: 0, stdout: '', stderr: '' }),
+    startForward: async () => ({ kill() {}, onExit() {}, pid: 4242 }),
+    freeLocalPort: async () => 19999,
+    healthCheck: async () => true,
+    instanceVersion: async () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
+    pushTar: async () => {},
+    pushFile: async () => {},
+    readLocalMcp: async () => ({ file: '', rootExtras: {}, entries: new Map(), rows: [] }),
+    readLocalLayers: async () => [],
+    scanSkills: async () => [],
+    localDshVersion: '0.1.7-rc.2',
+    localPluginVersion: '0.1.0',
+    packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
+    packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
+    readSystemPrompt: async () => null,
+    forwards: new ForwardRegistry(root),
+    homeDir: root,
+    now: () => '2027-01-01T00:00:00.000Z',
+    delay: async () => {},
+  })
+  applyWithEngine(ctx as never, engine)
+  const request = async (
+    method: string,
+    path: string,
+    body?: unknown,
+    extraHeaders: Record<string, string> = {},
+  ) => {
+    const handler = registrations.get(path)
+    if (handler === undefined) throw new Error(`no handler for ${path}`)
+    const headers = { host: '127.0.0.1:19387', ...extraHeaders }
+    const { res, done } = fakeRes()
+    const req =
+      method === 'GET'
+        ? ({ headers, method, url: path } as unknown as IncomingMessage)
+        : postReq(body, headers)
+    await handler(req, res)
+    return done
+  }
+  return {
+    home: root,
+    profileDir,
+    homeDir,
+    engine,
+    rejectRequests: (value) => {
+      rejection = value
+    },
+    request,
+  }
+}
+
+describe('dsh-remote 路由', () => {
+  let harness: Harness
+
+  beforeEach(async () => {
+    harness = await makeHarness()
+  })
+
+  afterEach(async () => {
+    // Windows 上句柄延迟释放会让目录删除报 ENOTEMPTY——以重试补偿
+    await rm(harness.home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+    vi.restoreAllMocks()
+  })
+
+  it('GET /dsh-remote/state：空连接库 + 本机环境', async () => {
+    const response = await harness.request('GET', '/dsh-remote/state')
+    expect(response.status).toBe(200)
+    expect(response.body.env).toMatchObject({ profileName: 'web', ssh: true, tar: true })
+    expect(response.body.connections).toEqual([])
+  })
+
+  it('GET /dsh-remote/local-rows：MCP 行与插件行分层标注 + 安装形态定位 + 系统提示词行', async () => {
+    const promptText = '# 全局指令\n'
+    await writeFile(join(harness.homeDir, 'system-prompt.md'), promptText, 'utf8')
+    const response = await harness.request('GET', '/dsh-remote/local-rows')
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({ available: true })
+    const rows = response.body as unknown as {
+      mcpRows: { name: string; summary: string; signature: string }[]
+      pluginRows: {
+        id: string
+        name: string
+        install: string
+        version: string | null
+      }[]
+    }
+    // 签名 = 条目对象的规范化 JSON（键序无关），弹窗与引擎的同一判等输入
+    expect(rows.mcpRows[0]).toMatchObject({ name: 'demo', summary: 'npx -y pkg' })
+    expect(rows.mcpRows[0]?.signature).toBe(mcpSignature({ command: 'npx', args: ['-y', 'pkg'] }))
+    expect(rows.pluginRows.map((row) => row.name)).toEqual([
+      '@weilence/dsh-mcp',
+      'extra-bundle-plugin',
+      'some-registry-plugin',
+    ])
+    // link spec → 本地（root 为 spec 目标）；semver spec → registry（root 为层内 node_modules）
+    expect(rows.pluginRows[0]).toMatchObject({ install: 'local', version: '2.0.0' })
+    // bundles 补充行：无实体 → registry 形态、version null
+    expect(rows.pluginRows[1]).toMatchObject({ install: 'registry', version: null })
+    expect(rows.pluginRows[2]).toMatchObject({ install: 'registry', version: '1.4.2' })
+    // 系统提示词行：profileContext.home 下的 system-prompt.md，摘要为内容 sha256
+    expect(response.body).toMatchObject({
+      promptRow: {
+        path: join(harness.homeDir, 'system-prompt.md'),
+        digest: createHash('sha256').update(promptText).digest('hex'),
+      },
+    })
+  })
+
+  it('POST /dsh-remote/save：新建 + 校验失败 400', async () => {
+    const created = await harness.request('POST', '/dsh-remote/save', {
+      label: '开发机',
+      target: { kind: 'alias', alias: 'dev-box' },
+      rememberSecret: false,
+    })
+    expect(created.status).toBe(200)
+    expect(created.body).toEqual({ id: 'dev-box' })
+
+    const invalid = await harness.request('POST', '/dsh-remote/save', {
+      label: '',
+      target: { kind: 'alias', alias: 'x' },
+      rememberSecret: false,
+    })
+    expect(invalid.status).toBe(400)
+  })
+
+  it('GET /dsh-remote/ssh-hosts：返回 ssh config 路径与主机清单形状', async () => {
+    const response = await harness.request('GET', '/dsh-remote/ssh-hosts')
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({
+      path: expect.stringContaining('.ssh'),
+      exists: expect.any(Boolean),
+      hosts: expect.any(Array),
+    })
+  })
+
+  it('POST /dsh-remote/test 与 /secret：无状态探针、缺口令 409、现场补录只进内存', async () => {
+    const target = {
+      kind: 'direct',
+      host: '10.0.0.5',
+      port: null,
+      user: null,
+      auth: 'password',
+      identityFile: null,
+    }
+    const created = await harness.request('POST', '/dsh-remote/save', {
+      label: '密码机',
+      target,
+      secret: 'pw',
+      rememberSecret: false,
+    })
+    expect(created.status).toBe(200)
+    const id = (created.body as unknown as { id: string }).id
+
+    // 表单没带口令、连接也没有（会话口令属于另一次请求的内存态）→ 409
+    expect((await harness.request('POST', '/dsh-remote/test', { target })).status).toBe(409)
+    expect((await harness.request('POST', '/dsh-remote/test', { target, secret: 'pw' })).status).toBe(200)
+
+    expect((await harness.request('POST', '/dsh-remote/secret', { id: 'nope', secret: 'pw' })).status).toBe(
+      404,
+    )
+    expect((await harness.request('POST', '/dsh-remote/secret', { id, secret: '' })).status).toBe(400)
+    expect((await harness.request('POST', '/dsh-remote/secret', { id, secret: 'pw' })).status).toBe(200)
+
+    const state = await harness.request('GET', '/dsh-remote/state')
+    const rows = (state.body as unknown as { connections: { secretState: string }[] }).connections
+    expect(rows[0]?.secretState).toBe('session')
+    expect((await harness.request('POST', '/dsh-remote/test', { id, target })).status).toBe(200)
+    // 口令值绝不出现在任何响应里
+    expect(JSON.stringify(state.body)).not.toContain('"pw"')
+  })
+
+  it('POST 操作路由：未知 id 404、缺 id 400、坏 kind 400、合法触发 200', async () => {
+    await harness.request('POST', '/dsh-remote/save', {
+      label: '开发机',
+      target: { kind: 'alias', alias: 'dev-box' },
+      rememberSecret: false,
+    })
+
+    expect((await harness.request('POST', '/dsh-remote/connect', { id: 'nope' })).status).toBe(404)
+    expect((await harness.request('POST', '/dsh-remote/connect', {})).status).toBe(400)
+    const inventory = await harness.request('POST', '/dsh-remote/remote-inventory', { id: 'dev-box' })
+    expect(inventory.status).toBe(200)
+    // 假 exec 恒回空输出：skills 两根空清单、patch 空 → mcp 空、profile package.json
+    // 读不到 → plugins null、提示词摘要管线空输出 → prompts null（无法比对降级，不阻断同步）
+    expect(inventory.body).toEqual({
+      skills: { 'user-dsh': [], 'user-agents': [] },
+      mcp: [],
+      plugins: null,
+      prompts: null,
+    })
+    expect((await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'other' })).status).toBe(
+      400,
+    )
+    // 勾选清单随请求直传：缺 names / 非字符串数组拒绝
+    expect(
+      (await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'skills' })).status,
+    ).toBe(400)
+    expect(
+      (await harness.request('POST', '/dsh-remote/sync', { id: 'dev-box', kind: 'skills', names: [1] }))
+        .status,
+    ).toBe(400)
+    const fired = await harness.request('POST', '/dsh-remote/sync', {
+      id: 'dev-box',
+      kind: 'skills',
+      names: [],
+    })
+    expect(fired.status).toBe(200)
+    expect(fired.body).toMatchObject({ started: true })
+  })
+
+  it.each([401, 403] as const)(
+    '宿主拒绝 %s 时所有路由均先认证，不泄露启动 token 或执行操作',
+    async (status) => {
+      await harness.engine.save({
+        label: '开发机',
+        target: { kind: 'alias', alias: 'dev-box' },
+        rememberSecret: false,
+      })
+      const [connection] = harness.engine.rows()
+      const rows = vi.spyOn(harness.engine, 'rows').mockReturnValue([
+        {
+          ...connection,
+          state: {
+            ...connection.state,
+            phase: 'running',
+            running: {
+              url: 'http://127.0.0.1:19999/?token=private-launch-token',
+              localPort: 19999,
+              remotePort: 19387,
+              pid: 4242,
+              since: '2027-01-01',
+              machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+              instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+              health: null,
+            },
+          },
+        },
+      ])
+      const actions = [
+        vi.spyOn(harness.engine, 'load'),
+        vi.spyOn(harness.engine, 'save'),
+        vi.spyOn(harness.engine, 'remove'),
+        vi.spyOn(harness.engine, 'probe'),
+        vi.spyOn(harness.engine, 'setSessionSecret'),
+        vi.spyOn(harness.engine, 'remoteInventory'),
+        vi.spyOn(harness.engine, 'startConnect'),
+        vi.spyOn(harness.engine, 'startSync'),
+      ]
+      harness.rejectRequests(status)
+      const routes = [
+        ['GET', '/dsh-remote/state'],
+        ['GET', '/dsh-remote/local-rows'],
+        ['POST', '/dsh-remote/save'],
+        ['POST', '/dsh-remote/delete'],
+        ['POST', '/dsh-remote/test'],
+        ['GET', '/dsh-remote/ssh-hosts'],
+        ['POST', '/dsh-remote/secret'],
+        ['POST', '/dsh-remote/remote-inventory'],
+        ['POST', '/dsh-remote/connect'],
+        ['POST', '/dsh-remote/sync'],
+      ]
+      for (const [method, path] of routes) {
+        const response = await harness.request(method, path, {
+          id: 'dev-box',
+          label: '未授权修改',
+          target: { kind: 'alias', alias: 'new-box' },
+          rememberSecret: false,
+          kind: 'skills',
+          names: ['skill'],
+        })
+        expect(response.status).toBe(status)
+        expect(response.body).toEqual({
+          error: status === 401 ? '远端请求未通过宿主认证' : '请求来源不允许',
+        })
+        expect(JSON.stringify(response.body)).not.toContain('private-launch-token')
+      }
+      expect(rows).not.toHaveBeenCalled()
+      for (const action of actions) expect(action).not.toHaveBeenCalled()
+    },
+  )
+
+  it('宿主认证优先于旧 Host 与方法守卫', async () => {
+    harness.rejectRequests(401)
+    expect(
+      (await harness.request('GET', '/dsh-remote/state', undefined, { host: 'evil.example:1' })).status,
+    ).toBe(401)
+    expect((await harness.request('POST', '/dsh-remote/state', {})).status).toBe(401)
+  })
+
+  it('跨站 sec-fetch 与错误 Host 头拒绝 403', async () => {
+    expect(
+      (
+        await harness.request(
+          'POST',
+          '/dsh-remote/save',
+          { label: 'x', target: { kind: 'alias', alias: 'x' }, rememberSecret: false },
+          { 'sec-fetch-site': 'cross-site' },
+        )
+      ).status,
+    ).toBe(403)
+    expect(
+      (await harness.request('GET', '/dsh-remote/state', undefined, { host: 'evil.example:1' })).status,
+    ).toBe(403)
+    expect((await harness.request('POST', '/dsh-remote/state', {})).status).toBe(403)
+  })
+})

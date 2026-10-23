@@ -40,4 +40,4 @@
 
 ## 测试
 
-`pnpm --filter @weilence/dsh-mcp test`：mcpFile / mcpApply / mcpConfig / mcpImport / probe 纯函数与探测单测；store.test.ts 用 fake timers + mock list 应答验证过渡态轮询的起停与 revision / cwd 附带；host.test.ts 用假 ctx + 假 loader（记录 create / update / remove，store 与真 Loader 同为 Dict 形态）+ 两份临时文件做六路由的完整请求-响应集成测试。
+`pnpm --filter @weilence/dsh-mcp test`：mcpFile / mcpApply / mcpConfig / mcpImport 纯函数单测；`test/integration/probe.test.ts` 探测集成测试（真 node 子进程 + 真本地 SSE 服务器，含真超时语义）；store.test.ts 用 fake timers + mock list 应答验证过渡态轮询的起停与 revision / cwd 附带；host.test.ts 用假 ctx + 假 loader（记录 create / update / remove，store 与真 Loader 同为 Dict 形态）+ 两份临时文件做六路由的完整请求-响应集成测试。
