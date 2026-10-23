@@ -107,7 +107,15 @@ export class ForwardRegistry {
   }
 
   private async write(leases: ForwardLeases): Promise<void> {
-    await mkdir(join(this.homeDir, 'dsh-remote'), { recursive: true })
-    await writeFile(leaseFile(this.homeDir), `${JSON.stringify(leases, null, 2)}\n`, 'utf8')
+    try {
+      await mkdir(join(this.homeDir, 'dsh-remote'), { recursive: true })
+      await writeFile(leaseFile(this.homeDir), `${JSON.stringify(leases, null, 2)}\n`, 'utf8')
+    } catch (error) {
+      // home 目录已消失（目录树被整棵移除）时无事可写：租约文件是 best-effort
+      // 短命记录，不参与任何连接判定，ENOENT 静默跳过；其余磁盘错误上抛，保留
+      // engine 三处 fire-and-forget 调用点（void clear/clearAll）之外的真实故障可见性
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
   }
 }
