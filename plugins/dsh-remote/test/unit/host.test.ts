@@ -151,7 +151,7 @@ async function makeHarness(): Promise<Harness> {
     readLocalMcp: async () => ({ file: '', rootExtras: {}, entries: new Map(), rows: [] }),
     readLocalLayers: async () => [],
     scanSkills: async () => [],
-    localDshVersion: '0.1.7-rc.2',
+    currentDshVersion: async () => '0.1.7-rc.2',
     localPluginVersion: '0.1.0',
     packPlugin: async () => ({ path: 'C:/tmp/x.tgz', fileName: 'weilence-dsh-remote-0.1.0.tgz' }),
     packPackage: async () => ({ path: 'C:/tmp/y.tgz', fileName: 'packed-1.0.0.tgz' }),
@@ -320,6 +320,10 @@ describe('dsh-remote 路由', () => {
 
     expect((await harness.request('POST', '/dsh-remote/connect', { id: 'nope' })).status).toBe(404)
     expect((await harness.request('POST', '/dsh-remote/connect', {})).status).toBe(400)
+    // 手动升级远端：与 connect 同构（未知 id 404、缺 id 400、合法触发 200）
+    expect((await harness.request('POST', '/dsh-remote/upgrade', { id: 'nope' })).status).toBe(404)
+    expect((await harness.request('POST', '/dsh-remote/upgrade', {})).status).toBe(400)
+    expect((await harness.request('POST', '/dsh-remote/upgrade', { id: 'dev-box' })).status).toBe(200)
     const inventory = await harness.request('POST', '/dsh-remote/remote-inventory', { id: 'dev-box' })
     expect(inventory.status).toBe(200)
     // 假 exec 恒回空输出：skills 两根空清单、patch 空 → mcp 空、profile package.json
@@ -373,6 +377,8 @@ describe('dsh-remote 路由', () => {
               since: '2027-01-01',
               machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
               instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+              drift: null,
+              localDsh: '0.1.7-rc.2',
               health: null,
             },
           },
@@ -386,6 +392,7 @@ describe('dsh-remote 路由', () => {
         vi.spyOn(harness.engine, 'setSessionSecret'),
         vi.spyOn(harness.engine, 'remoteInventory'),
         vi.spyOn(harness.engine, 'startConnect'),
+        vi.spyOn(harness.engine, 'startUpgradeRemote'),
         vi.spyOn(harness.engine, 'startSync'),
       ]
       harness.rejectRequests(status)
@@ -399,6 +406,7 @@ describe('dsh-remote 路由', () => {
         ['POST', '/dsh-remote/secret'],
         ['POST', '/dsh-remote/remote-inventory'],
         ['POST', '/dsh-remote/connect'],
+        ['POST', '/dsh-remote/upgrade'],
         ['POST', '/dsh-remote/sync'],
       ]
       for (const [method, path] of routes) {

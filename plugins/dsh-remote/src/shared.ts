@@ -30,6 +30,8 @@ export const REMOTE_INVENTORY_PATH = '/dsh-remote/remote-inventory'
 export const CONNECT_PATH = '/dsh-remote/connect'
 export const VERSION_PATH = '/dsh-remote/version'
 export const SYNC_PATH = '/dsh-remote/sync'
+/** 手动升级远端（远端 dsh 落后本机时的卡片动作）：与连接同一流程的重新装配。 */
+export const UPGRADE_PATH = '/dsh-remote/upgrade'
 /** 本机 ~/.ssh/config 的主机别名清单（新建 / 编辑表单的选择器）。 */
 export const SSH_HOSTS_PATH = '/dsh-remote/ssh-hosts'
 /** 为「记住密码」关闭的连接现场补口令：只进宿主内存，永不落盘。 */
@@ -128,7 +130,7 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
  *  探针，不占连接操作位。`recover` 由心跳看门狗发起（远端实例被 systemd 判为
  *  inactive / failed 后的自动收敛），面板据此区分「用户点的连接」与「自动恢复」。 */
 export interface ConnOp {
-  kind: 'connect' | 'recover' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
+  kind: 'connect' | 'recover' | 'upgrade' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
 }
 
 /** 操作步骤时间线的一项（进行中 hover 浮层与失败详情弹窗共用）。 */
@@ -160,6 +162,65 @@ export interface RunningHealth {
   detail?: string
 }
 
+/** 运行中连接的 dsh 版本漂移（心跳实时刷新）：remote-behind = 远端旧于本机，
+ *  可升级远端；local-behind = 本机旧于远端，提示升级本机但不强制。 */
+export type VersionDrift = 'remote-behind' | 'local-behind'
+
+/** 解析 semver（容忍一个前导 `v`；build 元数据忽略）；解析不了回 null。 */
+interface ParsedVersion {
+  core: [number, number, number]
+  pre: (number | string)[]
+}
+
+function parseDshVersion(value: string): ParsedVersion | null {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z.-]+)?$/.exec(
+    value.trim(),
+  )
+  if (match === null) return null
+  const pre =
+    match[4] === undefined ? [] : match[4].split('.').map((id) => (/^\d+$/.test(id) ? Number(id) : id))
+  return { core: [Number(match[1]), Number(match[2]), Number(match[3])], pre }
+}
+
+/**
+ * semver 比较（prerelease 优先级照 npm 语义：无 prerelease > 有；数字标识按
+ * 数值、数字 < 字母数字、短的在前）。任一侧解析不了回 null——调用方按无法
+ * 判定处理，绝不把畸形输出当成某个方向的版本。
+ */
+export function compareDshVersion(a: string, b: string): number | null {
+  const left = parseDshVersion(a)
+  const right = parseDshVersion(b)
+  if (left === null || right === null) return null
+  for (let i = 0; i < 3; i += 1) {
+    if (left.core[i] !== right.core[i]) return left.core[i] < right.core[i] ? -1 : 1
+  }
+  if (left.pre.length === 0 && right.pre.length === 0) return 0
+  if (left.pre.length === 0) return 1
+  if (right.pre.length === 0) return -1
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i += 1) {
+    const l = left.pre[i]
+    const r = right.pre[i]
+    if (l === undefined) return -1
+    if (r === undefined) return 1
+    if (l === r) continue
+    if (typeof l === 'number' && typeof r === 'number') return l < r ? -1 : 1
+    if (typeof l === 'number') return -1
+    if (typeof r === 'number') return 1
+    return l < r ? -1 : 1
+  }
+  return 0
+}
+
+/** dsh 版本漂移判定：远端旧于本机 = remote-behind（可升级远端），远端新于
+ *  本机 = local-behind（提示升级本机，不强制）；相等或任一侧读不到 / 解析
+ *  不了 = null（无法判定，不驱动任何动作）。 */
+export function dshDrift(local: string | null, remote: string | null): VersionDrift | null {
+  if (local === null || remote === null) return null
+  const cmp = compareDshVersion(local, remote)
+  if (cmp === null || cmp === 0) return null
+  return cmp < 0 ? 'local-behind' : 'remote-behind'
+}
+
 /** running 阶段的事实（token URL 由启动日志解析而来）。 */
 export interface ConnRunning {
   url: string
@@ -174,6 +235,11 @@ export interface ConnRunning {
   /** 实例自报身份：连接时的版本判定种下，心跳经隧道 GET /version 实时刷新；
    *  null = 从未问到（面板回退显示 machine.dsh）。 */
   instance: { dsh: string | null; plugin: string | null } | null
+  /** 版本漂移（心跳实时刷新）：判定基准是本机现读的已装 dsh 版本（localDsh），
+   *  与实例自报逐拍比对——null = 一致或任一侧读不到。 */
+  drift: VersionDrift | null
+  /** 漂移判定的本机侧版本（部署对齐目标的同口径现读值；读不到为 null）。 */
+  localDsh: string | null
   /** 心跳结论；正常或未探测为 null。 */
   health: RunningHealth | null
 }

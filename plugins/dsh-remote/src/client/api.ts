@@ -10,6 +10,7 @@ import {
   STATE_PATH,
   SYNC_PATH,
   TEST_PATH,
+  UPGRADE_PATH,
   type LocalRowsResponse,
   type RegistryPluginInstall,
   type RemoteInventoryResponse,
@@ -53,6 +54,10 @@ export const remoteApi = {
   },
   connect(id: string): Promise<{ started: boolean }> {
     return request(CONNECT_PATH, { method: 'POST', body: JSON.stringify({ id }) })
+  },
+  /** 手动升级远端（远端 dsh 落后本机时的卡片动作）。 */
+  upgrade(id: string): Promise<{ started: boolean }> {
+    return request(UPGRADE_PATH, { method: 'POST', body: JSON.stringify({ id }) })
   },
   /** 勾选清单随请求直传（声明式同步的目标态）。 */
   sync(

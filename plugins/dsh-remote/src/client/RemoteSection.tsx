@@ -47,6 +47,7 @@ const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone:
 const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'op.connect',
   recover: 'op.recover',
+  upgrade: 'op.upgrade',
   'sync-skills': 'op.sync-skills',
   'sync-mcp': 'op.sync-mcp',
   'sync-plugins': 'op.sync-plugins',
@@ -57,6 +58,7 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
 const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'failed.connect',
   recover: 'failed.recover',
+  upgrade: 'failed.upgrade',
   'sync-skills': 'failed.sync',
   'sync-mcp': 'failed.sync',
   'sync-plugins': 'failed.sync',
@@ -168,9 +170,10 @@ export function RemoteSection(props: RemoteSectionProps) {
 
   const connections = state.list?.connections ?? []
   const env = state.list?.env
-  const { syncing, deleting, connectPrompt, failedDetail, secretPrompt } = state
+  const { syncing, deleting, upgrading, connectPrompt, failedDetail, secretPrompt } = state
   const syncTarget = syncing === null ? undefined : connections.find((row) => row.id === syncing.id)
   const deleteTarget = deleting === null ? undefined : connections.find((row) => row.id === deleting.id)
+  const upgradeTarget = upgrading === null ? undefined : connections.find((row) => row.id === upgrading.id)
   const connectTarget =
     connectPrompt === null ? undefined : connections.find((row) => row.id === connectPrompt.id)
   const failedTarget =
@@ -326,6 +329,28 @@ export function RemoteSection(props: RemoteSectionProps) {
           onConfirm={() => void store.remove(deleteTarget.id)}
         />
       ) : null}
+      {upgradeTarget !== undefined ? (
+        <ConfirmDialog
+          title={t('upgrade.title')}
+          body={t('upgrade.body', {
+            label: upgradeTarget.label,
+            target: targetSummary(upgradeTarget.target),
+            remote:
+              upgradeTarget.state.running?.instance?.dsh ?? upgradeTarget.state.running?.machine.dsh ?? '?',
+            local: upgradeTarget.state.running?.localDsh ?? '?',
+          })}
+          confirmLabel={t('op.upgrade')}
+          cancelLabel={t('cancel')}
+          closeLabel={t('close')}
+          busy={state.busyId === upgradeTarget.id}
+          onCancel={() => store.askUpgrade(null)}
+          onConfirm={() => {
+            // 升级是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现
+            store.askUpgrade(null)
+            void store.upgrade(upgradeTarget.id)
+          }}
+        />
+      ) : null}
       {secretTarget !== undefined && secretPrompt !== null ? (
         <SecretPromptDialog
           row={secretTarget}
@@ -413,6 +438,26 @@ function connectionCard(
     const badge = HEALTH_PILLS[health.state]
     pills.push({ text: t(badge.key), tone: badge.tone, title: health.detail })
   }
+  // 版本漂移徽标（心跳实时刷新）：remote-behind = 远端可升级（动作区「升级远端」
+  // 是入口）；local-behind = 本机版本落后，只提示不强制。hover 带两侧版本号。
+  const drift = running?.drift ?? null
+  if (pills.length > 0 && drift !== null && running !== null) {
+    const remote = running.instance?.dsh ?? running.machine.dsh
+    const local = running.localDsh ?? '?'
+    pills.push(
+      drift === 'remote-behind'
+        ? {
+            text: t('drift.remoteBehind'),
+            tone: 'warn',
+            title: t('drift.remoteBehind.title', { remote, local }),
+          }
+        : {
+            text: t('drift.localBehind'),
+            tone: 'warn',
+            title: t('drift.localBehind.title', { remote, local }),
+          },
+    )
+  }
 
   // 操作状态入口（spinner / 失败详情）占按钮区最左位，与动作按钮中心线对齐。
   // 过程浮层见 OpHoverCard（官方 MenuSurface，z-1100 在设置弹窗之上）。
@@ -448,6 +493,11 @@ function connectionCard(
           action('open', t('action.open'), () => window.open(running.url, '_blank'), {
             variant: 'primary',
           }),
+          // 远端 dsh 落后本机时的升级入口（漂移徽标是它的状态说明）；确认弹窗
+          // 明示实例会重启，确认后随即关窗、进度走卡片 spinner
+          ...(running.drift === 'remote-behind'
+            ? [action('upgrade', t('op.upgrade'), () => store.askUpgrade(row), { variant: 'outline' })]
+            : []),
         ]
       : [action('connect', t('op.connect'), () => void store.connect(row.id), { variant: 'primary' })]
   const children = (

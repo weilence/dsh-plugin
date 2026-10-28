@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   setSecret: vi.fn(),
   remoteInventory: vi.fn(),
   connect: vi.fn(),
+  upgrade: vi.fn(),
   sync: vi.fn(),
 }))
 
@@ -83,6 +84,8 @@ describe('RemoteStore 阶段迁移检测', () => {
             since: '2026-01-01T00:00:00.000Z',
             machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
             instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
             health: null,
           },
         }),
@@ -113,6 +116,8 @@ describe('RemoteStore 阶段迁移检测', () => {
             since: '2026-01-01T00:00:00.000Z',
             machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
             instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
             health: null,
           },
         }),
@@ -122,6 +127,38 @@ describe('RemoteStore 阶段迁移检测', () => {
     expect(text(store.getSnapshot().notice)).toBe(
       '远端实例曾停止，已自动恢复「连接 dev」——点「打开」重新进入',
     )
+    store.stopPolling()
+  })
+
+  it('upgrade op 的 starting → running 发「已升级」toast（带远端新版本号）', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValueOnce(
+      stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'upgrade' } })]),
+    )
+    await store.refresh()
+    expect(store.getSnapshot().notice).toBeNull()
+
+    api.state.mockResolvedValueOnce(
+      stateResponse([
+        connRow('dev', {
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.2.0' },
+            instance: { dsh: '0.2.0', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.2.0',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    await store.refresh()
+    expect(text(store.getSnapshot().notice)).toBe('远端 dsh 已升级到 0.2.0（连接 dev）')
     store.stopPolling()
   })
 
@@ -334,6 +371,26 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
     )
     await store.submitSecret('pw')
     expect(store.getSnapshot().syncing).toEqual({ id: 'dev', kind: 'skills' })
+  })
+
+  it('升级入口同样先补口令，补完继续升级', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'none' })]),
+    )
+    await store.refresh()
+
+    await store.upgrade('dev')
+    expect(store.getSnapshot().secretPrompt).toMatchObject({ id: 'dev', action: 'upgrade' })
+    expect(api.upgrade).not.toHaveBeenCalled()
+
+    api.setSecret.mockResolvedValueOnce({ ok: true })
+    api.state.mockResolvedValue(
+      stateResponse([connRow('dev', {}, { target: PASSWORD_TARGET, secretState: 'session' })]),
+    )
+    await store.submitSecret('pw')
+    expect(api.upgrade).toHaveBeenCalledWith('dev')
+    expect(store.getSnapshot().secretPrompt).toBeNull()
   })
 
   it('已有会话口令时不弹框；别名连接永远不弹', async () => {

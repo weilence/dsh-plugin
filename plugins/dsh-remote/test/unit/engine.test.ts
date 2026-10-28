@@ -119,6 +119,8 @@ function makeDeps(options: FakeOptions = {}) {
   let packCount = 0
   let versionAttempt = 0
   let healthAttempt = 0
+  // 现读口径可变：模拟「本机已升级、宿主未重启」——升级用例里先连接再换新版本
+  let currentDsh = options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion
   const deps: EngineDeps = {
     async exec(target, command, execOptions) {
       calls.push({ target, command, stdin: execOptions?.stdin })
@@ -191,7 +193,7 @@ function makeDeps(options: FakeOptions = {}) {
     },
     scanSkills: async () => options.skills ?? [],
     readSystemPrompt: async () => options.systemPrompt ?? null,
-    localDshVersion: options.localDshVersion === undefined ? '0.1.7-rc.2' : options.localDshVersion,
+    currentDshVersion: async () => currentDsh,
     localPluginVersion: options.localPluginVersion === undefined ? '0.1.0' : options.localPluginVersion,
     async packPlugin() {
       packCount += 1
@@ -214,6 +216,9 @@ function makeDeps(options: FakeOptions = {}) {
     packedRoots: () => packedRoots,
     forwardCount: () => forwardKilled,
     packCount: () => packCount,
+    setCurrentDsh: (version: string | null) => {
+      currentDsh = version
+    },
   }
 }
 
@@ -2010,5 +2015,245 @@ describe('RemoteEngine', () => {
     expect(run.stderr).toBe('')
     expect(run.stdout).toBe(`${pkgRoot}\t1.0.0\n${absent}\t\n`)
     await rm(pkgRoot, { recursive: true, force: true })
+  })
+
+  describe('版本漂移与手动升级（远端低→升级，本机低→提示不强制）', () => {
+    /** 连接并等到 running（部署直通 + 版本一致的缺省编排）。 */
+    async function connectToRunning(respond: (command: string) => SshResult | undefined): Promise<void> {
+      makeEngine({
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return respond(command)
+        },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+    }
+
+    it('connect 部署段：远端 dsh 新于本机 → 不降级（无 npm install），machine 记远端实际版本', async () => {
+      makeEngine({
+        localDshVersion: '0.1.7-rc.2',
+        respond: (command) => {
+          if (command.includes('__NODE__')) {
+            return { code: 0, stdout: probeOutput({ dsh: '0.3.0' }), stderr: '' }
+          }
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+        // 实例自报与远端磁盘一致（新于本机）：直接接受，drift = local-behind
+        instanceVersion: { ok: true, dsh: '0.3.0', plugin: '0.1.0' },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(fake.calls.some((call) => call.command.includes('npm install -g'))).toBe(false)
+      expect(engine.stateOf('dev-box').running).toMatchObject({
+        machine: { dsh: '0.3.0' },
+        drift: 'local-behind',
+        localDsh: '0.1.7-rc.2',
+      })
+      const steps = engine.stateOf('dev-box').progress?.steps.map((step) => step.step) ?? []
+      expect(steps).toContain('dsh-newer')
+      // 接受了较新的运行实例：没有任何 systemctl stop
+      expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(false)
+    })
+
+    it('connect 部署段：远端 dsh 旧于本机（含 prerelease 序）→ npm 装目标版本', async () => {
+      makeEngine({
+        localDshVersion: '0.1.7-rc.2',
+        respond: (command) => {
+          if (command.includes('__NODE__')) {
+            // 0.1.7-rc.1 旧于 0.1.7-rc.2（同线 prerelease 逐标识比较）
+            return { code: 0, stdout: probeOutput({ dsh: '0.1.7-rc.1' }), stderr: '' }
+          }
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      const install = fake.calls.find((call) => call.command.includes('npm install -g'))
+      expect(install?.command).toContain('@deepseek-ai/dsh@0.1.7-rc.2')
+    })
+
+    it('connect：实例自报新于本机 + 插件一致 → 不经 stop 收敛直接接受并种下 local-behind', async () => {
+      // 部署段远端与本机一致（跳过安装），但活实例是新版本（用户在远端单独升过）
+      makeEngine({
+        localDshVersion: '0.1.7-rc.2',
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+        instanceVersion: { ok: true, dsh: '0.2.0', plugin: '0.1.0' },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(false)
+      expect(engine.stateOf('dev-box').running).toMatchObject({ drift: 'local-behind' })
+    })
+
+    it('heartbeat：实例自报落后 → drift remote-behind，追平即清空', async () => {
+      const clock = fakeClock()
+      let reported = '0.1.7-rc.2'
+      makeEngine({
+        now: clock.now,
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+        instanceVersion: () => ({ ok: true, dsh: reported, plugin: '0.1.0' }),
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').running?.drift).toBeNull()
+      // 远端被单独改回旧版本并重启（实例自报落后本机）→ 下一拍显形「远端可升级」
+      reported = '0.1.7-rc.1'
+      clock.advance(10_000)
+      await engine.heartbeat()
+      expect(engine.stateOf('dev-box').running?.drift).toBe('remote-behind')
+      // 追平后清空：漂移是实时结论，不是粘性状态
+      reported = '0.1.7-rc.2'
+      clock.advance(10_000)
+      await engine.heartbeat()
+      expect(engine.stateOf('dev-box').running?.drift).toBeNull()
+    })
+
+    it('heartbeat：本机现读升级（宿主未重启）→ 下拍显形 remote-behind', async () => {
+      const clock = fakeClock()
+      makeEngine({
+        now: clock.now,
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').running?.localDsh).toBe('0.1.7-rc.2')
+      // 本机升级 dsh（现读口径立即变新），实例还是旧进程 → 漂移显形
+      fake.setCurrentDsh('0.2.0')
+      clock.advance(10_000)
+      await engine.heartbeat()
+      expect(engine.stateOf('dev-box').running?.drift).toBe('remote-behind')
+      expect(engine.stateOf('dev-box').running?.localDsh).toBe('0.2.0')
+    })
+
+    it('startUpgradeRemote：完整升级流——装新版本、旧实例 stop 收敛、回 running（op=upgrade）', async () => {
+      const clock = fakeClock()
+      let startCount = 0
+      makeEngine({
+        now: clock.now,
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes('is-active')) {
+            startCount += 1
+            // 前两次 launch（连接 / 升级首查）单元 active 未变 → 复用候选；
+            // stop 之后第三次 launch 走全新启动
+            return startCount <= 2
+              ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+              : { code: 0, stdout: '', stderr: '' }
+          }
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+        // 判定次序：连接时自报旧版（一致）→ 升级首查仍是旧进程（不匹配 → stop）
+        // → 重启后的新进程自报新版（接受）
+        instanceVersion: (attempt) => ({
+          ok: true,
+          dsh: attempt >= 4 ? '0.2.0' : '0.1.7-rc.2',
+          plugin: '0.1.0',
+        }),
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      // 本机升级 → 心跳显形「远端可升级」
+      fake.setCurrentDsh('0.2.0')
+      clock.advance(10_000)
+      await engine.heartbeat()
+      expect(engine.stateOf('dev-box').running?.drift).toBe('remote-behind')
+      engine.startUpgradeRemote('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      const install = fake.calls.find((call) => call.command.includes('npm install -g'))
+      expect(install?.command).toContain('@deepseek-ai/dsh@0.2.0')
+      expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(true)
+      expect(engine.stateOf('dev-box').running).toMatchObject({
+        drift: null,
+        localDsh: '0.2.0',
+        instance: { dsh: '0.2.0' },
+      })
+      expect(engine.stateOf('dev-box').progress?.kind).toBe('upgrade')
+      expect(engine.stateOf('dev-box').progress?.steps.map((step) => step.step)).toContain('upgrade')
+    })
+
+    it('startUpgradeRemote：安装失败 → error（progress.kind = upgrade），不无限回环', async () => {
+      await connectToRunning((command) =>
+        command.includes('npm install -g') ? { code: 1, stdout: 'npm err', stderr: '' } : undefined,
+      )
+      fake.setCurrentDsh('0.2.0')
+      engine.startUpgradeRemote('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'error' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').error?.message).toContain('远端安装 @deepseek-ai/dsh 失败')
+      expect(engine.stateOf('dev-box').progress?.kind).toBe('upgrade')
+    })
+
+    it('startUpgradeRemote：互斥（op 在途拒绝第二个操作）与缺口令（SecretRequiredError）', async () => {
+      makeEngine()
+      await engine.save(
+        saveRequest({
+          target: {
+            kind: 'direct',
+            host: '10.0.0.5',
+            port: null,
+            user: null,
+            auth: 'password',
+            identityFile: null,
+          },
+          secret: 'pw',
+          rememberSecret: false,
+        }),
+      )
+      // 模拟宿主重启：同一 home 新引擎，内存口令丢失——升级同连接一样先要口令
+      makeEngine()
+      await engine.load()
+      expect(() => engine.startUpgradeRemote('10-0-0-5')).toThrow(SecretRequiredError)
+      // 互斥：op 在途时第二个升级被拒
+      await connectToRunning(() => undefined)
+      engine.startUpgradeRemote('dev-box')
+      expect(() => engine.startUpgradeRemote('dev-box')).toThrow(BusyError)
+      await waitFor(() => engine.stateOf('dev-box').op === null)
+    })
   })
 })

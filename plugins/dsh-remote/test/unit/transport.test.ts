@@ -70,6 +70,8 @@ function running(target: { port: number; url: string }): ConnRunning {
     since: '2027-01-01',
     machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
     instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+    drift: null,
+    localDsh: '0.1.7-rc.2',
     health: null,
   }
 }

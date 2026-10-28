@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   canonicalJson,
+  compareDshVersion,
+  dshDrift,
   mcpSignature,
   mcpStatus,
   pluginStatus,
@@ -70,5 +72,45 @@ describe('promptStatus', () => {
     expect(promptStatus('d', { exists: true, digest: 'd' } satisfies RemotePromptFact)).toBe('same')
     expect(promptStatus('d', { exists: true, digest: 'e' } satisfies RemotePromptFact)).toBe('diff')
     expect(promptStatus('d', { exists: true, digest: null } satisfies RemotePromptFact)).toBe('unknown')
+  })
+})
+
+describe('compareDshVersion', () => {
+  it('核心段按数值比较，前导 v 与 build 元数据不参与', () => {
+    expect(compareDshVersion('0.2.10', '0.2.9')).toBe(1)
+    expect(compareDshVersion('v0.2.0', '0.2.0')).toBe(0)
+    expect(compareDshVersion('0.2.0+build.7', '0.2.0')).toBe(0)
+    expect(compareDshVersion('1.0.0', '0.9.9')).toBe(1)
+  })
+
+  it('prerelease 照 npm 语义：无 prerelease > 有；数字标识按数值、数字 < 字母数字、短的在前', () => {
+    expect(compareDshVersion('0.2.1', '0.2.1-rc.2')).toBe(1)
+    expect(compareDshVersion('0.2.1-rc.1', '0.2.1-rc.2')).toBe(-1)
+    expect(compareDshVersion('0.2.1-rc.2', '0.2.1-rc.10')).toBe(-1)
+    expect(compareDshVersion('0.2.1-1', '0.2.1-rc.1')).toBe(-1)
+    expect(compareDshVersion('0.2.1-alpha', '0.2.1-beta')).toBe(-1)
+    expect(compareDshVersion('0.2.1-rc.1', '0.2.1-rc.1.1')).toBe(-1)
+    expect(compareDshVersion('0.1.7-rc.2', '0.1.7-rc.2')).toBe(0)
+  })
+
+  it('任一侧解析不了回 null——畸形输出不当成某个方向的版本', () => {
+    expect(compareDshVersion('0.2.0', '')).toBeNull()
+    expect(compareDshVersion('bash: dsh: command not found', '0.2.0')).toBeNull()
+    expect(compareDshVersion('0.2', '0.2.0')).toBeNull()
+  })
+})
+
+describe('dshDrift', () => {
+  it('远端旧于本机 = remote-behind，远端新于本机 = local-behind', () => {
+    expect(dshDrift('0.2.0', '0.1.7-rc.2')).toBe('remote-behind')
+    expect(dshDrift('0.1.7-rc.2', '0.3.0')).toBe('local-behind')
+  })
+
+  it('相等或任一侧读不到 = null（无法判定不驱动动作）', () => {
+    expect(dshDrift('0.2.0', '0.2.0')).toBeNull()
+    expect(dshDrift('v0.2.0', '0.2.0')).toBeNull()
+    expect(dshDrift(null, '0.2.0')).toBeNull()
+    expect(dshDrift('0.2.0', null)).toBeNull()
+    expect(dshDrift('garbage', '0.2.0')).toBeNull()
   })
 })

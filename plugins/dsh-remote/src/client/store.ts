@@ -16,7 +16,7 @@ import type {
 /** 需要口令但当前没有时的补录目标（补完继续原动作）。 */
 export interface SecretPrompt {
   id: string
-  action: 'connect' | 'sync'
+  action: 'connect' | 'sync' | 'upgrade'
   /** action='sync' 时的同步类别。 */
   kind: SyncKind | null
   busy: boolean
@@ -45,6 +45,8 @@ export interface RemoteState {
   sshHostsError: PanelMessage | null
   /** 删除确认弹窗的目标连接。 */
   deleting: ConnRow | null
+  /** 升级确认弹窗的目标连接（远端 dsh 落后本机时的「升级远端」动作）。 */
+  upgrading: ConnRow | null
   /** 同步弹窗的目标：连接 + 从下拉菜单选定的类别（勾选清单在弹窗内编辑）。 */
   syncing: { id: string; kind: SyncKind } | null
   /** 未连接时点「同步插件」的引导目标（插件安装依赖连接部署出的远端 dsh）。 */
@@ -70,6 +72,7 @@ const INITIAL: RemoteState = {
   sshHostsLoading: false,
   sshHostsError: null,
   deleting: null,
+  upgrading: null,
   syncing: null,
   connectPrompt: null,
   failedDetail: null,
@@ -174,7 +177,15 @@ export class RemoteStore {
         notice =
           prevOp === 'recover'
             ? { key: 'notice.recovered', params: { label: row.label } }
-            : { key: 'notice.connected', params: { label: row.label } }
+            : prevOp === 'upgrade'
+              ? {
+                  key: 'notice.upgraded',
+                  params: {
+                    label: row.label,
+                    version: row.state.running.instance?.dsh ?? '?',
+                  },
+                }
+              : { key: 'notice.connected', params: { label: row.label } }
       }
       if (notice === null && prevOp !== null && opKind === null && prevOp.startsWith('sync-')) {
         notice = syncDoneNotice(prevOp, row)
@@ -268,6 +279,10 @@ export class RemoteStore {
     this.set({ deleting: row })
   }
 
+  askUpgrade(row: ConnRow | null): void {
+    this.set({ upgrading: row })
+  }
+
   askConnect(row: ConnRow | null): void {
     this.set({ connectPrompt: row })
   }
@@ -316,6 +331,7 @@ export class RemoteStore {
       await this.refresh()
       this.set({ secretPrompt: null })
       if (prompt.action === 'connect') await this.connect(prompt.id)
+      else if (prompt.action === 'upgrade') await this.upgrade(prompt.id)
       else if (prompt.kind !== null) this.askSync({ id: prompt.id, kind: prompt.kind })
     } catch (error) {
       this.set({ secretPrompt: { ...prompt, busy: false, error: { text: errMsg(error) } } })
@@ -403,6 +419,19 @@ export class RemoteStore {
       return Promise.resolve()
     }
     return this.run(id, () => remoteApi.connect(id))
+  }
+
+  /** 手动升级远端（远端 dsh 落后本机时的卡片动作）：需要口令时先补录，补完
+   *  继续升级。长操作随即返回，进度由卡片 spinner 呈现。 */
+  upgrade(id: string): Promise<void> {
+    const row = this.rowOf(id)
+    if (row !== undefined && needsSecret(row)) {
+      this.set({
+        secretPrompt: { id, action: 'upgrade', kind: null, busy: false, error: null },
+      })
+      return Promise.resolve()
+    }
+    return this.run(id, () => remoteApi.upgrade(id))
   }
 
   sync(id: string, kind: SyncKind, names: string[], registryInstall?: RegistryPluginInstall): Promise<void> {

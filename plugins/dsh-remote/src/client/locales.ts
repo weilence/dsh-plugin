@@ -38,6 +38,7 @@ export const zh = {
 
   'op.connect': '连接',
   'op.recover': '自动恢复',
+  'op.upgrade': '升级远端',
   'op.sync-skills': '同步 Skills',
   'op.sync-mcp': '同步 MCP',
   'op.sync-plugins': '同步插件',
@@ -48,6 +49,13 @@ export const zh = {
   'health.unresponsive': '实例无响应',
   'health.unknown': '实例状态未知',
   'health.lastAt': '最后一次心跳观测：{at}（systemd 状态与日志尾部见下）',
+
+  // 版本漂移（心跳实时刷新，基准是本机现读的已装 dsh 版本）：远端旧于本机可
+  // 升级远端（入口是动作区「升级远端」）；本机旧于远端只提示、不强制。
+  'drift.remoteBehind': '远端可升级',
+  'drift.remoteBehind.title': '远端 dsh {remote} 低于本机 {local}，可升级远端（升级会重启远端实例）',
+  'drift.localBehind': '本机版本落后',
+  'drift.localBehind.title': '本机 dsh {local} 低于远端 {remote}，建议升级本机 dsh（不做强制）',
 
   'noun.skills': 'skills',
   'noun.mcp': 'MCP',
@@ -63,7 +71,12 @@ export const zh = {
   'failed.connect': '连接失败',
   'failed.sync': '同步失败',
   'failed.recover': '自动恢复失败',
+  'failed.upgrade': '升级失败',
   'card.syncMenu': '同步 ▾',
+
+  'upgrade.title': '升级远端 dsh',
+  'upgrade.body':
+    '确认升级「{label}」（{target}）？远端 dsh 将从 {remote} 升级到本机版本 {local}；远端实例会重启，进行中的会话会中断，本机不受影响。',
 
   'lastSync.skills': '上次 Skills 同步：推送 {pushed}',
   'lastSync.mcp': '上次 MCP 同步：{count} 行',
@@ -82,6 +95,7 @@ export const zh = {
 
   'notice.connected': '已连接「{label}」——点卡片上的「打开」进入远端页面',
   'notice.recovered': '远端实例曾停止，已自动恢复「{label}」——点「打开」重新进入',
+  'notice.upgraded': '远端 dsh 已升级到 {version}（{label}）',
   'notice.created': '已创建连接',
   'notice.saved': '已保存连接',
   'notice.deleted': '已删除连接',
@@ -248,6 +262,7 @@ export const en: { [Key in RemoteKey]: string } = {
 
   'op.connect': 'Connect',
   'op.recover': 'Recovering',
+  'op.upgrade': 'Upgrade remote',
   'op.sync-skills': 'Sync Skills',
   'op.sync-mcp': 'Sync MCP',
   'op.sync-plugins': 'Sync plugins',
@@ -257,6 +272,13 @@ export const en: { [Key in RemoteKey]: string } = {
   'health.unresponsive': 'Unresponsive',
   'health.unknown': 'State unknown',
   'health.lastAt': 'Last heartbeat at {at} (systemd state and log tail below)',
+
+  'drift.remoteBehind': 'Remote upgradable',
+  'drift.remoteBehind.title':
+    'Remote dsh {remote} is older than local {local}; the remote can be upgraded (upgrading restarts the remote instance)',
+  'drift.localBehind': 'Local outdated',
+  'drift.localBehind.title':
+    'Local dsh {local} is older than remote {remote}; consider upgrading local dsh (not enforced)',
 
   'noun.skills': 'skills',
   'noun.mcp': 'MCP',
@@ -272,7 +294,12 @@ export const en: { [Key in RemoteKey]: string } = {
   'failed.connect': 'Connection failed',
   'failed.sync': 'Sync failed',
   'failed.recover': 'Auto-recovery failed',
+  'failed.upgrade': 'Upgrade failed',
   'card.syncMenu': 'Sync ▾',
+
+  'upgrade.title': 'Upgrade remote dsh',
+  'upgrade.body':
+    'Upgrade "{label}" ({target})? Remote dsh will go from {remote} to the local version {local}; the remote instance restarts and ongoing sessions are interrupted. The local machine is unaffected.',
 
   'lastSync.skills': 'Last Skills sync: pushed {pushed}',
   'lastSync.mcp': 'Last MCP sync: {count} rows',
@@ -292,6 +319,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'notice.connected': 'Connected to "{label}" — click "Open" on the card to enter the remote page',
   'notice.recovered':
     'The remote instance had stopped and was recovered automatically — click "Open" to re-enter "{label}"',
+  'notice.upgraded': 'Remote dsh upgraded to {version} ({label})',
   'notice.created': 'Connection created',
   'notice.saved': 'Connection saved',
   'notice.deleted': 'Connection deleted',

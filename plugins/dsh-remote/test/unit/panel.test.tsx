@@ -149,6 +149,7 @@ const api = vi.hoisted(() => ({
   setSecret: vi.fn(),
   remoteInventory: vi.fn(),
   connect: vi.fn(),
+  upgrade: vi.fn(),
   sync: vi.fn(),
 }))
 
@@ -230,6 +231,8 @@ describe('远程开发面板渲染', () => {
             since: '2026-01-01T00:00:00.000Z',
             machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
             instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
             health: null,
           },
           lastSync: {
@@ -274,6 +277,88 @@ describe('远程开发面板渲染', () => {
     store.stopPolling()
   })
 
+  it('版本漂移徽标与升级入口：远端可升级有「升级远端」按钮，本机落后只提示', async () => {
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: 'remote-behind',
+            localDsh: '0.2.0',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    const html = renderPanel(store)
+    expect(html).toContain('远端可升级')
+    expect(html).toContain('升级远端')
+    store.stopPolling()
+
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.3.0' },
+            instance: { dsh: '0.3.0', plugin: '0.1.0' },
+            drift: 'local-behind',
+            localDsh: '0.2.0',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    const behind = await loadedStore()
+    const behindHtml = renderPanel(behind)
+    expect(behindHtml).toContain('本机版本落后')
+    // 本机落后不强制：没有升级入口
+    expect(behindHtml).not.toContain('升级远端')
+    behind.stopPolling()
+  })
+
+  it('升级确认弹窗：展示两侧版本与重启影响（确认动作在 store.upgrade）', async () => {
+    const row = connRow({
+      phase: 'running',
+      running: {
+        url: 'http://127.0.0.1:18731',
+        localPort: 18731,
+        remotePort: 18730,
+        pid: 42,
+        since: '2026-01-01T00:00:00.000Z',
+        machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+        instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+        drift: 'remote-behind',
+        localDsh: '0.2.0',
+        health: null,
+      },
+    })
+    api.state.mockReturnValue(stateResponse({}, [row]))
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = await loadedStore()
+    store.askUpgrade(row)
+    const html = renderPanel(store)
+    expect(html).toContain('升级远端 dsh')
+    expect(html).toContain('远端 dsh 将从 0.1.7-rc.2 升级到本机版本 0.2.0')
+    expect(html).toContain('远端实例会重启')
+    expect(html).toContain('取消')
+    store.stopPolling()
+  })
+
   it('心跳结论叠加在阶段 pill 旁：无响应 / 重启中如实可见', async () => {
     api.state.mockReturnValue(
       stateResponse({}, [
@@ -287,6 +372,8 @@ describe('远程开发面板渲染', () => {
             since: '2026-01-01T00:00:00.000Z',
             machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
             instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
             health: {
               state: 'unresponsive',
               at: '2026-01-02T03:04:05.000Z',
@@ -305,6 +392,8 @@ describe('远程开发面板渲染', () => {
               since: '2026-01-01T00:00:00.000Z',
               machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
               instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+              drift: null,
+              localDsh: '0.1.7-rc.2',
               health: { state: 'restarting', at: '2026-01-02T03:04:05.000Z' },
             },
           }),
@@ -401,6 +490,8 @@ describe('远程开发面板渲染', () => {
             since: '2026-01-01T00:00:00.000Z',
             machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
             instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
             health: null,
           },
           error: {

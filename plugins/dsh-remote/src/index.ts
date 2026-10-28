@@ -40,6 +40,7 @@ import {
   STATE_PATH,
   SYNC_PATH,
   TEST_PATH,
+  UPGRADE_PATH,
   VERSION_PATH,
   type LocalRowsResponse,
   type LocalSkillRow,
@@ -63,14 +64,27 @@ async function probeTool(command: string, args: string[]): Promise<boolean> {
   })
 }
 
-// 本机 dsh 运行时版本（远端部署对齐目标 + /version 上报值），模块加载时取一次：
-// 必须经宿主运行时解析取包（平台包不经 node_modules 供给，静态目录探测落空）；
-// 也是快照——getDshRuntimeVersion 运行时读磁盘，远端实例进程里晚读会被连接的
-// 部署段升级污染。取不到回 null，部署段据此中止——不回退安装 latest 的论证见
-// engine ensureDeployed。
-const localDshVersion: string | null = await import('@deepseek-ai/dsh-app-boot')
-  .then((boot) => boot.getDshRuntimeVersion())
-  .catch(() => null)
+// 本机 dsh 运行时版本的两个口径（同一事实源，取值时机不同）：
+// - 快照（/version 自报 + 远端实例身份判定）：模块加载时定格。远端实例进程里
+//   运行时读磁盘会被连接的部署段升级污染——报出「新版本」而进程跑着旧代码；
+//   模块加载即进程启动，此刻磁盘 = 加载的代码。取不到回 null。
+// - 现读（currentDshVersion，部署对齐目标 + 版本漂移基准）：getDshRuntimeVersion
+//   每次调用读盘，宿主磁盘不经本插件改动、无污染路径——本机升级 dsh 而宿主未
+//   重启时，现读让「远端可升级」立刻成立。读不到回 null，部署段据此中止——
+//   不回退安装 latest 的论证见 engine ensureDeployed。
+const dshAppBoot: typeof import('@deepseek-ai/dsh-app-boot') | null =
+  await import('@deepseek-ai/dsh-app-boot').catch(() => null)
+
+const localDshVersion: string | null = dshAppBoot?.getDshRuntimeVersion() ?? null
+
+async function currentDshVersion(): Promise<string | null> {
+  if (dshAppBoot === null) return null
+  try {
+    return dshAppBoot.getDshRuntimeVersion()
+  } catch {
+    return null
+  }
+}
 
 /** 构建产物 lib/index.js 所在包根（lib 的上一级）。 */
 function pluginPackageRoot(): string {
@@ -262,7 +276,7 @@ function makeEngine(ctx: Context): RemoteEngine {
         return null
       }
     },
-    localDshVersion,
+    currentDshVersion,
     localPluginVersion,
     packPlugin,
     packPackage,
@@ -546,6 +560,31 @@ export function applyWithEngine(ctx: Context, engine: RemoteEngine): void {
         },
       }),
     'dsh-remote: connect bridge',
+  )
+
+  // 手动升级远端（running 卡片在「远端可升级」时出现的动作）：与连接同一流程
+  // 的重新装配——部署段幂等对齐远端 dsh / 插件到本机现读版本，旧实例在版本判
+  // 定处 stop 后重启收敛。缺口令转 409，面板据此弹补录框后继续。
+  ctx.effect(
+    () =>
+      ctx.webServer.register({
+        kind: 'exact',
+        path: UPGRADE_PATH,
+        handler: async (req: IncomingMessage, res: ServerResponse) => {
+          try {
+            if (!guard(req, res, 'POST')) return
+            const id = await connIdOf(req)
+            await engine.load()
+            engine.connectionOf(id)
+            engine.startUpgradeRemote(id)
+            const row = engine.rows().find((candidate) => candidate.id === id)
+            writeJson(res, 200, { started: true, state: row?.state ?? null })
+          } catch (error) {
+            writeJson(res, statusOf(error), { error: errMsg(error) })
+          }
+        },
+      }),
+    'dsh-remote: upgrade bridge',
   )
 
   // 实例运行身份上报（连接的版本判定用）：两个值都是模块加载时定格的快照——

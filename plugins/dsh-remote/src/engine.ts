@@ -39,6 +39,8 @@ import {
 import {
   REMOTE_PLUGIN_NAME,
   REMOTE_PROFILE,
+  compareDshVersion,
+  dshDrift,
   isRemoteSelf,
   mcpSignature,
   targetRequiresSecret,
@@ -57,6 +59,7 @@ import {
   type SyncKind,
   type TestRequest,
   type TestResponse,
+  type VersionDrift,
 } from './shared'
 
 /** 远端读插件事实的内嵌脚本（remotePluginFacts 经 ssh 执行）：输出行
@@ -185,8 +188,12 @@ export interface EngineDeps {
   >
   /** 本机系统提示词（system-prompt.md）原文；文件不存在为 null。 */
   readSystemPrompt(): Promise<string | null>
-  /** 本机 dsh 运行时版本（部署对齐目标）；解析失败为 null = 连接部署段直接失败（禁止回退安装 latest）。 */
-  localDshVersion: string | null
+  /** 本机 dsh 运行时版本的现读值（部署对齐目标 + 版本漂移基准）；读不到为
+   *  null = 连接部署段直接失败（禁止回退安装 latest）。与 /version 自报的
+   *  进程启动快照是两个口径：getDshRuntimeVersion 每次调用读盘，宿主磁盘不
+   *  经本插件改动，现读能让「本机已升级、宿主未重启」立刻成为升级远端的依据；
+   *  远端实例进程的磁盘会被部署段升级，其自报必须用快照（见 host index.ts）。 */
+  currentDshVersion(): Promise<string | null>
   /** 本插件版本（package.json；部署版本对比目标）；未知为 null。 */
   localPluginVersion: string | null
   /** 本地打包本插件 tgz（部署自装用）；失败抛 SshFailure。 */
@@ -572,10 +579,14 @@ export class RemoteEngine {
    *  HOME / dsh 路径 / 登录 PATH 三项服务事实、既有单元端口）经一条标记行命令
    *  一次拿全——探查彼此无依赖，Windows（无连接复用）下必经建连从十次缩成一次。
    *  端口只在单元里没有有效值时才探测（多一次建连，仅首连 / 旧单元迁移时发生）。
+   *  wantVersion 由 runConnect 传入（本机现读目标，与实例版本判定共用同一值）。
+   *  dsh 对齐是方向感知的：远端旧于目标才安装升级；远端新于目标**不降级**
+   *  （本机落后不强制，返回值 machine.dsh 记远端实际版本，由面板提示升级本机）。
    *  返回值还携带机器事实（node / npm / dsh，与表单「测试」同一组查询的定格），
    *  由 runConnect 写进 running 供面板展示。 */
   private async ensureDeployed(
     id: string,
+    wantVersion: string,
   ): Promise<{ paths: ServicePaths; machine: { node: string; npm: string; dsh: string } }> {
     const target = this.sshTargetOf(this.connectionOf(id))
     const remoteModulePkg = `~/.dsh/profiles/${REMOTE_PROFILE}/node_modules/${REMOTE_PLUGIN_NAME}/package.json`
@@ -612,22 +623,23 @@ export class RemoteEngine {
     }
     this.step(id, 'ensure-pnpm', `node ${tools.node} / npm ${tools.npm} / pnpm ${tools.pnpm}`)
 
-    // 远端 dsh 版本对齐本机；探测失败直接终止——npm 的 latest 标签可能落后
-    // 于 next（实测 latest=0.1.7-rc.2、0.2 线在 next），回退安装会装出旧版本线，触发
-    // 插件的 engines 版本闸门。
-    const wantVersion = this.deps.localDshVersion
-    if (wantVersion === null) {
-      throw new SshFailure(
-        'unknown',
-        '本机 dsh 运行时版本探测失败（@deepseek-ai/dsh-app-boot 不可达）：远端不回退安装 latest，已中止装配',
-      )
-    }
+    // 远端 dsh 版本对齐本机；目标（本机现读）解析失败直接终止——npm 的 latest
+    // 标签可能落后于 next（实测 latest=0.1.7-rc.2、0.2 线在 next），回退安装会
+    // 装出旧版本线，触发插件的 engines 版本闸门。null 在 runConnect 已拦截。
     this.step(id, 'install-dsh', wantVersion)
-    const remoteDsh = markedValues(probe.stdout).get('DSH')
+    const remoteDshRaw = markedValues(probe.stdout).get('DSH')
     // 服务事实取自探查；dsh 此刻未装（路径空）时由安装命令附带补齐——npm 全局
     // bin 目录在装与不装之间不变，但路径必须以装完后的实况为准。
     let servicePaths = parseServiceProbe(probe.stdout)
-    if (remoteDsh !== wantVersion) {
+    // 远端 dsh 的实际版本：装与不装都以最终事实为准（machine.dsh 面板展示用）。
+    // 未装（命令输出错误文本）或输出畸形时在安装分支里被替换为 wantVersion。
+    let effectiveDsh = remoteDshRaw ?? ''
+    const relation = remoteDshRaw === undefined ? null : compareDshVersion(remoteDshRaw, wantVersion)
+    if (relation !== null && relation > 0) {
+      // 远端新于本机：不降级（本机落后只提示不强制）——磁盘与进程保持一致的
+      // 较新版本，降级会让下次 systemd 重启把实例拉回旧版本线
+      this.step(id, 'dsh-newer', `远端 dsh ${remoteDshRaw} 新于本机 ${wantVersion}，跳过降级`)
+    } else if (remoteDshRaw !== wantVersion) {
       const install = await this.deps.exec(
         target,
         `npm install -g ${shQuote(`@deepseek-ai/dsh@${wantVersion}`)} && echo __DSHBIN__"$(command -v dsh 2>/dev/null)"`,
@@ -646,6 +658,7 @@ export class RemoteEngine {
       // 装完后补齐的 dsh 路径覆盖探查值（探查时未装为空）
       const afterInstall = parseServiceProbe(install.stdout)
       if (afterInstall !== null) servicePaths = afterInstall
+      effectiveDsh = wantVersion
     }
 
     // 远端默认只装本插件——tgz 推送安装（无 scope 包名 dsh-remote 在 npm 已被第三方
@@ -726,9 +739,9 @@ export class RemoteEngine {
     this.step(id, 'port', String(port))
     return {
       paths: { ...servicePaths, port },
-      // dsh 取对齐后的目标版本：部署段要么已一致、要么刚装成 wantVersion，两者
-      // 同值；node / npm 是探查原值（面板行展示的事实）
-      machine: { node: tools.node, npm: tools.npm, dsh: wantVersion },
+      // dsh 取对齐后的实际版本：部署段要么装成 wantVersion、要么远端本就更新
+      // （跳过降级，记远端实际值）；node / npm 是探查原值（面板行展示的事实）
+      machine: { node: tools.node, npm: tools.npm, dsh: effectiveDsh },
     }
   }
 
@@ -746,6 +759,15 @@ export class RemoteEngine {
     return port
   }
 
+  /** 手动升级远端（running 卡片在「远端可升级」时出现的动作，POST /upgrade）：
+   *  与连接 / 自动恢复同一流程——部署段幂等把远端 dsh 与插件对齐到本机现读
+   *  版本，旧实例在版本判定处被 stop 后重启收敛，全程进度走 spinner 浮层。 */
+  startUpgradeRemote(id: string): void {
+    const connection = this.beginOp(id, { kind: 'upgrade' }, 'deploying')
+    this.step(id, 'upgrade', '对齐远端到本机版本')
+    void this.runConnect(connection)
+  }
+
   private async runConnect(connection: StoredConnection): Promise<void> {
     const id = connection.id
     try {
@@ -757,8 +779,18 @@ export class RemoteEngine {
       runtime.forward = null
       runtime.running = null
 
+      // 本机现读目标版本（部署对齐 + 实例判定的同一基准）；读不到直接中止——
+      // 禁止回退安装 npm latest 的论证见 ensureDeployed。
+      const targetVersion = await this.deps.currentDshVersion()
+      if (targetVersion === null) {
+        throw new SshFailure(
+          'unknown',
+          '本机 dsh 运行时版本探测失败（@deepseek-ai/dsh-app-boot 不可达）：远端不回退安装 latest，已中止装配',
+        )
+      }
+
       // 部署段先行（幂等，已装齐时直接跳过）；装配完成进入启动段（阶段驱动面板 pill）
-      const { paths: servicePaths, machine } = await this.ensureDeployed(id)
+      const { paths: servicePaths, machine } = await this.ensureDeployed(id, targetVersion)
       runtime.phase = 'starting'
 
       // 复用实例先验明正身再接受：版本快照由实例自报（进程内 apply 时定格，
@@ -774,6 +806,8 @@ export class RemoteEngine {
             pid: number
             forward: ForwardHandle
             instance: { dsh: string | null; plugin: string | null }
+            drift: VersionDrift | null
+            localDsh: string
           }
         | undefined
       for (;;) {
@@ -827,10 +861,14 @@ export class RemoteEngine {
         const version = await this.deps.instanceVersion(url)
         let mismatch: string
         if (version.ok) {
-          if (
-            version.dsh === this.deps.localDshVersion &&
-            (this.deps.localPluginVersion === null || version.plugin === this.deps.localPluginVersion)
-          ) {
+          // dsh 相等或新于本机目标都接受：远端被用户单独升级后不降级也不误杀，
+          // 漂移 local-behind 交面板提示本机升级。插件仍要求与本机一致——磁盘
+          // 上是部署段刚对齐的版本，不一致说明旧进程还没加载到新代码。
+          const relation = version.dsh === null ? null : compareDshVersion(version.dsh, targetVersion)
+          const dshOk = relation !== null && relation >= 0
+          const pluginOk =
+            this.deps.localPluginVersion === null || version.plugin === this.deps.localPluginVersion
+          if (dshOk && pluginOk) {
             accepted = {
               url,
               localPort,
@@ -838,12 +876,14 @@ export class RemoteEngine {
               pid: launched.pid,
               forward,
               // 版本判定问到的那份自报身份直接种进 running：面板行先有东西可显，
-              // 之后由心跳按 beat 实时刷新
+              // 之后由心跳按 beat 实时刷新；漂移同拍种下（远端较新 = local-behind）
               instance: { dsh: version.dsh, plugin: version.plugin },
+              drift: relation > 0 ? 'local-behind' : null,
+              localDsh: targetVersion,
             }
             break
           }
-          mismatch = `实例 dsh ${version.dsh ?? '?'} / 插件 ${version.plugin ?? '?'}，本机 dsh ${this.deps.localDshVersion ?? '?'} / 插件 ${this.deps.localPluginVersion ?? '?'}`
+          mismatch = `实例 dsh ${version.dsh ?? '?'} / 插件 ${version.plugin ?? '?'}，本机 dsh ${targetVersion} / 插件 ${this.deps.localPluginVersion ?? '?'}`
         } else if (version.http === 404) {
           mismatch = '实例运行着未带版本接口的旧插件'
         } else {
@@ -871,6 +911,8 @@ export class RemoteEngine {
         since: this.deps.now(),
         machine,
         instance: accepted.instance,
+        drift: accepted.drift,
+        localDsh: accepted.localDsh,
         // 新连接（含自动收敛后的新连接）从「未探测」开始，第一次心跳在 10s 后
         health: null,
       }
@@ -1064,13 +1106,26 @@ export class RemoteEngine {
         this.setHealth(current, null)
         // 心跳即「测试链接」的完整查询：隧道活着之外，顺路问实例自报身份
         // （token 换 Cookie 后 GET /version），面板行上的 dsh / 插件版本由此实时
-        // 刷新。问不到（token 过期等）保留上次自报，不当作异常。
+        // 刷新。问不到（token 过期等）保留上次自报，不当作异常。版本漂移同拍
+        // 重算：基准是本机现读版本（本机升级 / 远端被单独改动都能在此显形），
+        // 问不到本机版本时漂移清空（无法判定不驱动动作）。
         const version = await this.deps.instanceVersion(url)
         const live = this.runtimes.get(id)
         if (live !== undefined && live.running !== null && live.running.url === url && version.ok) {
-          live.running = {
-            ...live.running,
-            instance: { dsh: version.dsh, plugin: version.plugin },
+          const localDsh = await this.deps.currentDshVersion()
+          const fresh = this.runtimes.get(id)
+          if (
+            fresh !== undefined &&
+            fresh.running !== null &&
+            fresh.running.url === url &&
+            fresh.op === null
+          ) {
+            fresh.running = {
+              ...fresh.running,
+              instance: { dsh: version.dsh, plugin: version.plugin },
+              drift: dshDrift(localDsh, version.dsh),
+              localDsh,
+            }
           }
         }
         return
