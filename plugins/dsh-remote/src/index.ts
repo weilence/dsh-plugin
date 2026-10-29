@@ -216,6 +216,17 @@ function makeEngine(ctx: Context): RemoteEngine {
           server.close(() => resolve(port))
         })
       }),
+    // 首选隧道口的 bind 探测：能短暂独占绑定 = 空闲。任何错误（占用 / 权限）
+    // 一律按忙处理回 false——探测永不拒绝，引擎据此回退临时端口。
+    probeLocalPort: (port) =>
+      new Promise<boolean>((resolve) => {
+        const server = createServer()
+        server.unref()
+        server.once('error', () => resolve(false))
+        server.listen(port, '127.0.0.1', () => {
+          server.close(() => resolve(true))
+        })
+      }),
     // 健康检查只证明隧道通：远端对无凭据的 GET / 应答 401（index 由
     // browser-auth 把守），任何 HTTP 响应都表示隧道可用，仅网络层失败视为不可用。
     healthCheck: async (url) => {

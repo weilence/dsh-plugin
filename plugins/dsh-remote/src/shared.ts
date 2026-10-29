@@ -37,6 +37,29 @@ export const SSH_HOSTS_PATH = '/dsh-remote/ssh-hosts'
 /** 为「记住密码」关闭的连接现场补口令：只进宿主内存，永不落盘。 */
 export const SECRET_PATH = '/dsh-remote/secret'
 
+// ---------------------------------------------------------------------------
+// 本地隧道端口策略
+// ---------------------------------------------------------------------------
+
+/** 本地隧道首选端口段的下界与槽数：每个连接按 id 确定性占一槽（id 稳定 ⇒ 端口
+ *  稳定——跨重连 / 宿主重启回到同一端口，隧道的 authority、书签与按端口写的
+ *  外部规则不失效）。段位避开 dsh web 默认口 3080（本机可能跑着自己的实例）
+ *  与内核临时端口区（macOS / Linux 默认 49152 起）。 */
+export const LOCAL_TUNNEL_PORT_BASE = 13080
+export const LOCAL_TUNNEL_PORT_SPAN = 32
+
+/** 连接 id → 首选本地隧道端口（FNV-1a 32 位散列取槽）。同 id 恒同口、不同 id
+ *  均匀散布；个别碰撞与「探测后到 ssh bind 之间被抢」的竞态占用都由引擎回退
+ *  内核临时端口兜住——不需要持久化分配结果，槽位空出后下次连接自动回到首选。 */
+export function preferredLocalTunnelPort(id: string): number {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < id.length; i += 1) {
+    hash ^= id.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return LOCAL_TUNNEL_PORT_BASE + ((hash >>> 0) % LOCAL_TUNNEL_PORT_SPAN)
+}
+
 /** 非本地（registry 形态）插件的远端安装方式：本地打包传输 / 远端自行 npm 下载。
  *  本地路径安装（link:/file:）的插件不受此选项影响——永远本地传输（开发中的
  *  未发布代码也只有这条路径能到达远端）。 */

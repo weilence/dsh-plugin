@@ -144,6 +144,7 @@ async function makeHarness(): Promise<Harness> {
     exec: async () => ({ code: 0, stdout: '', stderr: '' }),
     startForward: async () => ({ kill() {}, onExit() {}, pid: 4242 }),
     freeLocalPort: async () => 19999,
+    probeLocalPort: async () => false,
     healthCheck: async () => true,
     instanceVersion: async () => ({ ok: true, dsh: '0.1.7-rc.2', plugin: '0.1.0' }),
     pushTar: async () => {},

@@ -22,7 +22,7 @@ import { ForwardRegistry } from '../../src/forwards'
 import { emptyPatchDoc, parsePatchDoc } from '../../src/patchDoc'
 import { readStore, writeStore } from '../../src/connections'
 import { foldSkillDigest, mcpSummary, type LocalPatchLayer, type LocalMcpFile } from '../../src/localenv'
-import { mcpSignature, type SaveRequest } from '../../src/shared'
+import { mcpSignature, preferredLocalTunnelPort, type SaveRequest } from '../../src/shared'
 
 interface Recorded {
   target: SshTarget
@@ -105,6 +105,11 @@ interface FakeOptions {
   instanceVersion?: InstanceVersion | ((attempt: number) => InstanceVersion)
   /** 健康检查结果；函数形式按尝试次序变化（自愈回环用例），缺省恒 true。 */
   healthCheck?: (attempt: number) => boolean
+  /** 首选隧道口探测结果；缺省 false（首选口按占用处理，走临时端口回退路径——
+   *  既有用例的端口断言都钉在 freeLocalPort 的 19999 上）。 */
+  probeLocalPort?: (port: number) => boolean
+  /** 覆写转发句柄（本地口绑不上的即死句柄等用例）；缺省恒活句柄。 */
+  forward?: (localPort: number, attempt: number) => ForwardHandle
   /** 引擎时钟（心跳节流与退避的判定依据）；缺省恒定——心跳用例传可推进的假时钟。 */
   now?: () => string
 }
@@ -114,6 +119,8 @@ function makeDeps(options: FakeOptions = {}) {
   const tarPushes: { target: SshTarget; localRoot: string; remoteRoot: string; names?: readonly string[] }[] =
     []
   const filePushes: { target: SshTarget; localPath: string; remoteDir: string; fileName: string }[] = []
+  const forwardCalls: { target: SshTarget; localPort: number; remotePort: number }[] = []
+  let forwardAttempt = 0
   const packedRoots: string[] = []
   let forwardKilled = 0
   let packCount = 0
@@ -140,7 +147,10 @@ function makeDeps(options: FakeOptions = {}) {
       }
       return typeof scripted === 'function' ? scripted(versionAttempt) : scripted
     },
-    async startForward(target): Promise<ForwardHandle> {
+    async startForward(target, localPort, remotePort): Promise<ForwardHandle> {
+      forwardCalls.push({ target, localPort, remotePort })
+      forwardAttempt += 1
+      if (options.forward !== undefined) return options.forward(localPort, forwardAttempt)
       return {
         kill() {
           forwardKilled += 1
@@ -149,6 +159,7 @@ function makeDeps(options: FakeOptions = {}) {
         pid: 4242,
       }
     },
+    probeLocalPort: async (port) => options.probeLocalPort?.(port) ?? false,
     freeLocalPort: async () => 19999,
     async healthCheck() {
       healthAttempt += 1
@@ -213,6 +224,7 @@ function makeDeps(options: FakeOptions = {}) {
     calls,
     tarPushes,
     filePushes,
+    forwardCalls,
     packedRoots: () => packedRoots,
     forwardCount: () => forwardKilled,
     packCount: () => packCount,
@@ -2254,6 +2266,140 @@ describe('RemoteEngine', () => {
       engine.startUpgradeRemote('dev-box')
       expect(() => engine.startUpgradeRemote('dev-box')).toThrow(BusyError)
       await waitFor(() => engine.stateOf('dev-box').op === null)
+    })
+  })
+
+  describe('本地隧道端口（按 id 推导首选口，占用回退临时口）', () => {
+    const PREFERRED = preferredLocalTunnelPort('dev-box')
+
+    /** 即死转发句柄：die() 同步触发 onExit（真实 ssh 绑不上本地口会立即退出；
+     *  测试在健康检查回调里调用，避免依赖事件循环次序）。 */
+    function dyingForward(): ForwardHandle & { die(): void } {
+      let listener: (() => void) | null = null
+      return {
+        kill() {},
+        onExit(callback) {
+          listener = callback
+        },
+        pid: 4242,
+        die() {
+          listener?.()
+        },
+      }
+    }
+
+    function respondReady(command: string): SshResult | undefined {
+      const ready = deployReady(command)
+      if (ready !== undefined) return ready
+      if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+      return undefined
+    }
+
+    it('首选口空闲 → 隧道与租约都落在推导端口上（跨重连 / 宿主重启稳定）', async () => {
+      makeEngine({ respond: respondReady, probeLocalPort: () => true })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').running).toMatchObject({
+        url: `http://127.0.0.1:${PREFERRED}/?token=tok43`,
+        localPort: PREFERRED,
+      })
+      expect(fake.forwardCalls.map((call) => call.localPort)).toEqual([PREFERRED])
+      // 租约同样记推导端口：宿主重启后的遗留清扫按它核验命令行
+      const leases = JSON.parse(await readFile(join(home, 'dsh-remote', 'forwards.json'), 'utf8')) as Record<
+        string,
+        { localPort: number }
+      >
+      expect(leases['dev-box']).toMatchObject({ localPort: PREFERRED })
+    })
+
+    it('首选口被占 → 回退内核临时端口', async () => {
+      makeEngine({ respond: respondReady })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(fake.forwardCalls.map((call) => call.localPort)).toEqual([19999])
+    })
+
+    it('首选口探测后被竞态抢占（转发进程即死）→ 换临时端口重试一次，回 running', async () => {
+      let killFirst: (() => void) | undefined
+      makeEngine({
+        respond: respondReady,
+        probeLocalPort: () => true,
+        forward: (_localPort, attempt) => {
+          const handle = dyingForward()
+          if (attempt === 1) killFirst = handle.die
+          return handle
+        },
+        healthCheck: (attempt) => {
+          if (attempt === 1) killFirst?.()
+          return attempt > 1
+        },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      expect(fake.forwardCalls.map((call) => call.localPort)).toEqual([PREFERRED, 19999])
+      expect(engine.stateOf('dev-box').running).toMatchObject({ localPort: 19999 })
+    })
+
+    it('临时口也绑不上 → 显式报错，不重启远端实例（本地问题重启无益）', async () => {
+      const deaths: (() => void)[] = []
+      makeEngine({
+        respond: respondReady,
+        probeLocalPort: () => true,
+        forward: () => {
+          const handle = dyingForward()
+          deaths.push(handle.die)
+          return handle
+        },
+        healthCheck: (attempt) => {
+          deaths[attempt - 1]?.()
+          return false
+        },
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'error' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').error?.message).toContain('未能绑定')
+      expect(fake.forwardCalls.map((call) => call.localPort)).toEqual([PREFERRED, 19999])
+      expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(false)
+    })
+
+    it('转发活着但健康检查不过 → 不换口，实例侧问题走复用自愈路径', async () => {
+      let startCount = 0
+      makeEngine({
+        respond: (command) => {
+          const ready = deployReady(command)
+          if (ready !== undefined) return ready
+          if (command.includes('is-active')) {
+            startCount += 1
+            return startCount === 1
+              ? { code: 0, stdout: 'reuse:4242\n', stderr: '' }
+              : { code: 0, stdout: '', stderr: '' }
+          }
+          if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+          return undefined
+        },
+        probeLocalPort: () => true,
+        healthCheck: (attempt) => attempt > 8,
+      })
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      // 两轮 launch 都用首选口：换口重试只属于「进程已死」形态，不吞自愈
+      expect(fake.forwardCalls.map((call) => call.localPort)).toEqual([PREFERRED, PREFERRED])
+      expect(fake.calls.some((call) => call.command.includes('systemctl --user stop'))).toBe(true)
     })
   })
 })

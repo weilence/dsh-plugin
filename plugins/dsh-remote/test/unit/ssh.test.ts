@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
+  buildForwardArgs,
   buildSshInvocation,
   classifySshFailure,
   createAskpass,
@@ -110,6 +111,16 @@ describe('buildSshInvocation', () => {
       '127.0.0.1:19999:127.0.0.1:4321',
       '--',
       'dev-box',
+    ])
+  })
+
+  it('buildForwardArgs：ExitOnForwardFailure 让绑不上本地口立即退出（引擎据此换口重试）', () => {
+    expect(buildForwardArgs(19999, 4321)).toEqual([
+      '-N',
+      '-o',
+      'ExitOnForwardFailure=yes',
+      '-L',
+      '127.0.0.1:19999:127.0.0.1:4321',
     ])
   })
 })

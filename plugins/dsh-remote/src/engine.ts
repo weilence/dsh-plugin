@@ -43,6 +43,7 @@ import {
   dshDrift,
   isRemoteSelf,
   mcpSignature,
+  preferredLocalTunnelPort,
   targetRequiresSecret,
   type ConnOp,
   type ConnRow,
@@ -174,6 +175,10 @@ export interface EngineDeps {
   exec: SshExec
   startForward(target: SshTarget, localPort: number, remotePort: number): Promise<ForwardHandle>
   freeLocalPort(): Promise<number>
+  /** 本机 bind 探测指定端口：true = 当前空闲（首选隧道口启用前的探测）。探测
+   *  与 ssh 实际 bind 之间仍有微小竞态，由转发段的「健康检查不过且转发进程已
+   *  死 → 换临时端口重试一次」兜底。 */
+  probeLocalPort(port: number): Promise<boolean>
   healthCheck(url: string): Promise<boolean>
   /** 经隧道问远端实例的运行版本（token 换 Cookie 后 GET /version）。 */
   instanceVersion(tunnelUrl: string): Promise<InstanceVersion>
@@ -814,35 +819,67 @@ export class RemoteEngine {
         const launched = await this.launchInstance(target, id, servicePaths)
 
         this.step(id, 'forward', `127.0.0.1 → 远端 :${launched.launch.remotePort}`)
-        const localPort = await this.deps.freeLocalPort()
-        const forward = await this.deps.startForward(target, localPort, launched.launch.remotePort)
-        runtime.forward = forward
-        forward.onExit(() => {
-          const current = this.runtimeOf(id)
-          // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
-          void this.deps.forwards.clear(id)
-          if (current.forward === forward && current.running !== null) {
-            current.phase = 'error'
-            current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
-            current.running = null
-            current.forward = null
-          }
-        })
-
-        const url = rewriteLaunchUrl(
-          `http://127.0.0.1:${launched.launch.remotePort}/?token=${launched.launch.token}`,
-          localPort,
-        )
-        if (url === undefined) throw new SshFailure('unknown', '就绪信号解析失败')
-
-        this.step(id, 'health', `http://127.0.0.1:${localPort}/`)
+        // 首选口 = 按 id 推导的固定槽位（preferredLocalTunnelPort）：跨重连 /
+        // 宿主重启稳定，隧道 authority、书签与外部端口规则不失效。探测空闲才
+        // 用，被占回退内核临时端口。
+        const preferredPort = preferredLocalTunnelPort(id)
+        let localPort = (await this.deps.probeLocalPort(preferredPort))
+          ? preferredPort
+          : await this.deps.freeLocalPort()
+        // 转发进程是否已退出：ssh 绑不上本地口（ExitOnForwardFailure=yes）会
+        // 立即退出，而本地 bind 发生在连上远端之后（时延随网络 / 认证浮动），
+        // 不能用 spawn 后短窗口看存活——「健康检查不过且进程已死」才是「本地口
+        // 没绑上」的确定性判据；进程活着但不通才是实例侧问题。
+        let forwardDied = false
+        let forward: ForwardHandle | null = null
+        let url: string | undefined
         let healthy = false
-        for (let attempt = 0; attempt < HEALTH_RETRY && !healthy; attempt += 1) {
-          await this.deps.delay(HEALTH_INTERVAL_MS)
-          healthy = await this.deps.healthCheck(`http://127.0.0.1:${localPort}/`)
-        }
-        if (!healthy) {
+        for (;;) {
+          forward = await this.deps.startForward(target, localPort, launched.launch.remotePort)
+          forwardDied = false
+          runtime.forward = forward
+          forward.onExit(() => {
+            forwardDied = true
+            const current = this.runtimeOf(id)
+            // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
+            void this.deps.forwards.clear(id)
+            if (current.forward === forward && current.running !== null) {
+              current.phase = 'error'
+              current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
+              current.running = null
+              current.forward = null
+            }
+          })
+
+          url = rewriteLaunchUrl(
+            `http://127.0.0.1:${launched.launch.remotePort}/?token=${launched.launch.token}`,
+            localPort,
+          )
+          if (url === undefined) throw new SshFailure('unknown', '就绪信号解析失败')
+
+          this.step(id, 'health', `http://127.0.0.1:${localPort}/`)
+          for (let attempt = 0; attempt < HEALTH_RETRY && !healthy && !forwardDied; attempt += 1) {
+            await this.deps.delay(HEALTH_INTERVAL_MS)
+            healthy = await this.deps.healthCheck(`http://127.0.0.1:${localPort}/`)
+          }
+          if (healthy || !forwardDied) break
           forward.kill()
+          runtime.forward = null
+          // 死在临时口 = 真实故障（内核挑的空闲口都绑不上，重启远端无益）；死在
+          // 首选口 = 探测后的竞态占用，换临时端口重试一次。
+          if (localPort !== preferredPort)
+            throw new SshFailure(
+              'unreachable',
+              `本地端口转发建立失败（端口 ${localPort} 未能绑定）：请重试连接`,
+            )
+          this.step(id, 'forward', `首选端口 ${preferredPort} 被占，改用临时端口重试`)
+          localPort = await this.deps.freeLocalPort()
+        }
+        // 走到这里只有两种形态：healthy = 隧道就绪；!healthy = 转发进程活着但
+        // 不通（进程已死的形态已在循环内换口重试或报错）——实例侧问题交自愈 /
+        // 报错。url / forward 的空值守卫实际不可达，只为收窄类型。
+        if (!healthy || url === undefined || forward === null) {
+          forward?.kill()
           runtime.forward = null
           // 复用实例健康检查不过 = 实例病了（旧就绪行还在、HTTP 不应答）——重启
           // 自愈一次；新启动的实例失败属于环境 / 转发问题，重启无益。

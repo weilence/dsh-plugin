@@ -8,9 +8,12 @@ import {
   canonicalJson,
   compareDshVersion,
   dshDrift,
+  LOCAL_TUNNEL_PORT_BASE,
+  LOCAL_TUNNEL_PORT_SPAN,
   mcpSignature,
   mcpStatus,
   pluginStatus,
+  preferredLocalTunnelPort,
   promptStatus,
   skillStatus,
   type RemoteMcpFact,
@@ -112,5 +115,25 @@ describe('dshDrift', () => {
     expect(dshDrift(null, '0.2.0')).toBeNull()
     expect(dshDrift('0.2.0', null)).toBeNull()
     expect(dshDrift('garbage', '0.2.0')).toBeNull()
+  })
+})
+
+describe('preferredLocalTunnelPort', () => {
+  it('同 id 恒同口，落在首选段内', () => {
+    expect(preferredLocalTunnelPort('dev-box')).toBe(preferredLocalTunnelPort('dev-box'))
+    const port = preferredLocalTunnelPort('dev-box')
+    expect(port).toBeGreaterThanOrEqual(LOCAL_TUNNEL_PORT_BASE)
+    expect(port).toBeLessThan(LOCAL_TUNNEL_PORT_BASE + LOCAL_TUNNEL_PORT_SPAN)
+  })
+
+  it('已知向量钉死散列实现（FNV-1a 32 位取槽）', () => {
+    expect(preferredLocalTunnelPort('dev-box')).toBe(13084)
+    expect(preferredLocalTunnelPort('work-power')).toBe(13088)
+    expect(preferredLocalTunnelPort('a')).toBe(13092)
+  })
+
+  it('不同 id 散布多个槽位（碰撞由被占回退兜住）', () => {
+    const ports = new Set(Array.from({ length: 60 }, (_, i) => preferredLocalTunnelPort(`conn-${i}`)))
+    expect(ports.size).toBeGreaterThan(20)
   })
 })

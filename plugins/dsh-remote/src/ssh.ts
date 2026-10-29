@@ -537,6 +537,13 @@ export interface SshTransport {
   pushTar(target: SshTarget, localRoot: string, remoteRoot: string, names?: readonly string[]): Promise<void>
 }
 
+/** 本地转发的追加参数：`-N` 不执行远端命令；`ExitOnForwardFailure=yes` 让绑
+ *  不上本地口立即退出（默认只警告继续跑，会留下一个没有隧道的空转发进程）——
+ *  引擎据此判「本地口没绑上」并换口重试（判据见 runConnect 转发段）。 */
+export function buildForwardArgs(localPort: number, remotePort: number): string[] {
+  return ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`]
+}
+
 /** 生产 transport：宿主侧受信代码直接 spawn，认证完全复用 OpenSSH 配置 + 口令通道。 */
 export function createSshTransport(homeDir: string): SshTransport {
   const askpass = createAskpass(homeDir)
@@ -551,11 +558,7 @@ export function createSshTransport(homeDir: string): SshTransport {
       }
     },
     async startForward(target, localPort, remotePort) {
-      const invocation = buildSshInvocation(target, askpass, [
-        '-N',
-        '-L',
-        `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
-      ])
+      const invocation = buildSshInvocation(target, askpass, buildForwardArgs(localPort, remotePort))
       if (invocation.env !== null) await askpass.ensure()
       return spawnForward(invocation)
     },
