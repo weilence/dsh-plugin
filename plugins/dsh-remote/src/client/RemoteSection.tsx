@@ -65,7 +65,8 @@ const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   'sync-prompts': 'failed.sync',
 }
 
-/** 心跳结论 → 徽标文案与语气（running 仍在时叠加在阶段徽标旁）。 */
+/** 心跳结论 → 徽标文案与语气（出现时替代阶段徽标——「运行中」与异常结论并列
+ *  是自相矛盾的两个状态；健康时 health 为 null，不显示任何结论徽标）。 */
 const HEALTH_PILLS: Record<RunningHealth['state'], { key: RemoteKey; tone: PillData['tone'] }> = {
   restarting: { key: 'health.restarting', tone: 'warn' },
   unresponsive: { key: 'health.unresponsive', tone: 'err' },
@@ -431,13 +432,21 @@ function connectionCard(
   // 过程细节一律经 progress 时间线呈现（hover / 点击详情）。
   const failed = row.state.phase === 'error' && row.state.op === null
   const health = running?.health ?? null
-  const pills: PillData[] = opBusy || failed ? [] : [{ text: t(phase.key), tone: phase.tone }]
-  // 心跳结论叠在阶段徽标旁：隧道还通、连接记录还在（running 非空），但实例侧有
-  // 状况——只靠「运行中」会掩盖远端已经停了这件事。
-  if (pills.length > 0 && health !== null) {
-    const badge = HEALTH_PILLS[health.state]
-    pills.push({ text: t(badge.key), tone: badge.tone, title: health.detail })
-  }
+  // 单一状态原则：心跳有异常结论（重启中 / 无响应 / 状态未知）时由结论徽标替代
+  // 「运行中」——连接记录还在（running 非空）不等于实例活着，两个状态并列只会
+  // 自相矛盾；健康时 health 为 null，「运行中」照常显示。
+  const pills: PillData[] =
+    opBusy || failed
+      ? []
+      : health !== null
+        ? [
+            {
+              text: t(HEALTH_PILLS[health.state].key),
+              tone: HEALTH_PILLS[health.state].tone,
+              title: health.detail,
+            },
+          ]
+        : [{ text: t(phase.key), tone: phase.tone }]
   // 版本漂移徽标（心跳实时刷新）：remote-behind = 远端可升级（动作区「升级远端」
   // 是入口）；local-behind = 本机版本落后，只提示不强制。hover 带两侧版本号。
   const drift = running?.drift ?? null
@@ -493,6 +502,16 @@ function connectionCard(
           action('open', t('action.open'), () => window.open(running.url, '_blank'), {
             variant: 'primary',
           }),
+          // 心跳有异常结论时的手动出路：自动恢复可能被会话口令丢失挡住（标
+          // 「状态未知」不动作）、「活着但不应答」按设计不自动重启（怕丢现场）、
+          // 观察窗口期内结论未出——重跑连接全流程幂等，实例已停即被拉起
+          ...(health !== null
+            ? [
+                action('reconnect', t('action.reconnect'), () => void store.connect(row.id), {
+                  variant: 'outline',
+                }),
+              ]
+            : []),
           // 远端 dsh 落后本机时的升级入口（漂移徽标是它的状态说明）；确认弹窗
           // 明示实例会重启，确认后随即关窗、进度走卡片 spinner
           ...(running.drift === 'remote-behind'

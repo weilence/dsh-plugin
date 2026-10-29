@@ -770,12 +770,9 @@ describe('RemoteEngine', () => {
     expect(launchCall?.stdin).toContain('StandardOutput=append:/home/u/.dsh/dsh-remote/web.log')
     expect(launchCall?.stdin).toContain('Restart=on-failure')
     // 单元名、描述与日志路径都不含连接 id：同一台机器换别名连复用同一单元，
-    // 内容不变 → cmp 命中 → 不重写、不 restart（只有 pid 文件仍是旧形态的 id 路径）
+    // 内容不变 → cmp 命中 → 不重写、不 restart
     expect(launchCall?.stdin).not.toContain('dev-box')
     expect(launchCall?.command).toContain('systemctl --user restart dsh-web.service')
-    // 旧 nohup 形态的迁移清理随启动命令一并下发（核验身份后杀，废弃 pid 文件）
-    expect(launchCall?.command).toContain('ps -p "$lp" -o command=')
-    expect(launchCall?.command).toContain('rm -f ~/.dsh/dsh-remote/dev-box.pid;')
     // enable-linger 是开机自启的前提，每次连接幂等开启并验证
     expect(launchCall?.command).toContain('loginctl enable-linger')
   })
@@ -902,7 +899,7 @@ describe('RemoteEngine', () => {
   it('connect：复用实例自报版本落后 → 杀旧重启收敛（一轮回环）', async () => {
     // 场景：本机 dsh 已升级，部署段把磁盘升到新版本，但活实例进程还是旧代码
     // ——实例经 /version 自报旧版本，不匹配 → systemctl stop 杀旧（cgroup 整组
-    // 收进程 + pid 文件清理 + 日志截断）→ 新启动加载新磁盘 → 二轮判定通过。
+    // 收进程 + 日志截断）→ 新启动加载新磁盘 → 二轮判定通过。
     let startCount = 0
     makeEngine({
       localDshVersion: '0.2.0',
@@ -930,7 +927,6 @@ describe('RemoteEngine', () => {
     )
     expect(engine.stateOf('dev-box').running).toMatchObject({ pid: 4242 })
     const stop = fake.calls.find((call) => call.command.includes('systemctl --user stop'))
-    expect(stop?.command).toContain('rm -f')
     expect(stop?.command).toContain(': >')
     // 真实 bash 语法校验全部远端命令：join(' ') 拼接缺分号只在真 shell 暴露
     // （实际发生过 stopInstance 的 fi 后缺分号 → bash -c 整条拒绝执行，mock

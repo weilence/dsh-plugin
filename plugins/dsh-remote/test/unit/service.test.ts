@@ -21,8 +21,6 @@ const paths: ServicePaths = {
   port: 3080,
 }
 
-const pidFile = '~/.dsh/dsh-remote/dev-box.pid'
-
 describe('单元名与日志路径', () => {
   it('固定为 dsh-web.service / web.log：与连接 id、插件包名无关', () => {
     expect(UNIT_NAME).toBe('dsh-web.service')
@@ -67,21 +65,13 @@ describe('buildUnitContent', () => {
 })
 
 describe('buildLaunchCommand', () => {
-  const command = buildLaunchCommand(pidFile)
+  const command = buildLaunchCommand()
 
   it('用户总线前置环境 + systemd / loginctl 缺失探测（__NOSYSTEMD__ 显式失败）', () => {
     expect(command).toContain('export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"')
     expect(command).toContain('command -v systemctl')
     expect(command).toContain('command -v loginctl')
     expect(command).toContain('echo __NOSYSTEMD__')
-  })
-
-  it('旧 nohup 形态迁移清理：核验 pid 身份后整组杀掉并废弃 pid 文件', () => {
-    expect(command).toContain('lp=$(cat ~/.dsh/dsh-remote/dev-box.pid 2>/dev/null);')
-    expect(command).toContain('ps -p "$lp" -o command=')
-    expect(command).toContain('pkill -P "$lp"')
-    expect(command).toContain('kill -9 "$lp"')
-    expect(command).toContain('rm -f ~/.dsh/dsh-remote/dev-box.pid;')
   })
 
   it('单元文件经 stdin 原子落盘：内容一致不重写，变化 mv 后 restart 生效', () => {
@@ -111,15 +101,14 @@ describe('buildLaunchCommand', () => {
 })
 
 describe('buildStopCommand', () => {
-  const command = buildStopCommand(pidFile)
+  const command = buildStopCommand()
 
   it('按单元停止（cgroup 连子进程一起收），失败带 status 尾部', () => {
     expect(command).toContain('systemctl --user stop dsh-web.service;')
     expect(command).toContain('echo __STOPFAIL__')
   })
 
-  it('收尾清旧 pid 文件并截断日志（旧就绪行不得污染下次 poll）', () => {
-    expect(command).toContain('rm -f ~/.dsh/dsh-remote/dev-box.pid;')
+  it('收尾截断日志（旧就绪行不得污染下次 poll）', () => {
     expect(command).toContain(': > ~/.dsh/dsh-remote/web.log')
   })
 })

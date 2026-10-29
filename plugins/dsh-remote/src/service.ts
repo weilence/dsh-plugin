@@ -127,15 +127,13 @@ export function buildUnitPortProbe(): string {
  *  会以 "Failed to connect to bus" 失败，而非缺 linger 的可读原因。 */
 const BUS_ENV = `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"`
 
-/** 启动命令（stdin = 单元文件内容）：探测 systemd 可用性 → 迁移清理旧 nohup
- *  实例 → 原子落盘 unit（内容不变不重写）→ enable-linger 并验证 → 用户总线
- *  就绪（daemon-reload 有界重试，覆盖 linger 刚开启管理器未起完的窗口）→
- *  enable + 复用或重启。失败经标记行输出，engine 按 markedValues 分类报错：
+/** 启动命令（stdin = 单元文件内容）：探测 systemd 可用性 → 原子落盘 unit
+ *  （内容不变不重写）→ enable-linger 并验证 → 用户总线就绪（daemon-reload
+ *  有界重试，覆盖 linger 刚开启管理器未起完的窗口）→ enable + 复用或重启。
+ *  失败经标记行输出，engine 按 markedValues 分类报错：
  *  __NOSYSTEMD__ / __LINGERFAIL__<err> / __NOBUS__<err> / __STARTFAIL__<status>；
- *  成功输出 `reuse:<pid>`（unit 未变且已 active）或 `start:<pid>`。
- *  pidFile 是旧 nohup 形态的遗留路径（按连接 id 命名）：升级插件后首次连接
- *  先核验身份杀掉旧进程，否则新单元与旧裸进程会各占一个端口悄悄分裂。 */
-export function buildLaunchCommand(pidFile: string): string {
+ *  成功输出 `reuse:<pid>`（unit 未变且已 active）或 `start:<pid>`。 */
+export function buildLaunchCommand(): string {
   const unitPath = `~/.config/systemd/user/${UNIT_NAME}`
   const tmp = `${unitPath}.tmp-dsh-remote`
   return [
@@ -143,11 +141,6 @@ export function buildLaunchCommand(pidFile: string): string {
     `command -v systemctl >/dev/null 2>&1 || { echo __NOSYSTEMD__; exit 0; };`,
     `command -v loginctl >/dev/null 2>&1 || { echo __NOSYSTEMD__; exit 0; };`,
     `mkdir -p ~/.config/systemd/user ~/.dsh/dsh-remote;`,
-    // 旧 nohup 形态迁移清理：pid 文件核验身份后杀（防单元与新实例叠加双实例），
-    // 然后废弃 pid 文件——存活判定自此只认 systemctl
-    `lp=$(cat ${pidFile} 2>/dev/null);`,
-    `if [ -n "$lp" ] && kill -0 "$lp" 2>/dev/null && ps -p "$lp" -o command= 2>/dev/null | grep -q dsh; then kill "$lp"; pkill -P "$lp" 2>/dev/null; for i in $(seq 1 10); do kill -0 "$lp" 2>/dev/null || break; sleep 1; done; kill -9 "$lp" 2>/dev/null; fi;`,
-    `rm -f ${pidFile};`,
     `cat > ${tmp};`,
     `if cmp -s ${tmp} ${unitPath}; then rm -f ${tmp}; else mv -f ${tmp} ${unitPath}; changed=1; fi;`,
     `lingerErr=$(loginctl enable-linger 2>&1) || true;`,
@@ -162,23 +155,22 @@ export function buildLaunchCommand(pidFile: string): string {
   ].join(' ')
 }
 
-/** 停止命令：systemd 按单元（cgroup）杀整组进程，无 pid 身份核验与 pkill
- *  补杀的必要；失败带 status 尾部便于定位。收尾仍清旧 pid 文件并截断日志
- *  ——旧就绪行不清，下次 poll 会秒命中死实例的旧 token。 */
-export function buildStopCommand(pidFile: string): string {
+/** 停止命令：systemd 按单元（cgroup）杀整组进程，无 pid 身份核验的必要；
+ *  失败带 status 尾部便于定位。收尾截断日志——旧就绪行不清，下次 poll 会
+ *  秒命中死实例的旧 token。 */
+export function buildStopCommand(): string {
   return [
     `${BUS_ENV};`,
     `command -v systemctl >/dev/null 2>&1 || { echo __NOSYSTEMD__; exit 0; };`,
     `systemctl --user stop ${UNIT_NAME};`,
     `rc=$?;`,
     `if [ "$rc" -ne 0 ]; then echo __STOPFAIL__"$(systemctl --user status ${UNIT_NAME} 2>&1 | tail -n 12)"; exit "$rc"; fi;`,
-    `rm -f ${pidFile};`,
     `: > ${UNIT_LOG} 2>/dev/null || true`,
   ].join(' ')
 }
 
-/** 就绪轮询命令：既有形态不变（远端有界循环 grep 就绪行），仅 pid 来源从
- *  pid 文件换成 systemctl 的 MainPID（同一连接输出 `__PID__<值>`）。 */
+/** 就绪轮询命令：远端有界循环 grep 就绪行，命中时同一连接附带 systemd 的
+ *  MainPID（输出 `__PID__<值>`）。 */
 export function buildPollCommand(maxAttempts: number, intervalSeconds: number): string {
   return [
     `${BUS_ENV};`,

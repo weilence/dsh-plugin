@@ -63,6 +63,7 @@ export const zh = {
   'noun.prompts': '提示词',
 
   'action.open': '打开',
+  'action.reconnect': '重新连接',
 
   'card.forward': '端口 {local} → {remote}',
   'card.errorDetail.title': '完整错误详情',
@@ -286,6 +287,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'noun.prompts': 'prompts',
 
   'action.open': 'Open',
+  'action.reconnect': 'Reconnect',
 
   'card.forward': 'ports {local} → {remote}',
   'card.errorDetail.title': 'Full error detail',

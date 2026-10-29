@@ -306,12 +306,6 @@ const HEALTH_PAUSE_MS = 60_000
 const RECOVERY_LIMIT = 3
 const RECOVERY_RESET_STREAK = 2
 
-/** 旧 nohup 形态的 pid 文件路径（按连接 id 命名）：只服务升级后的迁移清理与
- *  停止收尾——单元名与日志路径已固定，不再由它派生。 */
-function pidFileOf(id: string): string {
-  return `~/.dsh/dsh-remote/${id}.pid`
-}
-
 export class RemoteEngine {
   private store: StoreFile = { version: 2, connections: [], manifest: {} }
   private readonly runtimes = new Map<string, ConnRuntime>()
@@ -981,11 +975,10 @@ export class RemoteEngine {
     id: string,
     paths: ServicePaths,
   ): Promise<{ launch: RemoteLaunch; pid: number; reused: boolean }> {
-    const pidFile = pidFileOf(id)
     this.step(id, 'start', UNIT_NAME)
     // 单元内容经 stdin 落盘（与同一连接的其余逻辑合并，一次建连完成全部启动
     // 步骤）；探测 / linger / 总线的失败以标记行分类，逐类给出可操作的指引。
-    const start = await this.deps.exec(target, buildLaunchCommand(pidFile), {
+    const start = await this.deps.exec(target, buildLaunchCommand(), {
       stdin: buildUnitContent(paths),
       timeoutMs: 60_000,
     })
@@ -1059,11 +1052,11 @@ export class RemoteEngine {
   }
 
   /** 停止远端实例（版本不匹配 / 复用实例无响应时的收敛动作）：systemd 按单元
-   *  停整组进程（cgroup 语义连 MCP server 一起收，无 pid 身份核验与补杀的
-   *  必要），随后清旧 pid 文件、截断日志——旧就绪行不清掉，下次 poll 秒命中
-   *  死实例的旧 token。单元保持 enabled：重启收敛与开机自启不受影响。 */
+   *  停整组进程（cgroup 语义连 MCP server 一起收，无 pid 身份核验的必要），
+   *  随后截断日志——旧就绪行不清掉，下次 poll 秒命中死实例的旧 token。单元
+   *  保持 enabled：重启收敛与开机自启不受影响。 */
   private async stopInstance(target: SshTarget, id: string): Promise<void> {
-    const stop = await this.deps.exec(target, buildStopCommand(pidFileOf(id)), {
+    const stop = await this.deps.exec(target, buildStopCommand(), {
       timeoutMs: 60_000,
     })
     if (stop.code !== 0 || markedValues(stop.stdout).has('STOPFAIL'))

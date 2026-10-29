@@ -253,8 +253,9 @@ describe('远程开发面板渲染', () => {
     expect(html).toContain('刷新')
     expect(html).toContain('运行中')
     expect(html).toContain('打开')
-    // 无断开操作：运行中动作只有「打开」
+    // 无断开操作：健康运行中动作只有「打开」——「重新连接」仅在心跳有异常结论时出现
     expect(html).not.toContain('断开')
+    expect(html).not.toContain('重新连接')
     expect(html).toContain('同步 ▾|同步 Skills,同步 MCP,同步插件,同步提示词')
     expect(html).toContain('端口 18731 → 18730')
     expect(html).not.toContain('远端 profile')
@@ -359,7 +360,7 @@ describe('远程开发面板渲染', () => {
     store.stopPolling()
   })
 
-  it('心跳结论叠加在阶段 pill 旁：无响应 / 重启中如实可见', async () => {
+  it('心跳结论替代阶段 pill：异常时不与「运行中」并列，出现「重新连接」', async () => {
     api.state.mockReturnValue(
       stateResponse({}, [
         connRow({
@@ -406,9 +407,12 @@ describe('远程开发面板渲染', () => {
     const store = await loadedStore()
     const html = renderPanel(store)
 
-    expect(html).toContain('运行中')
+    // 两行都有异常结论：「运行中」被替代而非并列（两个状态同时显示自相矛盾）；
+    // 结论徽标是「重新连接」入口的出现条件
+    expect(html).not.toContain('运行中')
     expect(html).toContain('实例无响应')
     expect(html).toContain('实例重启中')
+    expect(html).toContain('重新连接')
     store.stopPolling()
   })
 
