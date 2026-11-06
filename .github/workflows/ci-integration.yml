@@ -1,0 +1,36 @@
+# 集成测试手动通道：默认 CI 只跑单测，spawn 真外部进程的集成测试
+# （dsh-git log、dsh-skills gitInstall/gitUpdate、dsh-mcp probe、dsh-remote pack）
+# 按 AGENTS.md 约定手动执行——这里把它变成 CI 上可一键触发的验证，
+# 发版前与重要改动后运行。dsh-remote 的 pack 在 Windows 跳过（pnpm 是 .cmd），
+# ubuntu 侧才是它的真实覆盖。
+name: ci-integration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      # 与 ci.yml 同序：corepack 须在 setup-node 之前，cache: pnpm 才能探测包管理器
+      - run: corepack enable
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run integration tests
+        run: pnpm -r test:integration
