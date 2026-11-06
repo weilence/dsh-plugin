@@ -84,20 +84,7 @@ DSH 的「设置 → 会话」页面：搜索与过滤全部会话，归档、�
 需要 DSH `0.2.1-rc.2` 的会话、附件、工作区、持久化及 Web 连接服务。zstd 工件的磁盘手术需要 Node 22.15+ / 24 的内置 zstd 支持（官方桌面版自带）。
 
 ```bash
-pnpm install
-pnpm --filter @weilence/dsh-sessions build
-# 将路径替换为本机实际插件目录，profile 替换为正在使用的 profile。
-dsh plugin --profile <profile> add /absolute/path/dsh-plugins/plugins/dsh-sessions
+dsh plugin --profile <name> add @weilence/dsh-sessions
 ```
 
 安装或更新后重启宿主，并刷新页面。宿主侧的路由变更不能仅靠刷新浏览器生效。
-
-## 开发验证
-
-```bash
-pnpm --filter @weilence/dsh-sessions typecheck
-pnpm --filter @weilence/dsh-sessions test
-pnpm --filter @weilence/dsh-sessions build
-```
-
-测试覆盖：手术原语（编码对齐官方、目录边界、zstd 帧解码与截断拒绝、三段式替换）、级联删除（谱系发现、预检拒绝、顺序与账本清理）、原地迁移（快路径、手术路径、工作目录补记、缓存补挂与降级、闸门拒绝、重复目录拒绝）、预设迁移（事件改写、头部改写、幂等、服务闸门）、路由认证与互斥、面板搜索 / 过滤 / 排序 / 行操作 / 弹窗，以及官方 ZIP 导入往返。实际 GUI 仍需部署后验收。

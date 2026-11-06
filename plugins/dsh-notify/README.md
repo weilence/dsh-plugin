@@ -21,7 +21,7 @@ DSH web 插件：回合完成通知。模型回合处理完成时弹操作系统
 dsh plugin --profile <name> add @weilence/dsh-notify
 ```
 
-（或手动把 `@weilence/dsh-notify` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`，启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。）安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
+安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
 
 ## 使用
 
@@ -32,17 +32,3 @@ dsh plugin --profile <name> add @weilence/dsh-notify
 3. 「测试」按钮可立即验证系统通知。
 
 注意：浏览器页面需保持打开，页面关闭即无接收方；若收不到系统通知，先检查操作系统对浏览器的通知授权。无持久化配置；面板提供运行态开关。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-notify build
-pnpm --filter @weilence/dsh-notify typecheck
-pnpm --filter @weilence/dsh-notify test
-```
-
-机制与改动约定见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT

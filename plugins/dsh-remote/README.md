@@ -35,7 +35,7 @@ DSH web 插件：设置页新增「远程开发」菜单——把一台远端机
 dsh plugin --profile <name> add @weilence/dsh-remote
 ```
 
-（或手动把 `@weilence/dsh-remote` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`。）安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
+安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
 
 ## 行为边界
 

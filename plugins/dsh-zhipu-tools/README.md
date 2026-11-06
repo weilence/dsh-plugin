@@ -16,7 +16,7 @@ DSH web 插件：把智谱联网搜索与网页阅读（webReader）注册为 `w
 dsh plugin --profile <name> add @weilence/dsh-zhipu-tools
 ```
 
-（或手动把 `@weilence/dsh-zhipu-tools` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`。）安装后重启宿主生效。需要宿主 0.2.1 及以上（web 服务 provider 注册接口）。
+安装后重启宿主生效。需要宿主 0.2.1 及以上（web 服务 provider 注册接口）。
 
 ## 配置
 
@@ -27,17 +27,3 @@ dsh plugin --profile <name> add @weilence/dsh-zhipu-tools
 - 卸载或禁用本插件后，`web` 行仍指向 `zhipu-search-api` / `zhipu-fetch-api`：`web_search` 会报 `WEB_PROVIDER_CONFIGURED_MISSING`（清晰的失败）；重装插件，或先把开关拨回关闭（恢复部署默认）再卸载即无残留。
 - 若 home 层 patch 或 `--patch` 覆盖了 `web` 行，开关写入会被 `configEditor` 明确拒绝（不产生表面成功的切换），按提示移除上层覆盖后重试。
 - 智谱的[使用须知](https://docs.bigmodel.cn/cn/coding-plan/usage-notes.md)将 Coding Plan 权益限定于指定工具；MCP 文档所称兼容客户端不等于 DSH 已获套餐适用确认。请先向智谱核实此场景的授权和计费，勿将技术上可连接理解为套餐权益保证。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-zhipu-tools build
-pnpm --filter @weilence/dsh-zhipu-tools typecheck
-pnpm --filter @weilence/dsh-zhipu-tools test
-```
-
-机制与改动约定见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT

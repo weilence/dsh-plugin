@@ -31,7 +31,7 @@ HTTP 路由仅接受同源请求（回环 Host 校验 + `sec-fetch-site` 同源�
 dsh plugin --profile <name> add @weilence/dsh-skills
 ```
 
-（或手动把 `@weilence/dsh-skills` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`，启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。）安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
+安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
 
 ## 使用
 
@@ -50,17 +50,3 @@ frontmatter 语义与官方 skill-filesystem parser 对齐：`name` / `descripti
 
 - 目录是本插件自己的扫描视图，与某个具体 agent 会话的最终目录可能有细微出入：preset 通过 `customSkillDirs` 挂载的私有技能目录不在扫描范围，只在其恰好注册进全局注册表时才出现。
 - 编辑不改变文件名 / 形态：改名或单文件 ↔ 目录包互转请删除后新建。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-skills build
-pnpm --filter @weilence/dsh-skills typecheck
-pnpm --filter @weilence/dsh-skills test
-```
-
-本地接入运行中的宿主：宿主 `package.json` 以 `link:D:/…/plugins/dsh-skills` 方式加入 `dependencies` 与 `dsh.profile.bundles`，构建后重启宿主。机制与改动约定见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT

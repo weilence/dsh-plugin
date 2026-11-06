@@ -16,22 +16,8 @@ DeepSeek Harness Web 插件：在设置页新增「系统提示词」，编辑�
 dsh plugin --profile <name> add @weilence/dsh-prompts
 ```
 
-安装后重启宿主，并在 Web UI 的设置 →「系统提示词」中使用。宿主同时需要将该包加入 `dependencies` 和 profile 的 `dsh.profile.bundles`；上面的命令会完成配置。
+安装后重启宿主，并在 Web UI 的设置 →「系统提示词」中使用。
 
 **自定义目录**：默认目标为 `$DSH_HOME/system-prompt.md`（未设置时为 `~/.dsh/system-prompt.md`）；在 `dsh-prompts` 组合行设置 `config.dshHome` 可改存其他目录，与 `dsh-agent-instructions` 的配置互不相关。
 
 插件路由只接受预期 Host 的同源请求，写请求必须携带插件专用请求头；不接受浏览器指定的任意文件路径。单文件上限为 1 MiB，符号链接和非普通文件不能编辑。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-prompts typecheck
-pnpm --filter @weilence/dsh-prompts test
-pnpm --filter @weilence/dsh-prompts build
-```
-
-实现边界与注意事项见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT

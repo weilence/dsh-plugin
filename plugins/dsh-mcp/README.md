@@ -37,18 +37,4 @@ DSH web 插件：在设置页新增「MCP 管理」菜单，以两份 `.mcp.json
 dsh plugin --profile <name> add @weilence/dsh-mcp
 ```
 
-（或手动把 `@weilence/dsh-mcp` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`，安装时 boot 会合并本包自带的 `cordis.patch.yml` 插入行。）安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可看到「MCP 管理」菜单。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-mcp build      # tsdown 双产物（host ESM 内联依赖 / client CJS）
-pnpm --filter @weilence/dsh-mcp typecheck
-pnpm --filter @weilence/dsh-mcp test
-```
-
-机制与改动约定见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT
+安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可看到「MCP 管理」菜单。
