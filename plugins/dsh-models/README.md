@@ -35,7 +35,7 @@ DSH web 插件：在设置页新增「模型」菜单（面板标题「模型目
 dsh plugin --profile <name> add @weilence/dsh-models
 ```
 
-（或手动把 `@weilence/dsh-models` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`，Profile boot 会合并包内 `cordis.patch.yml` 挂载 host half，Web client 根据包清单加载 client half。）安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
+安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可。
 
 宿主还需要挂载以下标准组件：
 
@@ -45,17 +45,3 @@ dsh plugin --profile <name> add @weilence/dsh-models
 - `@deepseek-ai/dsh-api-remotes`、`@deepseek-ai/dsh-client-ui-slots`
 
 标准 DSH web profile 已包含这些组件。安装后本插件的 patch 会禁用官方内置的模型设置面板（`dsh-client-ui-settings-models`），由本插件的「模型目录」面板替代。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-models typecheck
-pnpm --filter @weilence/dsh-models build
-pnpm --filter @weilence/dsh-models test
-```
-
-数据同步架构、写入策略与字段映射等机制细节见 [AGENTS.md](AGENTS.md)。
-
-## 许可证
-
-MIT

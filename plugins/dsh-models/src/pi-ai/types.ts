@@ -22,11 +22,14 @@ const THINKING_LEVEL_FLAGS = {
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = Object.keys(THINKING_LEVEL_FLAGS) as ThinkingLevel[]
 
-// pi-ai 0.85.1 安装目录核实：这些 provider 的目录模型横跨多种协议。官方配
-// 置面没有模型级 api、route 级 api 又会覆盖全部目录模型、目录共用协议也不
+// pi-ai 1.3.0 安装目录核实：这些 provider 的 chat 目录模型横跨多种协议。官方
+// 配置面没有模型级 api、route 级 api 又会覆盖全部目录模型、目录共用协议也不
 // 存在——目录外模型在它们的 route 上无法写入。复核方法：扫
-// @earendil-works/pi-ai 的 providers/data/*.json，顶层协议键多于一个即入表。
+// @earendil-works/pi-ai 的 providers/data/*.json，顶层协议键多于一个且 chat
+// 模型确实分布其间即入表（openai 的第二键只挂 classifier、cloudflare-workers-ai
+// 与 vercel-ai-gateway 的第二键只挂非 chat 模型，均不算）。
 export const MIXED_PROTOCOL_PROVIDERS: readonly string[] = [
+  'azure',
   'cloudflare-ai-gateway',
   'fireworks',
   'github-copilot',

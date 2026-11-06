@@ -218,6 +218,28 @@ describe('混协议 route 的目录外模型拦截', () => {
     ).toBeUndefined()
   })
 
+  it('pi-ai 1.3.0 的 azure chat 目录横跨两种协议，同样拦截', () => {
+    expect(
+      foreignModelsBlocked({
+        provider: 'azure',
+        routeApi: undefined,
+        models: [{ id: 'alpha' }, { id: 'gpt-custom' }],
+        catalog: catalogIds,
+      }),
+    ).toEqual(['gpt-custom'])
+  })
+
+  it('openai 的第二协议键只挂 classifier，chat 模型单协议不拦', () => {
+    expect(
+      foreignModelsBlocked({
+        provider: 'openai',
+        routeApi: undefined,
+        models,
+        catalog: catalogIds,
+      }),
+    ).toBeUndefined()
+  })
+
   it('非混协议 route 不拦', () => {
     expect(
       foreignModelsBlocked({ provider: 'anthropic', routeApi: undefined, models, catalog: catalogIds }),

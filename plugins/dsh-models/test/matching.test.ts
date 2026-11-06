@@ -142,6 +142,21 @@ describe('model family metadata provider matching', () => {
     expect(findModelMetadata(current, 'gpt-5-xxxx')).toBeUndefined()
   })
 
+  it('hunyuan 与 mimo 经偏好表命中收录条目，ernie 本体未收录仍走 ③ 层', () => {
+    const tencent = provider('tencent-coding-plan', 'Tencent Coding Plan', [
+      model('hunyuan-t2-pro', 'Hunyuan T2 Pro', { limit: { context: 296000, output: 32768 } }),
+    ])
+    const xiaomi = provider('xiaomi', 'Xiaomi', [model('mimo-v2.5-pro', 'MiMo v2.5 Pro')])
+    const aggregator = provider('gateway-a', 'A', [
+      model('hunyuan-t2-pro', 'Aggregator Hunyuan', { limit: { context: 128000, output: 8192 } }),
+    ])
+    const current = catalog([aggregator, tencent, xiaomi])
+    expect(findModelMetadata(current, 'hunyuan-t2-pro')?.provider.id).toBe('tencent-coding-plan')
+    expect(findModelMetadata(current, 'mimo-v2.5-pro')?.provider.id).toBe('xiaomi')
+    // ernie 没有偏好条目：多家聚合商收录时回落 ③ 全目录多数派。
+    expect(findModelMetadata(current, 'ernie-4.5')).toBeUndefined()
+  })
+
   it('falls back to the endpoint provider only for a matching ID, and preserves discovery facts otherwise', () => {
     const gateway = provider('gateway', 'Gateway', [model('gpt-new', 'Gateway GPT')])
     const current = catalog([...directory.providers, gateway])
@@ -257,6 +272,14 @@ describe('route provider 别名表（① 层）', () => {
     const metadata = findModelMetadata(catalog([anthropic, copilot]), 'claude-opus-4.7', 'github-copilot')
     expect(metadata?.provider.id).toBe('github-copilot')
     expect(metadata?.model.name).toBe('Claude Opus 4.7 (Copilot)')
+  })
+
+  it('pi-ai 1.3.0 已把 azure-openai-responses 改名 azure，同名直接命中不再需要别名', () => {
+    const azure = provider('azure', 'Azure', [model('gpt-5.4', 'GPT 5.4 on Azure')])
+    const openai = provider('openai', 'OpenAI', [model('gpt-5.4', 'GPT 5.4')])
+    expect(findModelMetadata(catalog([openai, azure]), 'gpt-5.4', 'azure')?.provider.id).toBe('azure')
+    // 旧 route id 已不存在于 pi-ai 1.3.0，别名表里没有它的映射也不影响。
+    expect(findModelMetadata(catalog([azure]), 'gpt-5.4', 'azure-openai-responses')).toBeUndefined()
   })
 
   it('provider id 精确比较：分隔符变体在 ①② 两层都不再软匹配', () => {

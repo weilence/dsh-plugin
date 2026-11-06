@@ -3,9 +3,10 @@ import type { DiscoveredModel, ModelsDevCatalog, ModelsDevModel, ModelsDevProvid
 import type { PiAiModelEntry } from '../pi-ai/types'
 
 // pi-ai 内置 route id → models.dev provider id 的静态别名表：只收两家命名
-// 不一致的（其余 id 两边同名，直接相等比较）。快照事实（pi-ai 0.85.1 ↔
-// models.dev 2026-09），升级任一侧须复核；models.dev 改名只会让 ① 层静默
-// 落空、由 ②③ 兜底，不报错。
+// 不一致的（其余 id 两边同名，直接相等比较；pi-ai 1.3.0 已把原
+// azure-openai-responses 改名 azure，与 models.dev 同名，别名随之撤销）。
+// 快照事实（pi-ai 1.3.0 ↔ models.dev 2026-11），升级任一侧须复核；
+// models.dev 改名只会让 ① 层静默落空、由 ②③ 兜底，不报错。
 const ROUTE_PROVIDER_ALIASES: Record<string, string> = {
   'zai-coding-cn': 'zai-coding-plan',
   'qwen-token-plan': 'alibaba-token-plan',
@@ -15,14 +16,14 @@ const ROUTE_PROVIDER_ALIASES: Record<string, string> = {
   'openai-codex': 'openai',
   'kimi-coding': 'moonshotai',
   'openrouter-images': 'openrouter',
-  'azure-openai-responses': 'azure',
   fireworks: 'fireworks-ai',
   together: 'togetherai',
   'vercel-ai-gateway': 'vercel',
 }
 
-// 模型 id 前缀 → 厂商本体的 models.dev 精确 id。百度 / 腾讯本体 models.dev
-// 未收录，ernie / hunyuan 没有条目可指，直接走 ③ 全目录多数派。
+// 模型 id 前缀 → 厂商本体的 models.dev 精确 id。百度本体 models.dev 未收
+// 录，ernie 没有条目可指，直接走 ③ 全目录多数派；腾讯侧 hunyuan 已由
+// tencent-coding-plan 收录，mimo 指向小米本体。
 type Preference = { pattern: RegExp; providerIds: string[] }
 const PREFERENCES: Preference[] = [
   { pattern: /^gpt-(?!oss(?:-|$))|^o[134](?:-|$)/, providerIds: ['openai'] },
@@ -38,6 +39,8 @@ const PREFERENCES: Preference[] = [
   { pattern: /^(?:mistral-|codestral-|pixtral-)/, providerIds: ['mistral'] },
   { pattern: /^command(?:-|$)/, providerIds: ['cohere'] },
   { pattern: /^step-/, providerIds: ['stepfun'] },
+  { pattern: /^hunyuan-/, providerIds: ['tencent-coding-plan'] },
+  { pattern: /^mimo-/, providerIds: ['xiaomi'] },
 ]
 
 function providerById(catalog: ModelsDevCatalog, id: string) {
