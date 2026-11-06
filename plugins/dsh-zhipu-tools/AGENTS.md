@@ -18,6 +18,7 @@
 - `configEditor.edit` 的 change 里**不要整份展开 `inherited` 进 next**：会把部署默认值全量固化进用户层。关闭开关走 next=inherited 整行清除（官方「相等即清除」）；开启只叠加本插件的两个点名键。
 - 智谱凭据是真实秘密：不入日志、不入版本库、不在面板展示明文。
 - 用户此前经旧版本按钮写入的 `web-deepseek-api` 行指向已消亡的本地端点：开启开关会顺带清除；若清除被 home 层覆盖拒绝，报错原文透传面板，不静默放弃。
+- 宿主 0.2.2 给两个 provider 接口新增可选 `ready?(llmProvider)`（缺省即就绪，模型请求的准入门控）与来源的 `summary` 字段（模型读的长摘录，`web_search` 输出取 `summary ?? snippet`）：本插件未实现 `ready`——凭据缺席时经 `available()`/`requireKey` 的显式失败与本插件「清晰失败」语义一致；智谱 `content→snippet` 已作为摘录 fallback 到达模型，改标 `summary` 无增益。
 
 ## 测试
 
