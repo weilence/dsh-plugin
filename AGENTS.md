@@ -4,7 +4,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：八个可发布 npm 插件（目录与包名——`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
+- `plugins/<name>/`：九个可发布 npm 插件（目录与包名——`dsh-git`→`@weilence/dsh-git`、`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 请求校验 / errMsg / client 侧 HTTP 封装 / patch 文档编辑原语）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译配置。
 - 跨插件耦合的事实改动须双侧同步：智谱凭据的解析顺序（`ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`）同时实现于 dsh-zhipu-tools（搜索 provider）与 dsh-models（用量适配）。
@@ -28,7 +28,7 @@
 全部用户可见文案跟随宿主语言，语言选择与回退只有宿主 locale 服务一个事实源，插件不自建语言状态：
 
 - 每个插件在自己的 `src/client/locales.ts` 持有词典：命名空间为插件 id（如 `dsh-models`），zh 是键集事实源（扁平点分键、`{param}` 插值、`as const`），`en` 逐键补全（编译期查全），`declare module '@deepseek-ai/dsh-client-ui-slots'` 合并进 `LocaleNamespaceMap`。
-- client `apply` 里 `ctx.effect(() => ctx.locale.register(NS, { zh, en }), …)` 注册，`const t = ctx.locale.bind(NS)` 绑定；slot 注册声明 `locale: NS`，框架向组件 props 合成类型化的 `t` 标准 seat——每个语言切换换新函数引用，`React.memo` 组件靠浅比较自动刷新（apply 域 `bind` 的引用恒定，只服务导航 label thunk 与事件时间取词，不得塞进 props）。`settings.section` 导航 label 必须是 **thunk**（`label: () => t('section.label')`，写 `label: t('…')` 会在注册时定格）。取消 / 关闭等公共词直接用 common 词条（`t('cancel')`、`t('close')`），不自造重复键。
+- client `apply` 里 `ctx.effect(() => ctx.locale.register(NS, { zh, en }), …)` 注册，`const t = ctx.locale.bind(NS)` 绑定；slot 注册声明 `locale: NS`，框架向组件 props 合成类型化的 `t` 标准 seat——每个语言切换换新函数引用，`React.memo` 组件靠浅比较自动刷新（apply 域 `bind` 的引用恒定，只服务导航 label thunk 与事件时间取词，不得塞进 props）。`settings.section` 导航 label 必须是 **thunk**（`label: () => t('section.label')`，写 `label: t('…')` 会在注册时定格）。取消 / 关闭等公共词直接用 common 词条（`t('cancel')`、`t('close')`），不自造重复键。插件市场的展示元数据在 `<插件>/locale/<lang>.json`（meta.title / meta.description，现 zh / en 两个文件，随 `files` 的 `locale/*.json` 通配发布）；宿主其余内置语言（ja / es / fr / de / ru / pt）逐键回退 en，插件词典不补。
 - 面板组件 props 用官方组合式（份额类型 type-only 导入自 `@deepseek-ai/dsh-client-ui-slots`）：`type XxxSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS> & InjectFace<XxxSectionInjected>`，注入面 `XxxSectionInjected` 只含注册方业务事实（store 等），运行时份额与 locale seat 直接用官方类型——宿主给槽位加份额时编译期自动跟上。组件内部向子组件 / 纯函数传 `t` 用窄类型 `TranslateNS<typeof NS>`，不要用宽域 `Translate`（函数参数逆变，窄域不可赋给宽域）；单测取词用各包 `test/i18n.ts` 的 `makeT`（与宿主同一种插值语义，common 词条按需快照）。
 - 跨语言切换须存活的提示 / 错误（store 状态）用消息描述子 `{key, params} | {text}`，渲染期取词；Host errMsg 等外部事实一律 `{text}` 原样展示，不翻译不吞。即显一次性反馈（Toast、fetchStatus）允许事件时间取词。
 - Host↔client 传**语义不传文案**：可识别失败用稳定原因码（如 dsh-models 用量的 `UsageFailureCode`），client 按码翻译摘要并保留安全的原始详情；请求与语言解耦，切换语言不重新发请求。
