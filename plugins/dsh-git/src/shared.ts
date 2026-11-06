@@ -1,6 +1,7 @@
 export const REPOS_PATH = '/plugins/dsh-git/repos'
 export const LOG_PATH = '/plugins/dsh-git/log'
 export const FILES_PATH = '/plugins/dsh-git/files'
+export const LOCATE_PATH = '/plugins/dsh-git/locate'
 export const GIT_HEADER = 'x-dsh-git'
 
 export const DEFAULT_LOG_LIMIT = 500
@@ -89,4 +90,16 @@ export interface GitCommitFiles {
 export interface GitCommitFilesRequest {
   repo: string
   hash: string
+}
+
+export interface GitLocateRequest {
+  /** 定位边界（会话工作目录）：祖先链不越出此目录。 */
+  cwd: string
+  /** 待定位的目录（文件树右键目标）。 */
+  dir: string
+}
+
+export interface GitLocate {
+  /** 最近的仓库根目录；dir 及其祖先（不越出 cwd）都不是仓库时为 null。 */
+  repoRoot: string | null
 }

@@ -2,11 +2,14 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-context-menu/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import { locateRepo } from './client/api'
+import { pushContextOpen } from './client/contextOpen'
 import { ConfigSection } from './client/ConfigSection'
 import { GuideArtworkGit } from './client/GuideArtworkGit'
 import { ReposBody, type ReposBodyInjected } from './client/ReposBody'
@@ -17,7 +20,7 @@ const GIT_KIND = 'git-repos'
 /** 实现标识，同时是标签体在 keyed 槽位上的注册键。 */
 const GIT_ID = '@weilence/dsh-git'
 
-export const inject = ['slots', 'locale', 'sidebarRightTabs']
+export const inject = ['slots', 'locale', 'sidebarRightTabs', 'sidebarRight', 'sessions', 'contextMenus']
 
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-git: locale')
@@ -88,5 +91,33 @@ export function apply(ctx: Context): void {
       },
       ConfigSection,
     ),
+  )
+  // 文件树目录右键菜单：目录本身或最近祖先是 Git 仓库时提供「查看提交历史」，
+  // 定位走 host 的逐级判定（不递归扫描），命中后预选仓库并打开标签
+  ctx.effect(
+    () =>
+      ctx.contextMenus.register({
+        id: 'open-repo',
+        target: 'directory',
+        order: 45,
+        resolve: async (target, signal) => {
+          const cwd = ctx.sessions.list.getSnapshot().byId[target.sessionId]?.cwd
+          if (cwd === undefined) return []
+          const { repoRoot } = await locateRepo(cwd, target.path, signal)
+          if (repoRoot === null) return []
+          return [
+            {
+              id: 'open-repo',
+              // 事件时间取词：菜单打开时按宿主当前语言求值
+              label: t('context.openRepo'),
+              run: () => {
+                pushContextOpen(target.sessionId, repoRoot)
+                ctx.sidebarRight.openTab(GIT_KIND)
+              },
+            },
+          ]
+        },
+      }),
+    'dsh-git: 目录右键菜单',
   )
 }

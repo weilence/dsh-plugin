@@ -18,6 +18,7 @@ DSH web 插件：Git 仓库发现与提交图。在右侧栏（右上角展开�
   - 行内文本不可选（无划选复制），交互只保留点击切换与悬停卡片；
   - 数据经 `git log --topo-order --all` + `git for-each-ref` 读取（含提交正文），文件清单在展开 / 悬停时按需经 `git show --numstat --raw` 读取并缓存（合并提交按第一父提交展示合入内容）；全部只读命令、无 shell、10 秒超时，默认最近 500 个提交，超出标记截断。
 - **多仓库切换**：头部下拉切换仓库，选中后自动读取该仓库提交图；非标准形态（裸仓库 / 关联工作树）在头部下方显示形态标记；刷新按钮同时重扫仓库与重读提交图。
+- **文件树目录右键菜单**（宿主 0.2.2+）：右键文件树中的任意目录，目录本身或其最近的祖先目录是 Git 仓库时提供「查看此目录的 Git 提交历史」——打开「Git 仓库」标签并直接选中该仓库；定位逐级判定、不整树扫描。
 - 空仓库显示空态；git 不可用、非 git 目录等失败原因行内常驻展示。
 
 ## 安装
@@ -26,7 +27,7 @@ DSH web 插件：Git 仓库发现与提交图。在右侧栏（右上角展开�
 dsh plugin --profile <name> add @weilence/dsh-git
 ```
 
-（或手动把 `@weilence/dsh-git` 加入宿主 `package.json` 的 `dependencies` 与 profile 的 `dsh.profile.bundles`，启动时 profile boot 会自动合并包内的 `cordis.patch.yml`。）安装后重启宿主生效；宿主启用 HMR 时刷新页面即可。
+安装后重启宿主生效；宿主启用 HMR 时刷新页面即可。
 
 ## 使用
 
@@ -46,13 +47,3 @@ dsh plugin --profile <name> add @weilence/dsh-git
 - 扫描深度上限之外的目录不会被访问（不算截断）；目录或仓库数量超上限才标记截断。
 - 分支与远端摘要读取自 `.git/HEAD` 与 `.git/config` 的静态内容，不执行 `git status` 类动态查询。
 - 剪枝目录（`node_modules` 等）内部的仓库不会被列出。
-
-## 开发
-
-```bash
-pnpm --filter @weilence/dsh-git build
-pnpm --filter @weilence/dsh-git typecheck
-pnpm --filter @weilence/dsh-git test
-```
-
-机制与改动约定见 [AGENTS.md](AGENTS.md)。

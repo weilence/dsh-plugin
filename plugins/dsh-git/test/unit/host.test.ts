@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../../src/index'
 import {
   FILES_PATH,
+  LOCATE_PATH,
   LOG_PATH,
   REPOS_PATH,
   type GitCommitFiles,
+  type GitLocate,
   type GitLog,
   type GitRepoScan,
 } from '../../src/shared'
@@ -75,8 +77,28 @@ describe('Git 插件宿主路由', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('注册扫描、提交图与文件变更三条路由', () => {
-    expect([...handlers.keys()]).toEqual([REPOS_PATH, LOG_PATH, FILES_PATH])
+  it('注册扫描、提交图、文件变更与定位四条路由', () => {
+    expect([...handlers.keys()]).toEqual([REPOS_PATH, LOG_PATH, FILES_PATH, LOCATE_PATH])
+  })
+
+  it('定位路由返回最近仓库根；目录与祖先链无仓库时返回 null', async () => {
+    await mkdir(join(root, 'repo', '.git'), { recursive: true })
+    await writeFile(join(root, 'repo', '.git', 'HEAD'), 'ref: refs/heads/main\n')
+    await mkdir(join(root, 'repo', 'src'), { recursive: true })
+
+    const hit = await request({ cwd: root, dir: join(root, 'repo', 'src') }, {}, 'POST', LOCATE_PATH)
+    expect(hit.status).toBe(200)
+    expect(hit.body).toEqual({ repoRoot: join(root, 'repo') } satisfies GitLocate)
+
+    await mkdir(join(root, 'plain', 'inner'), { recursive: true })
+    const miss = await request({ cwd: root, dir: join(root, 'plain', 'inner') }, {}, 'POST', LOCATE_PATH)
+    expect(miss.status).toBe(200)
+    expect(miss.body).toEqual({ repoRoot: null } satisfies GitLocate)
+
+    expect((await request({ cwd: root }, {}, 'POST', LOCATE_PATH)).status).toBe(400)
+    expect((await request({ cwd: root, dir: join(root, 'missing') }, {}, 'POST', LOCATE_PATH)).status).toBe(
+      400,
+    )
   })
 
   it('扫描路由返回目录下仓库', async () => {

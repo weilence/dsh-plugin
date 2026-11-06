@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { scanGitRepositories } from '../../src/scan'
+import { locateGitRepository, scanGitRepositories } from '../../src/scan'
 
 let root: string
 
@@ -154,5 +154,40 @@ describe('Git 仓库扫描', () => {
 
   it('扫描根不存在时抛错', async () => {
     await expect(scanGitRepositories(join(root, 'missing'))).rejects.toThrow()
+  })
+})
+
+describe('Git 仓库定位', () => {
+  it('目录本身是仓库时直接命中；祖先链上的最近仓库次之', async () => {
+    await makeStandardRepo(join(root, 'alpha'))
+    await mkdir(join(root, 'alpha', 'src', 'deep'), { recursive: true })
+    await makeBareRepo(join(root, 'gamma.git'))
+
+    expect(await locateGitRepository(root, join(root, 'alpha'))).toBe(join(root, 'alpha'))
+    expect(await locateGitRepository(root, join(root, 'alpha', 'src', 'deep'))).toBe(join(root, 'alpha'))
+    expect(await locateGitRepository(root, join(root, 'gamma.git'))).toBe(join(root, 'gamma.git'))
+  })
+
+  it('扫描根是仓库时祖先链到根为止；链上无仓库返回 null', async () => {
+    await makeStandardRepo(root)
+    await mkdir(join(root, 'plain', 'inner'), { recursive: true })
+    expect(await locateGitRepository(root, join(root, 'plain'))).toBe(root)
+    expect(await locateGitRepository(root, join(root, 'plain', 'inner'))).toBe(root)
+
+    await rm(root, { recursive: true, force: true })
+    await mkdir(join(root, 'plain', 'inner'), { recursive: true })
+    expect(await locateGitRepository(root, join(root, 'plain', 'inner'))).toBeNull()
+  })
+
+  it('dir 在扫描根之外返回 null，不越界上探', async () => {
+    await makeStandardRepo(root)
+    const outside = await mkdtemp(join(tmpdir(), 'dsh-git-outside-'))
+    try {
+      await mkdir(join(outside, 'nested'), { recursive: true })
+      expect(await locateGitRepository(root, outside)).toBeNull()
+      expect(await locateGitRepository(root, join(outside, 'nested'))).toBeNull()
+    } finally {
+      await rm(outside, { recursive: true, force: true })
+    }
   })
 })

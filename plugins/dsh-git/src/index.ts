@@ -7,8 +7,16 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { errMsg } from '@dsh-plugins/shared'
 import { HttpError, isTrustedFetch, readJsonBody, writeJson } from '@dsh-plugins/shared/http'
 import { readCommitFiles, readGitLog } from './log'
-import { scanGitRepositories } from './scan'
-import { DEFAULT_LOG_LIMIT, FILES_PATH, GIT_HEADER, LOG_PATH, MAX_LOG_LIMIT, REPOS_PATH } from './shared'
+import { locateGitRepository, scanGitRepositories } from './scan'
+import {
+  DEFAULT_LOG_LIMIT,
+  FILES_PATH,
+  GIT_HEADER,
+  LOCATE_PATH,
+  LOG_PATH,
+  MAX_LOG_LIMIT,
+  REPOS_PATH,
+} from './shared'
 
 export const inject = ['webServer', 'connection']
 
@@ -91,5 +99,12 @@ export function apply(ctx: Context): void {
     if (typeof body.hash !== 'string' || !/^[0-9a-f]{4,40}$/i.test(body.hash))
       throw new HttpError(400, '缺少有效的 hash')
     writeJson(res, 200, await readCommitFiles(repo, body.hash))
+  })
+
+  route(LOCATE_PATH, async (req, res) => {
+    const body = await readJsonBody(req)
+    const cwd = await existingDirectory(body.cwd, 'cwd')
+    const dir = await existingDirectory(body.dir, 'dir')
+    writeJson(res, 200, { repoRoot: await locateGitRepository(cwd, dir) })
   })
 }

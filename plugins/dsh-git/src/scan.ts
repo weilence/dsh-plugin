@@ -1,6 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises'
 import type { Dirent } from 'node:fs'
-import { basename, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import type { GitRepoInfo, GitRepoKind, GitRepoScan } from './shared'
 
 /** 不下探的依赖与构建目录：体量大且不含用户仓库。 */
@@ -101,6 +101,37 @@ export async function scanGitRepositories(root: string, options: ScanOptions = {
   await visit(scanRoot, 0)
   repos.sort((left, right) => byRelPath.compare(left.relPath, right.relPath))
   return { root: scanRoot, repos, truncated }
+}
+
+/**
+ * 定位 dir 本身或其最近祖先（不越出 root）上的 Git 仓库根；判定与扫描同口径
+ * （.git 目录 / .git 文件 / 裸仓库三形态），dir 在 root 之外或链上不可读返回
+ * null。只逐级读目录，不递归下探。
+ */
+export async function locateGitRepository(root: string, dir: string): Promise<string | null> {
+  const scanRoot = resolve(root)
+  let current = resolve(dir)
+  if (current !== scanRoot && !current.startsWith(scanRoot + sep)) return null
+  for (;;) {
+    let entries: readonly Dirent[]
+    try {
+      entries = await readdir(current, { withFileTypes: true })
+    } catch {
+      return null
+    }
+    const byName = new Map(entries.map((entry) => [entry.name, entry]))
+    const gitEntry = byName.get('.git')
+    if (gitEntry?.isDirectory() || gitEntry?.isFile()) return current
+    if (
+      byName.get('HEAD')?.isFile() &&
+      byName.get('objects')?.isDirectory() &&
+      byName.get('refs')?.isDirectory()
+    ) {
+      return current
+    }
+    if (current === scanRoot) return null
+    current = dirname(current)
+  }
 }
 
 async function repoInfo(

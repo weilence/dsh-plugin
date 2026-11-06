@@ -5,6 +5,7 @@ import { errMsg } from '@dsh-plugins/shared'
 import type { GitLog, GitRepoInfo, GitRepoScan } from '../shared'
 import { readLog, scanRepos } from './api'
 import { CommitGraph } from './CommitGraph'
+import { getContextOpen, subscribeContextOpen } from './contextOpen'
 import { getHoverDelay, subscribeHoverDelay } from './hoverDelay'
 import type { GitT } from './locales'
 import css from './ReposBody.module.css'
@@ -50,6 +51,10 @@ export function ReposBody({ sessionId, useSessions, t, formatTime, formatRelativ
   const [showMeta, setShowMeta] = useState(false)
   // 悬停弹出延时（毫秒）：插件详情页配置面板编辑，store 同步到本面板
   const hoverDelayMs = useSyncExternalStore(subscribeHoverDelay, getHoverDelay, getHoverDelay)
+  // 目录右键菜单的待应用选择：标签体可能因 openTab 才挂载，扫描结束（或失败）
+  // 后应用一次并消费；仓库缺席 / 会话不符也消费，避免迟到的旧值覆盖用户手选
+  const contextOpen = useSyncExternalStore(subscribeContextOpen, getContextOpen, getContextOpen)
+  const consumedContextVersion = useRef(0)
   // 请求序号：新请求开始即作废未完成的旧结果，迟到响应不落屏
   const scanEpoch = useRef(0)
   const logEpoch = useRef(0)
@@ -75,6 +80,14 @@ export function ReposBody({ sessionId, useSessions, t, formatTime, formatRelativ
   const repos = scan.phase === 'done' ? scan.scan.repos : []
   const effectiveSelected = selectDefault(repos, cwd, selected)
   const selectedRepo = repos.find((repo) => repo.root === effectiveSelected)
+
+  useEffect(() => {
+    if (scan.phase === 'loading') return
+    if (contextOpen === null || contextOpen.version <= consumedContextVersion.current) return
+    consumedContextVersion.current = contextOpen.version
+    if (scan.phase !== 'done' || contextOpen.sessionId !== sessionId) return
+    if (repos.some((repo) => repo.root === contextOpen.repoRoot)) setSelected(contextOpen.repoRoot)
+  }, [contextOpen, scan, repos, sessionId])
 
   useEffect(() => {
     if (effectiveSelected === null) {
