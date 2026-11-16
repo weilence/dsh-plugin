@@ -1,0 +1,9 @@
+# @weilence/dsh-atlassian bundle patch
+#
+# 安装后 profile boot 合并本 patch，把插件行插入 host composition。行 name 用
+# 包名（loader entry 名 → client bundle 解析键），行 id 用短 slug。工具 / 命令 /
+# 面板路由分别是 tools / commands / credentials / webServer / configEditor 的
+# 消费方，五项都是本插件的核心依赖，缺席即整行不激活。
+- insert:
+    - id: dsh-atlassian
+      name: '@weilence/dsh-atlassian'

@@ -1,0 +1,137 @@
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.card {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  padding: 10px 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rowMain {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.url {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  word-break: break-all;
+  user-select: text;
+  flex-basis: 100%;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.badges {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin-top: 12px;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+.formActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.formError,
+.rowError {
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  margin-top: 6px;
+  user-select: text;
+}
+
+.formActions .formError {
+  margin-top: 0;
+}
+
+.testLine {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  user-select: text;
+}
+
+.testOk {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.testFail {
+  color: var(--dsw-alias-state-error-primary);
+  word-break: break-all;
+}
+
+.problems {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.problemsList {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  word-break: break-all;
+}
+
+.empty {
+  color: var(--dsw-alias-label-secondary);
+  margin-top: 16px;
+}
+
+.hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
