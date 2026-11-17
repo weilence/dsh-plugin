@@ -29,6 +29,7 @@ import { ForwardRegistry } from './forwards'
 import { RemoteTransportService, exchangeTunnelCookie } from './transport'
 import { readSshConfig } from './sshconfig'
 import { createSshTransport, SshFailure, mergedOutput, summarizeOutput, type SshTarget } from './ssh'
+import { decodeLocalOutput, resolveWindowsPnpm, windowsConsoleCodepage } from './localproc'
 import {
   CONNECT_PATH,
   DELETE_PATH,
@@ -106,6 +107,18 @@ const localPluginVersion: string | null = (() => {
   }
 })()
 
+/** 宿主进程解析不到 pnpm 的显式报错。GUI 启动不继承 shell 配置注入的 PATH
+ *  （shell rc / PowerShell profile / mise activate 等），必须落在用户或系统
+ *  环境变量 PATH 上。 */
+const PNPM_MISSING_MESSAGE =
+  '本机未找到 pnpm：插件同步与部署的打包需要它。GUI 启动的宿主不继承 shell 配置注入的 PATH，请把 pnpm 所在目录加入用户或系统 PATH 后重启宿主'
+
+export interface PackOptions {
+  /** 测试注入：win32 的平台判定与 pnpm 解析口径。 */
+  win32?: boolean
+  resolvePnpm?: () => string | null
+}
+
 /**
  * 本地组装任意插件包根的 tgz：`pnpm pack` 打包——发布语义（files 白名单、
  * prepack 构建、catalog:/workspace: 依赖落成具体 range），产物名即
@@ -113,46 +126,54 @@ const localPluginVersion: string | null = (() => {
  * 选择不影响判定；workspace 协议不改写则远端 pnpm 解析不了依赖
  * （ERR_PNPM_SPEC_NOT_SUPPORTED_BY_ANY_RESOLVER，catalog: 实际发生过）。
  * 打包走标准工具，不用系统 tar 手拼；宿主进程必须解析得到 pnpm——GUI 启动
- * 不继承 shell rc 的 PATH，找不到直接显式报错，不回退自实现打包（两套打包
- * 行为会让产物不确定）。staging 留在系统 tmp，交给 OS 清理。
+ * 不继承 shell rc 的 PATH，Windows 先按 PATH × 扩展名显式解析出绝对路径，
+ * 找不到直接显式报错，也绝不把「命令不存在」交给 cmd 报本地化错误（不回退
+ * 自实现打包：两套打包行为会让产物不确定）。staging 留在系统 tmp，交给 OS 清理。
  */
-export async function packPackage(root: string): Promise<{ path: string; fileName: string }> {
+export async function packPackage(
+  root: string,
+  options: PackOptions = {},
+): Promise<{ path: string; fileName: string }> {
   const real = await realpath(root)
   const staging = await mkdtemp(join(tmpdir(), 'dsh-remote-pack-'))
+  const isWin32 = options.win32 ?? process.platform === 'win32'
+  let file = 'pnpm'
+  if (isWin32) {
+    const resolved = options.resolvePnpm ? options.resolvePnpm() : resolveWindowsPnpm(process.env.PATH)
+    if (resolved === null) throw new SshFailure('local-tool-missing', PNPM_MISSING_MESSAGE)
+    file = resolved
+  }
   // pnpm 的 --json 会被 prepack 脚本的 stdout 污染，产物名不解析输出，改为读
-  // 全新空目录里唯一落地的 tgz。Windows 的 pnpm 是 .cmd，node 直接 spawn 会被
-  // 拒绝，走 shell 并给路径加引号；unix 保持参数数组不经 shell（临时目录路径
-  // 可能含空格）。
-  const win32 = process.platform === 'win32'
-  const result = await new Promise<{ code: number; output: string }>((resolve, reject) => {
-    const child = spawn(
-      'pnpm',
-      ['pack', win32 ? `--pack-destination="${staging}"` : `--pack-destination=${staging}`],
-      { cwd: real, windowsHide: true, shell: win32 },
-    )
-    let output = ''
+  // 全新空目录里唯一落地的 tgz。解析到 .exe 直接 spawn（不经 cmd，参数不加
+  // 引号）；.cmd 只能走 shell，命令路径与目标目录都加引号；unix 保持参数数组
+  // 不经 shell（临时目录路径可能含空格）。
+  const isScript = isWin32 && /\.(?:cmd|bat)$/i.test(file)
+  const destination = isScript ? `--pack-destination="${staging}"` : `--pack-destination=${staging}`
+  const chunks: Buffer[] = []
+  const result = await new Promise<{ code: number }>((resolve, reject) => {
+    const child = spawn(isScript ? `"${file}"` : file, ['pack', destination], {
+      cwd: real,
+      windowsHide: true,
+      shell: isScript,
+    })
     child.stdout?.on('data', (chunk: Buffer) => {
-      output += String(chunk)
+      chunks.push(chunk)
     })
     child.stderr?.on('data', (chunk: Buffer) => {
-      output += String(chunk)
+      chunks.push(chunk)
     })
     child.on('error', (error: NodeJS.ErrnoException) => {
-      reject(
-        error.code === 'ENOENT'
-          ? new SshFailure(
-              'local-tool-missing',
-              '本机未找到 pnpm：插件同步与部署的打包需要它，且必须在宿主进程可见的 PATH 上',
-            )
-          : error,
-      )
+      reject(error.code === 'ENOENT' ? new SshFailure('local-tool-missing', PNPM_MISSING_MESSAGE) : error)
     })
     child.on('close', (code) => {
-      resolve({ code: code ?? -1, output })
+      resolve({ code: code ?? -1 })
     })
   })
   if (result.code !== 0) {
-    throw new SshFailure('unknown', `pnpm pack 失败：${summarizeOutput('', result.output)}`)
+    // cmd.exe 的本地化失败文本按控制台 OEM 代码页写管道（zh-CN 是 GBK），
+    // UTF-8 优先解码、含替换符才按代码页回退（策略与边界见 localproc.ts）。
+    const output = decodeLocalOutput(chunks, isWin32, isWin32 ? await windowsConsoleCodepage() : null)
+    throw new SshFailure('unknown', `pnpm pack 失败：${summarizeOutput('', output)}`)
   }
   const files = (await readdir(staging)).filter((name) => name.endsWith('.tgz'))
   if (files.length !== 1) {
