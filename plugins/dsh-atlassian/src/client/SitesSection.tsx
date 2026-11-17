@@ -336,8 +336,15 @@ function SiteCard(props: {
           </Button>
         </span>
       </div>
-      <div className={styles.url}>{site.kind === 'cloud' ? site.atlassianUrl : site.jiraUrl}</div>
-      {site.kind === 'server' ? <div className={styles.url}>{site.confluenceUrl}</div> : null}
+      <div className={styles.url}>
+        {site.kind === 'cloud' ? site.atlassianUrl : site.jiraUrl}
+        {site.kind === 'server' ? (
+          <>
+            {' · '}
+            {site.confluenceUrl}
+          </>
+        ) : null}
+      </div>
       {test !== undefined ? (
         <div className={styles.testLine}>
           <span className={test.jira.ok ? styles.testOk : styles.testFail}>
