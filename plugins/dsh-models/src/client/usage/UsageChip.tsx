@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from 'react'
 import { createPortal } from 'react-dom'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -14,7 +22,6 @@ import {
   IconRefreshOutlineRegular,
   MenuSurface,
   Pill,
-  useAnchoredPosition,
   useDismissOnOutsidePointer,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { toneStyles } from '@dsh-plugins/client-ui/tone'
@@ -234,15 +241,14 @@ function UsagePill({ provider, locale, t }: { provider: string; locale: LocaleRu
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLSpanElement>(null)
   const surface = useRef<HTMLDivElement>(null)
-  const pos = useAnchoredPosition({
-    open,
-    anchorRef: anchor,
-    panelRef: surface,
-    side: 'top',
-    align: 'end',
-    gap: 8,
-    margin: 12,
-  })
+  // 浮层定位走官方 rc.3 的 CSS anchor positioning（同座席的模型选择触发器同款）：
+  // trigger 声明 anchor-name，body portal 的面板经 position-anchor 锚定，放不下时
+  // safe 对齐回退到视口边距——不再有 JS 定位 hook（useAnchoredPosition 已随 rc.1 移除）。
+  // 唯一锚名经内联 style 同时下发到 trigger 与 portal 面板（portal 在 body 下不继承）。
+  const id = useId()
+  const anchorStyle: CSSProperties & Record<'--dsh-usage-anchor', string> = {
+    '--dsh-usage-anchor': `--dsh-usage-${id.replaceAll(':', '')}`,
+  }
   useDismissOnOutsidePointer(anchor, open, setOpen, surface)
   useEffect(() => {
     if (!open) return
@@ -262,7 +268,7 @@ function UsagePill({ provider, locale, t }: { provider: string; locale: LocaleRu
     </>
   )
   return (
-    <span ref={anchor} className={pill.anchor}>
+    <span ref={anchor} className={pill.anchor} style={anchorStyle}>
       {result === null ? (
         <Pill aria-label={t('usage.titleLoading', { name: label })}>{content}</Pill>
       ) : (
@@ -281,10 +287,10 @@ function UsagePill({ provider, locale, t }: { provider: string; locale: LocaleRu
         createPortal(
           <MenuSurface
             ref={surface}
-            className={[panel.panel, pos === null && panel.measure].filter(Boolean).join(' ')}
+            className={panel.panel}
             role="dialog"
             aria-label={t('usage.title', { name: label })}
-            style={pos ?? undefined}
+            style={anchorStyle}
           >
             <div className={panel.title}>
               <span className={panel.titleLabel}>

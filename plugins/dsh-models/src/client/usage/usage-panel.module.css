@@ -1,6 +1,15 @@
-/* 背景材质与圆角交由官方 MenuSurface primitive（与模型选择弹窗一致）：Windows 上其填充仅 45%/58% 不透明度、靠毛玻璃成立，绕过它会透出下层内容。 */
+/* 背景材质与圆角交由官方 MenuSurface primitive（与模型选择弹窗一致）：Windows 上其填充仅 45%/58% 不透明度、靠毛玻璃成立，绕过它会透出下层内容。
+ * 定位照官方模型选择浮层同款 CSS anchor positioning：锚定触发器上方 8px、右缘对齐，
+ * safe 对齐在放不下时回退到视口边距（12px，顶部取 frame overlay 边距）。 */
 .panel {
   position: fixed;
+  position-anchor: var(--dsh-usage-anchor);
+  top: max(12px, var(--dsh-frame-overlay-top, 12px));
+  left: 12px;
+  right: anchor(right);
+  bottom: calc(anchor(top) + 8px);
+  align-self: safe end;
+  justify-self: safe end;
   z-index: 1100;
   box-sizing: border-box;
   width: max-content;
@@ -14,12 +23,6 @@
   cursor: default;
   font-size: 12px;
   line-height: 18px;
-}
-/* useAnchoredPosition 实测尺寸前的隐藏占位（与官方浮层一致的 measure pass）。 */
-.measure {
-  visibility: hidden;
-  left: 0;
-  top: 0;
 }
 .title {
   color: var(--dsw-alias-label-primary);

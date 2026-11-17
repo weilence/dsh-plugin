@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
-import { createPortal } from 'react-dom'
 import {
-  Button,
-  MenuSurface,
-  StateDot,
-  Toast,
-  useAnchoredPosition,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactElement,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { Button, MenuSurface, StateDot, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
@@ -96,22 +98,19 @@ function StepTimeline(props: { progress: ConnProgress; title: string }) {
 }
 
 /** 进行中的 spinner + hover 过程浮层。浮层视觉与定位照 dsh-models 用量面板
- *  （官方 MenuSurface 材质 + useAnchoredPosition + body portal，z-index 1100
- *  高于设置弹窗的 1000）；触发为 hover——移出后留 250ms grace 供指针移入面板。 */
+ *  （官方 MenuSurface 材质 + CSS anchor positioning + body portal，z-index 1100
+ *  高于设置弹窗的 1000——锚定 spinner 下方 8px、右缘对齐，放不下时 safe 对齐回退
+ *  到视口边距）；触发为 hover——移出后留 250ms grace 供指针移入面板。 */
 function OpHoverCard(props: { progress: ConnProgress; title: string }) {
   const anchor = useRef<HTMLSpanElement>(null)
   const surface = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const grace = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const pos = useAnchoredPosition({
-    open,
-    anchorRef: anchor,
-    panelRef: surface,
-    side: 'bottom',
-    align: 'end',
-    gap: 8,
-    margin: 12,
-  })
+  // 唯一锚名经内联 style 同时下发到 trigger 与 body portal 面板（portal 不继承变量）。
+  const id = useId()
+  const anchorStyle: CSSProperties & Record<'--dsh-op-anchor', string> = {
+    '--dsh-op-anchor': `--dsh-op-${id.replaceAll(':', '')}`,
+  }
   const show = (): void => {
     if (grace.current !== null) clearTimeout(grace.current)
     setOpen(true)
@@ -127,15 +126,21 @@ function OpHoverCard(props: { progress: ConnProgress; title: string }) {
     [],
   )
   return (
-    <span ref={anchor} className={local.opSpinWrap} onPointerEnter={show} onPointerLeave={hide}>
+    <span
+      ref={anchor}
+      className={local.opSpinWrap}
+      style={anchorStyle}
+      onPointerEnter={show}
+      onPointerLeave={hide}
+    >
       <StateDot state="ongoing" size={16} />
       {open
         ? createPortal(
             <MenuSurface
               ref={surface}
               role="status"
-              className={[local.opFlyout, pos === null ? local.measure : ''].filter(Boolean).join(' ')}
-              style={pos ?? undefined}
+              className={local.opFlyout}
+              style={anchorStyle}
               onPointerEnter={show}
               onPointerLeave={hide}
             >

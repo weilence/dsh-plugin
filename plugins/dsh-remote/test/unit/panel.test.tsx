@@ -12,7 +12,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Toast: ({ text }: { text: string }) => <div>{text}</div>,
   StateDot: ({ state }: { state: string }) => <span data-state-dot={state} />,
   MenuSurface: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  useAnchoredPosition: () => null,
   SegmentedControl: ({ options }: { options: readonly { label: string }[] }) => (
     <div>{options.map((option) => option.label).join('/')}</div>
   ),

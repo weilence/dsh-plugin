@@ -14,6 +14,8 @@
 
 /* 操作状态入口（spinner / 失败详情）与动作按钮同排中心线对齐。 */
 .opSpinWrap {
+  /* 浮层锚点：body portal 的过程浮层经 position-anchor 引用此元素（锚名由组件内联下发）。 */
+  anchor-name: var(--dsh-op-anchor);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -23,10 +25,17 @@
 
 /* 过程时间线浮层：官方 MenuSurface 材质之上的面板样式（照 dsh-models 用量
  *  面板——背景材质与圆角交由 MenuSurface，Windows 半透明填充靠毛玻璃成立）；
- *  z-index 1100 高于设置弹窗（1000），body portal 定位由 useAnchoredPosition
- *  供给 fixed 坐标。 */
+ *  z-index 1100 高于设置弹窗（1000），body portal 定位走官方 CSS anchor
+ *  positioning：锚定 spinner 下方 8px、右缘对齐，safe 对齐放不下时回退视口边距。 */
 .opFlyout {
   position: fixed;
+  position-anchor: var(--dsh-op-anchor);
+  top: calc(anchor(bottom) + 8px);
+  bottom: 12px;
+  left: 12px;
+  right: anchor(right);
+  align-self: safe start;
+  justify-self: safe end;
   z-index: 1100;
   box-sizing: border-box;
   width: max-content;
@@ -40,13 +49,6 @@
   cursor: default;
   font-size: 12px;
   line-height: 18px;
-}
-
-/* useAnchoredPosition 实测尺寸前的隐藏占位（与官方浮层一致的 measure pass）。 */
-.measure {
-  visibility: hidden;
-  left: 0;
-  top: 0;
 }
 
 .dangerZone {

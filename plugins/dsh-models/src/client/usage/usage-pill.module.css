@@ -1,4 +1,6 @@
 .anchor {
+  /* 浮层锚点：body portal 的用量面板经 position-anchor 引用此元素（锚名由组件内联下发）。 */
+  anchor-name: var(--dsh-usage-anchor);
   min-width: 0;
   display: inline-flex;
 }
