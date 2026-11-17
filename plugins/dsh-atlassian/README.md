@@ -10,17 +10,18 @@ DSH Web 插件：把 Jira 与 Confluence 深度接入开发流程——多站点
   - 每行站点还可声明项目 / 空间键（`projects`）与关联工作区（`workspaces`，目录绝对路径），多站点时据此自动选站。站点元数据存本插件行 config（用户可在 cordis.patch.yml 手工维护），token 存宿主凭据库（不落配置文件、不回显）；引用名缺省派生：Cloud `ATLASSIAN_<站点名>_TOKEN`、Server `ATLASSIAN_<站点名>_JIRA_TOKEN` / `ATLASSIAN_<站点名>_CONFLUENCE_TOKEN`，也可用同名环境变量兜底。每行站点可单独「测试连接」（Jira / Confluence 各自用各自的凭据探测一次轻量端点）。
 - **模型工具（只读）**：
   - `jira_search`：JQL 检索，返回 key、标题、类型、状态、负责人、更新时间与浏览器链接；
-  - `jira_get_issue`：读单条工单，描述 markdown 化（Cloud ADF / Server wiki markup），可带最近评论；
+  - `jira_get_issue`：读单条工单，描述 markdown 化（Cloud ADF / Server wiki markup），可带最近评论（站点可配置评论过滤名单，滤掉 GitLab / CI 等机器账号刷屏），并附附件清单（id / 文件名 / 大小 / MIME）；
+  - `jira_get_attachment`：按 id 下载工单附件到本地缓存目录（`~/.dsh/cache/dsh-atlassian/attachments/`，单文件上限 20MB），返回文件路径——截图类附件模型可直接用 read_image 打开查看；
   - `confluence_search`：CQL 检索（知识库搜索），返回页面 id、标题、空间、摘要与链接；
   - `confluence_get_page`：读页面正文（storage → markdown），超长自动截断并支持 `offset` 续取。
-  - 未配置任何可用凭据时四个工具整体不进模型面（不占 system prompt）；返回内容有界（字段裁剪 + 截断标注 + 续取参数），符合宿主 bounded outputs 约定。
+  - 未配置任何可用凭据时五个工具整体不进模型面（不占 system prompt）；返回内容有界（字段裁剪 + 截断标注 + 续取参数），符合宿主 bounded outputs 约定。
 - **斜杠命令**：
   - `/jira <工单号> [要做的事]`：引用工单，AI 先查工单再结合上下文概述并向你确认下一步；带「要做的事」时直接按要求处理；
   - `/jira <与 Jira 相关的请求>`：AI 自行构造 JQL 检索、把相关工单读全后回答，末尾附工单清单；
   - `/conf <主题或问题>`：知识库问答——AI 用 `confluence_search` 检索、把真正相关的文档逐篇读完后回答，附文档清单；
   - 命令不带站点参数：站点一律由配置自动关联（见「多站点规则」）。
   - 命令 handler 不做任何网络调用：校验输入后组织一句提示经 `agent.steer()` 提交，查询与展示全部由模型用工具完成。
-- **聊天卡片**：四个工具各有一张 `tool.call.toolview` 自定义卡片——工单卡（key · 标题 · 状态胶囊）、检索卡（预览行显示 Jira / Confluence 与命中条数，点击展开模型渲染原文）、页面卡；工单与页面卡的链接在新标签页打开 Jira / Confluence 原页面。未注册名回落宿主通用卡。
+- **聊天卡片**：五个工具各有一张 `tool.call.toolview` 自定义卡片——工单卡（key · 标题 · 状态胶囊）、检索卡（预览行显示 Jira / Confluence 与命中条数，点击展开模型渲染原文）、附件卡（文件名 · 站点）、页面卡；工单与页面卡的链接在新标签页打开 Jira / Confluence 原页面。未注册名回落宿主通用卡。
 
 ## 多站点规则
 
