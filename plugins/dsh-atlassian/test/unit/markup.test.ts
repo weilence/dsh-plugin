@@ -204,10 +204,15 @@ describe('wikiToMarkdown', () => {
   })
 
   it('智能链接与图片占位', () => {
-    const output = wikiToMarkdown('[详情|https://x.com/d] 与 !a.png! 与 [https://x.com/raw]')
+    const output = wikiToMarkdown(
+      '[详情|https://x.com/d] 与 !a.png! 与 [https://x.com/raw] 与 !b.png|width=1030,height=340!',
+    )
     expect(output).toContain('[详情](https://x.com/d)')
     expect(output).toContain('[图片: a.png]')
     expect(output).toContain('https://x.com/raw')
+    // 带尺寸参数的图片只保留文件名，不被链接规则二次命中成假 markdown 链接。
+    expect(output).toContain('[图片: b.png]')
+    expect(output).not.toContain('width=1030')
   })
 
   it('quote 与分隔线', () => {

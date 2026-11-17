@@ -322,7 +322,11 @@ export function wikiToMarkdown(text: string): string {
     /\{quote\}([\s\S]*?)\{quote\}/gi,
     (_quote, body: string) => `\n> ${body.trim().replace(/\n/g, '\n> ')}\n`,
   )
-  s = s.replace(/!([^!\n]+)!/g, '[图片: $1]')
+  // 图片参数（width / height / alt）只属展示形态：占位符只留文件名，避免被后面的链接规则当 wiki 链接二次命中。
+  s = s.replace(
+    /!([^!\n]+)!/g,
+    (_image, target: string) => `[图片: ${target.split('|')[0]?.trim() || target}]`,
+  )
   s = s.replace(/\[([^|\]\n]+)\|([^\]\n]+)\]/g, '[$1]($2)')
   s = s.replace(/\[((?:https?:)?\/\/[^\]\n]+)\]/g, '$1')
   s = s.replace(/(^|\n)\*\s+/g, '$1- ')
