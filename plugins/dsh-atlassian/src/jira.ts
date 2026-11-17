@@ -126,7 +126,8 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
       signal?: AbortSignal,
     ): Promise<JiraIssueDetail> {
       const encoded = encodeURIComponent(key)
-      const payload = await rest.get(`${apiPrefix}/issue/${encoded}?fields=${FIELDS}`, signal)
+      // fields 参数会让 Jira 裁剪返回体，详情必须显式带上 description。
+      const payload = await rest.get(`${apiPrefix}/issue/${encoded}?fields=${FIELDS},description`, signal)
       const fields = ((payload as { fields?: unknown } | null)?.fields ?? {}) as RawFields
       const description = truncateText(
         bodyToMarkdown(site.kind, fields.description),
