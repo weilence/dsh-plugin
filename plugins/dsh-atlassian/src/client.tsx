@@ -73,7 +73,8 @@ export function apply(ctx: ClientContext): void {
   ] as const
   for (const [key, component] of toolViews) {
     ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({ name: 'tool.call.toolview', key }, component),
+      // locale 声明让框架向卡片 props 合入标准 t seat（检索卡预览行条数文案用）。
+      ctx.slots.register({ name: 'tool.call.toolview', key, locale: NS }, component),
     )
   }
 }

@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
+import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
+import { NS, type AtlassianT } from './locales'
 import styles from './tool-cards.module.css'
 
 // 卡片零固定文案：标题与列表全部来自工具产物（presentationMeta 持久化在
@@ -139,6 +141,23 @@ function argsTitle(raw: string): string {
 
 const clip = (text: string, max = 80): string => (text.length > max ? `${text.slice(0, max)}…` : text)
 
+/** 检索卡预览行：产品名 + 命中条数（total 未知时只报返回数），截断态追加标记。 */
+function searchTitle(
+  t: AtlassianT,
+  product: 'jira' | 'conf',
+  total: number | null,
+  truncated: boolean,
+  shown: number,
+): string {
+  const label =
+    total !== null
+      ? t(`tool.${product}.hits`, { count: total })
+      : t(`tool.${product}.shown`, { count: shown })
+  return truncated ? `${label} · ${t('tool.search.truncated')}` : label
+}
+
+type SearchCardProps = ToolCallViewProps & PropsLocale<typeof NS>
+
 function callRaw(props: ToolCallViewProps): string {
   if (props.phase === 'start') return props.block.argsRaw
   if (props.phase === 'result') return props.block.call?.argsRaw ?? ''
@@ -230,60 +249,25 @@ export function ConfPageCard(props: ToolCallViewProps): ReactNode {
   )
 }
 
-function SearchRows(props: { items: { primary: string; secondary?: string; url: string }[] }): ReactNode {
-  if (props.items.length === 0) return null
-  return (
-    <div>
-      {props.items.map((item, index) => (
-        <div className={styles.item} key={index}>
-          <a
-            className={styles.itemLink}
-            href={item.url}
-            target="_blank"
-            rel="noreferrer"
-            title={item.primary}
-          >
-            {item.primary}
-          </a>
-          {item.secondary !== undefined ? <span className={styles.itemMeta}>{item.secondary}</span> : null}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-export function JiraSearchCard(props: ToolCallViewProps): ReactNode {
+export function JiraSearchCard(props: SearchCardProps): ReactNode {
   if (props.phase !== 'result') return <PendingRow toolCallViewProps={props} />
   const meta = asJiraSearchMeta(props.block.meta)
   const disclosure = props.useDisclosure()
+  const { t } = props
   return (
     <div className={styles.card}>
       {meta !== null && !props.block.isError ? (
-        <>
-          <button
-            type="button"
-            className={styles.rowMain}
-            style={{ padding: '4px 8px' }}
-            onClick={disclosure.toggle}
-            aria-expanded={disclosure.expanded}
-          >
-            <span className={styles.title}>
-              {clip(
-                meta.issues.map((issue) => `${issue.key} ${issue.summary}`).join(' · ') || 'jira_search',
-                100,
-              )}
-            </span>
-          </button>
-          <SearchRows
-            items={meta.issues.map((issue) => ({
-              primary: `${issue.key} ${issue.summary}`,
-              secondary: [issue.type, issue.status, issue.assignee]
-                .filter((item) => item !== undefined)
-                .join(' · '),
-              url: issue.url,
-            }))}
-          />
-        </>
+        <button
+          type="button"
+          className={styles.rowMain}
+          style={{ padding: '4px 8px' }}
+          onClick={disclosure.toggle}
+          aria-expanded={disclosure.expanded}
+        >
+          <span className={styles.title}>
+            {searchTitle(t, 'jira', meta.total, meta.truncated, meta.issues.length)}
+          </span>
+        </button>
       ) : (
         <div className={styles.row}>
           <span className={props.block.isError ? styles.titleFail : styles.titlePending}>
@@ -297,35 +281,25 @@ export function JiraSearchCard(props: ToolCallViewProps): ReactNode {
   )
 }
 
-export function ConfSearchCard(props: ToolCallViewProps): ReactNode {
+export function ConfSearchCard(props: SearchCardProps): ReactNode {
   if (props.phase !== 'result') return <PendingRow toolCallViewProps={props} />
   const meta = asConfSearchMeta(props.block.meta)
   const disclosure = props.useDisclosure()
+  const { t } = props
   return (
     <div className={styles.card}>
       {meta !== null && !props.block.isError ? (
-        <>
-          <button
-            type="button"
-            className={styles.rowMain}
-            style={{ padding: '4px 8px' }}
-            onClick={disclosure.toggle}
-            aria-expanded={disclosure.expanded}
-          >
-            <span className={styles.title}>
-              {clip(meta.results.map((item) => item.title).join(' · ') || 'confluence_search', 100)}
-            </span>
-          </button>
-          <SearchRows
-            items={meta.results.map((item) => ({
-              primary: item.title || item.id,
-              secondary: [item.space, item.type, item.updated]
-                .filter((entry) => entry !== undefined)
-                .join(' · '),
-              url: item.url,
-            }))}
-          />
-        </>
+        <button
+          type="button"
+          className={styles.rowMain}
+          style={{ padding: '4px 8px' }}
+          onClick={disclosure.toggle}
+          aria-expanded={disclosure.expanded}
+        >
+          <span className={styles.title}>
+            {searchTitle(t, 'conf', meta.total, meta.truncated, meta.results.length)}
+          </span>
+        </button>
       ) : (
         <div className={styles.row}>
           <span className={props.block.isError ? styles.titleFail : styles.titlePending}>

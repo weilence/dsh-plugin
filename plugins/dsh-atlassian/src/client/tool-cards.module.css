@@ -85,35 +85,3 @@
   overflow: auto;
   user-select: text;
 }
-
-.item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 8px;
-  min-width: 0;
-}
-
-.itemLink {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-primary);
-  text-decoration: none;
-  user-select: text;
-}
-
-.itemLink:hover {
-  color: var(--dsw-alias-brand-primary);
-  text-decoration: underline;
-}
-
-.itemMeta {
-  flex: none;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}

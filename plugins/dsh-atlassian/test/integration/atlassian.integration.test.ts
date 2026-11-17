@@ -124,6 +124,7 @@ describe('真 socket：cloud 形态全链路', () => {
     expect(search.issues[0]?.url).toBe(`${baseUrl}/browse/I-1`)
 
     const detail = await jira.issue('I-1', { comments: 5, maxDescriptionChars: 1000 })
+    expect(detail.site).toBe('acme')
     expect(detail.description).toBe('描述正文')
     expect(detail.comments).toHaveLength(1)
     expect(detail.comments[0]?.body).toBe('评论正文')

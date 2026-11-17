@@ -160,4 +160,122 @@ describe('buildTools', () => {
       [undefined, undefined],
     ])
   })
+
+  it('四个工具的产物满足各自 output schema 形状（宿主管道强校验，本地护栏防漂移）', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string | URL) => {
+        const target = String(url)
+        if (target.includes('/comment?')) {
+          return new Response(JSON.stringify({ comments: [], total: 0 }), { status: 200 })
+        }
+        if (target.includes('/search/jql')) {
+          return new Response(
+            JSON.stringify({ issues: [{ key: 'P-1', fields: { summary: '第一' } }], total: 1 }),
+            { status: 200 },
+          )
+        }
+        if (target.includes('/issue/')) {
+          return new Response(JSON.stringify({ key: 'P-9', fields: { summary: '详情' } }), { status: 200 })
+        }
+        if (target.includes('rest/api/search')) {
+          return new Response(
+            JSON.stringify({
+              results: [{ content: { id: '7', title: '页', type: 'page' }, excerpt: '', url: '/x' }],
+              totalSize: 1,
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(
+          JSON.stringify({
+            id: '7',
+            title: '页',
+            space: { key: 'DEV' },
+            body: { storage: { value: '<p>正文</p>' } },
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+    const tools = buildTools(fakeDeps())
+    const [search, getIssue, confSearch, confPage] = tools
+    const results: [string, unknown][] = [
+      ['jira_search', await search.execute({ jql: 'x' }, fakeExec())],
+      ['jira_get_issue', await getIssue.execute({ key: 'P-9' }, fakeExec())],
+      ['confluence_search', await confSearch.execute({ cql: 'text ~ "x"' }, fakeExec())],
+      ['confluence_get_page', await confPage.execute({ id: '7' }, fakeExec())],
+    ]
+    for (const [name, value] of results) {
+      const tool = tools.find((entry) => entry.name === name)
+      assertConforms(tool?.output.schema, value, name)
+    }
+  })
 })
+
+type SchemaNode = {
+  type?: string
+  /** defineTool 把 DSL 归一化为标准 JSON Schema：required 是对象节点上的键名数组。 */
+  required?: string[]
+  properties?: Record<string, unknown>
+  items?: unknown
+  oneOf?: unknown[]
+  additionalProperties?: boolean
+}
+
+/** 按宿主统一 schema DSL 递归核对产物：required 缺席与 additionalProperties 之外的键都是宿主管道会拒绝的漂移。 */
+function assertConforms(schema: unknown, value: unknown, path: string): void {
+  const node = schema as SchemaNode
+  if (node.oneOf !== undefined) {
+    const misses: string[] = []
+    for (const branch of node.oneOf) {
+      try {
+        assertConforms(branch, value, path)
+        return
+      } catch (error) {
+        misses.push(String(error))
+      }
+    }
+    throw new Error(`${path} 不满足任何 oneOf 分支：${misses.join('；')}`)
+  }
+  switch (node.type) {
+    case 'string':
+      expect(value, path).toBeTypeOf('string')
+      return
+    case 'number':
+    case 'integer':
+      expect(value, path).toBeTypeOf('number')
+      return
+    case 'boolean':
+      expect(value, path).toBeTypeOf('boolean')
+      return
+    case 'null':
+      expect(value, path).toBeNull()
+      return
+    case 'array': {
+      expect(Array.isArray(value), path).toBe(true)
+      const list = value as unknown[]
+      for (const [index, item] of list.entries()) assertConforms(node.items, item, `${path}[${index}]`)
+      return
+    }
+    case 'object': {
+      const record = value as Record<string, unknown> | null
+      expect(record !== null && typeof record === 'object' && !Array.isArray(record), path).toBe(true)
+      const present = record ?? {}
+      const props = node.properties ?? {}
+      for (const [key, prop] of Object.entries(props)) {
+        if (present[key] !== undefined) assertConforms(prop, present[key], `${path}.${key}`)
+      }
+      for (const key of node.required ?? []) {
+        expect(present[key] !== undefined, `${path}.${key} 必填缺失`).toBe(true)
+      }
+      if (node.additionalProperties === false) {
+        const extra = Object.keys(present).filter((key) => !(key in props))
+        expect(extra, `${path} 多出的键`).toEqual([])
+      }
+      return
+    }
+    default:
+      return
+  }
+}

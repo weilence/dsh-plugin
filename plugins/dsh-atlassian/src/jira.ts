@@ -27,6 +27,8 @@ export interface JiraComment {
 }
 
 export interface JiraIssueDetail extends JiraIssueSummary {
+  /** 产物经宿主管道按 output schema 强校验，四个 client 方法都必须携带站点名。 */
+  site: string
   reporter?: string
   labels: string[]
   created?: string
@@ -148,6 +150,7 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
         commentsTruncated = total !== null && total > list.length
       }
       return {
+        site: site.name,
         ...parseSummary(key, fields),
         reporter: optionalText(fields.reporter?.displayName),
         labels: Array.isArray(fields.labels)
