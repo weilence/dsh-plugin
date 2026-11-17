@@ -150,6 +150,7 @@ export interface TestResponse {
 
 export const TOOL_JIRA_SEARCH = 'jira_search'
 export const TOOL_JIRA_GET_ISSUE = 'jira_get_issue'
+export const TOOL_JIRA_GET_ATTACHMENT = 'jira_get_attachment'
 export const TOOL_CONF_SEARCH = 'confluence_search'
 export const TOOL_CONF_GET_PAGE = 'confluence_get_page'
 

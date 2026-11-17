@@ -160,11 +160,12 @@ beforeEach(() => {
 })
 
 describe('apply 装配', () => {
-  it('注册四个工具（带 when）与 jira/conf 两个命令', async () => {
+  it('注册五个工具（带 when）与 jira/conf 两个命令', async () => {
     const made = await harness([seedSite], { ATLASSIAN_ACME_TOKEN: 'tok' })
     expect(made.tools.map((tool) => tool.name).sort()).toEqual([
       'confluence_get_page',
       'confluence_search',
+      'jira_get_attachment',
       'jira_get_issue',
       'jira_search',
     ])
@@ -272,6 +273,17 @@ describe('save 路由', () => {
       ['ATLASSIAN_INTRA_JIRA_TOKEN', 'jira-pat'],
       ['ATLASSIAN_INTRA_CONFLUENCE_TOKEN', 'conf-pat'],
     ])
+  })
+
+  it('评论过滤名单随草稿写入配置', async () => {
+    const made = await harness([])
+    const res = await made.request('POST', SAVE_PATH, {
+      site: { ...seedSite, commentExcludeAuthors: ['gitlab', 'ci-bot'] },
+    })
+    expect(res.status).toBe(200)
+    expect((made.rowConfig.sites as SiteDraft[])[0]?.commentExcludeAuthors).toEqual(['gitlab', 'ci-bot'])
+    const view = res.body as unknown as SitesView
+    expect(view.sites[0]?.commentExcludeAuthors).toEqual(['gitlab', 'ci-bot'])
   })
 
   it('server 站点省略 confluenceUrl → 400', async () => {

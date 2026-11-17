@@ -7,10 +7,22 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-import { TOOL_CONF_GET_PAGE, TOOL_CONF_SEARCH, TOOL_JIRA_GET_ISSUE, TOOL_JIRA_SEARCH } from './shared'
+import {
+  TOOL_CONF_GET_PAGE,
+  TOOL_CONF_SEARCH,
+  TOOL_JIRA_GET_ATTACHMENT,
+  TOOL_JIRA_GET_ISSUE,
+  TOOL_JIRA_SEARCH,
+} from './shared'
 import { AtlassianStore } from './client/store'
 import { SitesSection, type AtlassianSectionInjected } from './client/SitesSection'
-import { ConfPageCard, ConfSearchCard, JiraIssueCard, JiraSearchCard } from './client/tool-cards'
+import {
+  ConfPageCard,
+  ConfSearchCard,
+  JiraAttachmentCard,
+  JiraIssueCard,
+  JiraSearchCard,
+} from './client/tool-cards'
 import { NS, en, zh } from './client/locales'
 import { atlassianApi } from './client/api'
 
@@ -64,10 +76,11 @@ export function apply(ctx: ClientContext): void {
     )
   })
 
-  // 工具卡片按 wire 名分发：四个只读工具各占一个 keyed 视图，未注册名回落宿主通用卡。
+  // 工具卡片按 wire 名分发：五个只读工具各占一个 keyed 视图，未注册名回落宿主通用卡。
   const toolViews = [
     [TOOL_JIRA_SEARCH, JiraSearchCard],
     [TOOL_JIRA_GET_ISSUE, JiraIssueCard],
+    [TOOL_JIRA_GET_ATTACHMENT, JiraAttachmentCard],
     [TOOL_CONF_SEARCH, ConfSearchCard],
     [TOOL_CONF_GET_PAGE, ConfPageCard],
   ] as const

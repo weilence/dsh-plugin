@@ -81,6 +81,7 @@
     "@deepseek-ai/dsh-commands": "catalog:",
     "@deepseek-ai/dsh-config-editor": "catalog:",
     "@deepseek-ai/dsh-credentials": "catalog:",
+    "@deepseek-ai/dsh-home-paths": "catalog:",
     "@deepseek-ai/dsh-host-webserver": "catalog:",
     "@deepseek-ai/dsh-llm": "catalog:",
     "@deepseek-ai/dsh-tools": "catalog:",

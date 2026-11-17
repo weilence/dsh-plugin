@@ -293,6 +293,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: 'catalog:'
         version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-home-paths':
+        specifier: 'catalog:'
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-host-webserver':
         specifier: 'catalog:'
         version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)

@@ -1,5 +1,6 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { defaultAttachmentsRoot, saveAttachment } from './attachments'
 import { createConfluenceClient } from './confluence'
 import { createJiraClient } from './jira'
 import type { SitesManager } from './sites'
@@ -8,6 +9,7 @@ import {
   jiraProductOf,
   TOOL_CONF_GET_PAGE,
   TOOL_CONF_SEARCH,
+  TOOL_JIRA_GET_ATTACHMENT,
   TOOL_JIRA_GET_ISSUE,
   TOOL_JIRA_SEARCH,
   type SiteDraft,
@@ -22,6 +24,11 @@ export interface ToolDeps {
   confluenceTokenOf(site: SiteDraft): Promise<string>
 }
 
+export interface ToolOptions {
+  /** 附件缓存根；缺省按官方 cache 语义解析，测试注入临时目录。 */
+  attachmentsRoot?: string
+}
+
 const JIRA_SEARCH_LIMIT_MAX = 50
 const CONF_SEARCH_LIMIT_MAX = 25
 const DEFAULT_ISSUE_COMMENTS = 5
@@ -30,17 +37,27 @@ const DEFAULT_DESCRIPTION_CHARS = 12_000
 const DEFAULT_PAGE_CHARS = 12_000
 const PAGE_CHARS_MIN = 2_000
 const PAGE_CHARS_MAX = 50_000
+/** 单附件下载上限：防误下巨档拖垮调用与磁盘。 */
+const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value))
 
 const clipLine = (text: string, maxChars: number): string =>
   text.length > maxChars ? `${text.slice(0, maxChars)}…` : text
 
+/** 面向人的可读大小：B / KB / MB 一位小数。 */
+const sizeOf = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 // 工具产物进入宿主管道前须是 lossless JSON：可选字段经一次 JSON 往返剔除
 // undefined；JSON.parse 的 any 恰好同时满足 schema 推断产物与 JsonValue。
 const lossless = (value: unknown): JsonValue => JSON.parse(JSON.stringify(value))
 
-export function buildTools(deps: ToolDeps) {
+export function buildTools(deps: ToolDeps, options: ToolOptions = {}) {
+  const attachmentsRoot = options.attachmentsRoot ?? defaultAttachmentsRoot()
   const jiraSearch = defineTool({
     name: TOOL_JIRA_SEARCH,
     description:
@@ -154,6 +171,20 @@ export function buildTools(deps: ToolDeps) {
           },
           commentsTruncated: { type: 'boolean', required: true },
           commentsFiltered: { type: 'integer', required: true },
+          attachments: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                filename: { type: 'string', required: true },
+                size: { type: 'integer', required: true },
+                mimeType: { type: 'string' },
+              },
+            },
+          },
           type: { type: 'string' },
           status: { type: 'string' },
           assignee: { type: 'string' },
@@ -193,6 +224,81 @@ export function buildTools(deps: ToolDeps) {
             exec.signal,
           ),
         ),
+      )
+    },
+  })
+
+  const jiraGetAttachment = defineTool({
+    name: TOOL_JIRA_GET_ATTACHMENT,
+    description:
+      '下载 Jira 工单附件到本地缓存目录并返回文件路径；图片类附件可直接用 read_image 打开查看。附件 id 从 jira_get_issue 产物的 attachments 清单获取。',
+    parameters: {
+      id: {
+        type: 'string',
+        required: true,
+        description: '附件 id（jira_get_issue 产物 attachments 清单里）',
+      },
+      site: {
+        type: 'string',
+        description:
+          '站点名；缺省时按附件所属自动匹配唯一站点，再落默认站点或唯一站点（附件 id 无项目键线索，多站点时建议显式传）',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          site: { type: 'string', required: true },
+          id: { type: 'string', required: true },
+          filename: { type: 'string', required: true },
+          size: { type: 'integer', required: true },
+          path: { type: 'string', required: true },
+          mimeType: { type: 'string' },
+        },
+      },
+      render: (_args, value) => [
+        {
+          type: 'text',
+          text:
+            `已下载 ${value.filename}（${sizeOf(value.size)}）→ ${value.path}` +
+            (value.mimeType?.startsWith('image/') === true ? '；图片文件，可用 read_image 打开查看' : ''),
+        },
+      ],
+      presentationMeta: (_args, value) =>
+        JSON.parse(
+          JSON.stringify({
+            kind: 'jira-attachment',
+            site: value.site,
+            id: value.id,
+            filename: value.filename,
+          }),
+        ),
+    },
+    isConcurrencySafe: () => true,
+    timeoutMs: 35_000,
+    async execute(args, exec) {
+      // 附件 id 无项目键线索：缺省 site 只能落默认/唯一站点，多站点环境需显式指明。
+      const site = deps.requireSite(args.site, undefined)
+      const token = await deps.jiraTokenOf(site)
+      const client = createJiraClient(jiraProductOf(site), token)
+      const meta = await client.attachment(args.id.trim(), exec.signal)
+      if (meta.size > ATTACHMENT_MAX_BYTES) {
+        throw new Error(
+          `附件 ${meta.filename}（${sizeOf(meta.size)}）超过单文件下载上限 ${sizeOf(ATTACHMENT_MAX_BYTES)}，未下载`,
+        )
+      }
+      const data = await client.download(meta.content, exec.signal)
+      const path = await saveAttachment(attachmentsRoot, args.id.trim(), meta.filename, data)
+      return JSON.parse(
+        JSON.stringify({
+          site: site.name,
+          id: args.id.trim(),
+          filename: meta.filename,
+          size: data.length,
+          path,
+          mimeType: meta.mimeType,
+        }),
       )
     },
   })
@@ -322,7 +428,7 @@ export function buildTools(deps: ToolDeps) {
     },
   })
 
-  return [jiraSearch, jiraGetIssue, confSearch, confGetPage]
+  return [jiraSearch, jiraGetIssue, jiraGetAttachment, confSearch, confGetPage]
 }
 
 // —— 产物消费视图：字段与上方 schema 一致（推断值结构对齐 client 的返回类型）——
@@ -354,6 +460,7 @@ interface JiraIssueValue {
   comments: { author: string; body: string; created?: string }[]
   commentsTruncated: boolean
   commentsFiltered: number
+  attachments: { id: string; filename: string; size: number; mimeType?: string }[]
   type?: string
   status?: string
   assignee?: string
@@ -409,6 +516,7 @@ function renderJiraSearch(value: JiraSearchValue): string {
 
 function renderJiraIssue(value: JiraIssueValue): string {
   const facts = [
+    `站点: ${value.site}`,
     value.type === undefined ? undefined : `类型: ${value.type}`,
     value.status === undefined ? undefined : `状态: ${value.status}`,
     value.assignee === undefined ? undefined : `负责人: ${value.assignee}`,
@@ -440,6 +548,17 @@ function renderJiraIssue(value: JiraIssueValue): string {
   }
   if (value.commentsFiltered > 0) {
     sections.push(`（已按过滤名单排除 ${value.commentsFiltered} 条评论）`)
+  }
+  if (value.attachments.length > 0) {
+    sections.push(
+      `## 附件（下载单个附件用 jira_get_attachment，参数传 id）`,
+      ...value.attachments.map(
+        (attachment) =>
+          `- ${attachment.id} · ${attachment.filename}（${sizeOf(attachment.size)}${
+            attachment.mimeType === undefined ? '' : ` · ${attachment.mimeType}`
+          }）`,
+      ),
+    )
   }
   return sections.join('\n\n')
 }

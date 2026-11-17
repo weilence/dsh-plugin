@@ -45,7 +45,8 @@ async function statusError(response: Response, path: string): Promise<HttpError>
 export function createRestClient(site: ProductSite, token: string, fetchImpl: FetchLike = fetch) {
   const base = site.url.replace(/\/+$/, '')
 
-  async function request(path: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+  /** 公共管道：超时/取消合流 + 认证头 + 状态映射，返回原始 Response 供 JSON / 二进制分头消费。 */
+  async function send(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
     const controller = new AbortController()
     let timedOut = false
     const timer = setTimeout(() => {
@@ -55,13 +56,13 @@ export function createRestClient(site: ProductSite, token: string, fetchImpl: Fe
     const onAbort = (): void => controller.abort()
     signal?.addEventListener('abort', onAbort, { once: true })
     try {
-      const response = await fetchImpl(`${base}${path}`, {
+      const response = await fetchImpl(url, {
         ...init,
         headers: { accept: 'application/json', ...authHeaders(site, token), ...(init.headers ?? {}) },
         signal: controller.signal,
       })
-      if (!response.ok) throw await statusError(response, path)
-      return (await response.json()) as unknown
+      if (!response.ok) throw await statusError(response, url)
+      return response
     } catch (error) {
       // 调用方取消要保留 AbortError 形态（宿主管道按其落 ABORTED 结果）。
       if (signal?.aborted) throw error
@@ -71,6 +72,11 @@ export function createRestClient(site: ProductSite, token: string, fetchImpl: Fe
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
     }
+  }
+
+  async function request(path: string, init: RequestInit, signal?: AbortSignal): Promise<unknown> {
+    const response = await send(`${base}${path}`, init, signal)
+    return (await response.json()) as unknown
   }
 
   return {
@@ -83,6 +89,11 @@ export function createRestClient(site: ProductSite, token: string, fetchImpl: Fe
         { method: 'POST', body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
         signal,
       )
+    },
+    /** 二进制下载：附件 content 是绝对 URL（认证在宿主域内），返回 Buffer。 */
+    async getBinary(url: string, signal?: AbortSignal): Promise<Buffer> {
+      const response = await send(url, { method: 'GET' }, signal)
+      return Buffer.from(await response.arrayBuffer())
     },
   }
 }

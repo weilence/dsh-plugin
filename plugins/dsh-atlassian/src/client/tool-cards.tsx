@@ -39,6 +39,13 @@ interface ConfPageMeta {
   url: string
 }
 
+interface JiraAttachmentMeta {
+  kind: 'jira-attachment'
+  site?: string
+  id: string
+  filename: string
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
 
@@ -110,6 +117,19 @@ function asPageMeta(meta: unknown): ConfPageMeta | null {
     title: optional(record, 'title') ?? '',
     space: optional(record, 'space'),
     url: record['url'],
+  }
+}
+
+function asAttachmentMeta(meta: unknown): JiraAttachmentMeta | null {
+  const record = metaOfKind(meta, 'jira-attachment')
+  if (record === null || typeof record['id'] !== 'string' || typeof record['filename'] !== 'string') {
+    return null
+  }
+  return {
+    kind: 'jira-attachment',
+    site: optional(record, 'site'),
+    id: record['id'],
+    filename: record['filename'],
   }
 }
 
@@ -244,6 +264,23 @@ export function ConfPageCard(props: ToolCallViewProps): ReactNode {
           : clip(meta.title || meta.id, 60) + (meta.space === undefined ? '' : ` · ${meta.space}`)
       }
       link={meta?.url}
+      failed={props.block.isError || meta === null}
+    />
+  )
+}
+
+export function JiraAttachmentCard(props: ToolCallViewProps): ReactNode {
+  if (props.phase !== 'result') return <PendingRow toolCallViewProps={props} />
+  const meta = asAttachmentMeta(props.block.meta)
+  return (
+    <SettledCard
+      toolCallViewProps={props}
+      title={
+        meta === null
+          ? argsTitle(callRaw(props)) || 'jira_get_attachment'
+          : clip(meta.filename, 60) + (meta.site === undefined ? '' : ` · ${meta.site}`)
+      }
+      link={undefined}
       failed={props.block.isError || meta === null}
     />
   )

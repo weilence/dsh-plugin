@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { buildTools, type ToolDeps } from '../../src/tools'
 
 const site = {
@@ -42,11 +45,12 @@ afterEach(() => {
 })
 
 describe('buildTools', () => {
-  it('四个只读工具，名称固定', () => {
+  it('五个只读工具，名称固定', () => {
     const tools = buildTools(fakeDeps())
     expect(tools.map((tool) => tool.name)).toEqual([
       'jira_search',
       'jira_get_issue',
+      'jira_get_attachment',
       'confluence_search',
       'confluence_get_page',
     ])
@@ -134,7 +138,7 @@ describe('buildTools', () => {
     )
     vi.stubGlobal('fetch', fetchSpy)
     const tools = buildTools(fakeDeps())
-    const page = tools[3]
+    const page = tools[4]
     const value = (await page.execute({ id: '1', offset: 2 }, fakeExec())) as {
       body: string
       offset: number
@@ -148,7 +152,8 @@ describe('buildTools', () => {
   it('requireSite 的 hint：工单号 / JQL / CQL 随调用传入，页面 id 不带', async () => {
     canned({ issues: [], total: 0 })
     const deps = fakeDeps()
-    const [search, getIssue, confSearch, confPage] = buildTools(deps)
+    // 数组解构用空位跳过第三件（jira_get_attachment）：本用例只关心 hint 传参。
+    const [search, getIssue, , confSearch, confPage] = buildTools(deps)
     await search.execute({ jql: 'project = ABC AND assignee = me()' }, fakeExec())
     await getIssue.execute({ key: 'DEF-9' }, fakeExec())
     await confSearch.execute({ cql: 'type=page AND text ~ "部署"' }, fakeExec())
@@ -199,13 +204,124 @@ describe('buildTools', () => {
     expect(text).toContain('已按过滤名单排除 2 条评论')
   })
 
-  it('四个工具的产物满足各自 output schema 形状（宿主管道强校验，本地护栏防漂移）', async () => {
+  it('jira_get_attachment execute：下载落盘到注入根目录，产物带路径；render 提示 read_image', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-atlassian-tools-'))
+    try {
+      const fetchSpy = vi.fn(async (url: string | URL) => {
+        const target = String(url)
+        if (target.includes('/secure/attachment/')) {
+          return new Response(new Uint8Array([104, 105]), { status: 200 })
+        }
+        if (target.includes('/attachment/')) {
+          return new Response(
+            JSON.stringify({
+              id: '100',
+              filename: '截图.png',
+              size: 2,
+              mimeType: 'image/png',
+              content: 'https://acme.atlassian.net/secure/attachment/100/截图.png',
+            }),
+            { status: 200 },
+          )
+        }
+        return new Response(JSON.stringify({}), { status: 200 })
+      })
+      vi.stubGlobal('fetch', fetchSpy)
+      const tools = buildTools(fakeDeps(), { attachmentsRoot: root })
+      const tool = tools.find((entry) => entry.name === 'jira_get_attachment')
+      const value = (await tool?.execute({ id: '100' }, fakeExec())) as {
+        site: string
+        id: string
+        filename: string
+        size: number
+        path: string
+        mimeType?: string
+      }
+      expect(value).toMatchObject({
+        site: 'acme',
+        id: '100',
+        filename: '截图.png',
+        size: 2,
+        mimeType: 'image/png',
+      })
+      expect(value.path.startsWith(root)).toBe(true)
+      expect(value.path).toContain('100-截图.png')
+      await expect(readFile(value.path)).resolves.toEqual(Buffer.from([104, 105]))
+      const text = (tool?.output.render({}, value as never)[0] as { text: string }).text
+      expect(text).toContain('已下载 截图.png（2 B）')
+      expect(text).toContain('read_image')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('jira_get_attachment：超上限显式拒绝且不拉内容', async () => {
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: '9',
+            filename: 'big.zip',
+            size: 21 * 1024 * 1024,
+            content: 'https://x/big.zip',
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', fetchSpy)
+    const tools = buildTools(fakeDeps(), { attachmentsRoot: '/tmp/dsh-atlassian-unused' })
+    const tool = tools.find((entry) => entry.name === 'jira_get_attachment')
+    await expect(tool?.execute({ id: '9' }, fakeExec())).rejects.toThrow(/超过单文件下载上限/)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('render：附件清单段列出 id / 文件名 / 大小 / MIME', async () => {
+    const [, getIssue] = buildTools(fakeDeps())
+    const value = {
+      site: 'x',
+      key: 'K-1',
+      summary: 'S',
+      url: 'u',
+      labels: [],
+      description: '',
+      descriptionTruncated: false,
+      descriptionTotalChars: 0,
+      comments: [],
+      commentsTruncated: false,
+      commentsFiltered: 0,
+      attachments: [
+        { id: '100', filename: '截图.png', size: 2048, mimeType: 'image/png' },
+        { id: '101', filename: 'data.xlsx', size: 1024 * 1024 },
+      ],
+    }
+    const text = (getIssue.output.render({}, value as never)[0] as { text: string }).text
+    expect(text).toContain('jira_get_attachment')
+    expect(text).toContain('- 100 · 截图.png（2 KB · image/png）')
+    expect(text).toContain('- 101 · data.xlsx（1.0 MB）')
+  })
+
+  it('五个工具的产物满足各自 output schema 形状（宿主管道强校验，本地护栏防漂移）', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string | URL) => {
         const target = String(url)
         if (target.includes('/comment?')) {
           return new Response(JSON.stringify({ comments: [], total: 0 }), { status: 200 })
+        }
+        if (target.includes('/secure/attachment/')) {
+          return new Response(new Uint8Array([1, 2]), { status: 200 })
+        }
+        if (target.includes('/attachment/')) {
+          return new Response(
+            JSON.stringify({
+              id: '100',
+              filename: 'a.png',
+              size: 2,
+              mimeType: 'image/png',
+              content: 'https://acme.atlassian.net/secure/attachment/100/a.png',
+            }),
+            { status: 200 },
+          )
         }
         if (target.includes('/search/jql')) {
           return new Response(
@@ -236,17 +352,23 @@ describe('buildTools', () => {
         )
       }),
     )
-    const tools = buildTools(fakeDeps())
-    const [search, getIssue, confSearch, confPage] = tools
-    const results: [string, unknown][] = [
-      ['jira_search', await search.execute({ jql: 'x' }, fakeExec())],
-      ['jira_get_issue', await getIssue.execute({ key: 'P-9' }, fakeExec())],
-      ['confluence_search', await confSearch.execute({ cql: 'text ~ "x"' }, fakeExec())],
-      ['confluence_get_page', await confPage.execute({ id: '7' }, fakeExec())],
-    ]
-    for (const [name, value] of results) {
-      const tool = tools.find((entry) => entry.name === name)
-      assertConforms(tool?.output.schema, value, name)
+    const root = await mkdtemp(join(tmpdir(), 'dsh-atlassian-shape-'))
+    try {
+      const tools = buildTools(fakeDeps(), { attachmentsRoot: root })
+      const [search, getIssue, getAttachment, confSearch, confPage] = tools
+      const results: [string, unknown][] = [
+        ['jira_search', await search.execute({ jql: 'x' }, fakeExec())],
+        ['jira_get_issue', await getIssue.execute({ key: 'P-9' }, fakeExec())],
+        ['jira_get_attachment', await getAttachment.execute({ id: '100' }, fakeExec())],
+        ['confluence_search', await confSearch.execute({ cql: 'text ~ "x"' }, fakeExec())],
+        ['confluence_get_page', await confPage.execute({ id: '7' }, fakeExec())],
+      ]
+      for (const [name, value] of results) {
+        const tool = tools.find((entry) => entry.name === name)
+        assertConforms(tool?.output.schema, value, name)
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true })
     }
   })
 })

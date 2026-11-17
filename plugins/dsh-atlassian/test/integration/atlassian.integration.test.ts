@@ -49,6 +49,17 @@ beforeAll(async () => {
           ],
           total: 1,
         })
+      } else if (url.includes('/secure/attachment/100/a.png')) {
+        res.writeHead(200, { 'content-type': 'image/png' })
+        res.end(Buffer.from([1, 2, 3]))
+      } else if (url.includes('/rest/api/3/attachment/100')) {
+        json({
+          id: '100',
+          filename: 'a.png',
+          size: 3,
+          mimeType: 'image/png',
+          content: `${baseUrl}/secure/attachment/100/a.png`,
+        })
       } else if (url.includes('/rest/api/3/issue/I-1')) {
         json({
           key: 'I-1',
@@ -59,6 +70,15 @@ beforeAll(async () => {
               type: 'doc',
               content: [{ type: 'paragraph', content: [{ type: 'text', text: '描述正文' }] }],
             },
+            attachment: [
+              {
+                id: '100',
+                filename: 'a.png',
+                size: 3,
+                mimeType: 'image/png',
+                content: `${baseUrl}/secure/attachment/100/a.png`,
+              },
+            ],
           },
         })
       } else if (url.includes('/myself')) {
@@ -128,6 +148,15 @@ describe('真 socket：cloud 形态全链路', () => {
     expect(detail.description).toBe('描述正文')
     expect(detail.comments).toHaveLength(1)
     expect(detail.comments[0]?.body).toBe('评论正文')
+    expect(detail.attachments).toEqual([{ id: '100', filename: 'a.png', size: 3, mimeType: 'image/png' }])
+
+    const meta = await jira.attachment('100')
+    expect(meta.filename).toBe('a.png')
+    expect(meta.content).toBe(`${baseUrl}/secure/attachment/100/a.png`)
+    const data = await jira.download(meta.content)
+    expect([...data]).toEqual([1, 2, 3])
+    const downloadAuth = seen.find((entry) => entry.url.includes('/secure/attachment/'))?.authorization
+    expect(downloadAuth).toBe(`Basic ${Buffer.from('a@b.io:tok').toString('base64')}`)
 
     const confluence = createConfluenceClient({ ...site, url: baseUrl }, 'tok')
     const found = await confluence.search('text ~ "集成"', 5)

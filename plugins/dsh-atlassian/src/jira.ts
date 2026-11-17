@@ -26,6 +26,14 @@ export interface JiraComment {
   body: string
 }
 
+/** 附件清单条目：不含内容，内容按 id 用 jira_get_attachment 按需下载。 */
+export interface JiraAttachment {
+  id: string
+  filename: string
+  size: number
+  mimeType?: string
+}
+
 export interface JiraIssueDetail extends JiraIssueSummary {
   /** 产物经宿主管道按 output schema 强校验，四个 client 方法都必须携带站点名。 */
   site: string
@@ -39,6 +47,8 @@ export interface JiraIssueDetail extends JiraIssueSummary {
   commentsTruncated: boolean
   /** 扫描范围内被排除名单命中的评论条数（评论端点无服务端按作者过滤，过滤在扫描时进行）。 */
   commentsFiltered: number
+  /** 附件清单（不含内容）；图片等按 id 走 jira_get_attachment 按需下载。 */
+  attachments: JiraAttachment[]
 }
 
 interface RawFields {
@@ -51,6 +61,15 @@ interface RawFields {
   created?: unknown
   updated?: unknown
   description?: unknown
+  attachment?: unknown
+}
+
+interface RawAttachment {
+  id?: unknown
+  filename?: unknown
+  size?: unknown
+  mimeType?: unknown
+  content?: unknown
 }
 
 interface RawComment {
@@ -61,6 +80,26 @@ interface RawComment {
 
 const optionalText = (value: unknown): string | undefined =>
   typeof value === 'string' && value !== '' ? value : undefined
+
+/** 附件清单条目解析：id / filename / size 是后续按 id 下载的最小事实，缺一不可。 */
+function parseAttachments(value: unknown): JiraAttachment[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter(
+      (item): item is RawAttachment =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as RawAttachment).id === 'string' &&
+        typeof (item as RawAttachment).filename === 'string' &&
+        typeof (item as RawAttachment).size === 'number',
+    )
+    .map((item) => ({
+      id: item.id as string,
+      filename: item.filename as string,
+      size: item.size as number,
+      mimeType: optionalText(item.mimeType),
+    }))
+}
 
 function bodyToMarkdown(kind: SiteKind, body: unknown): string {
   if (kind === 'cloud') return adfToMarkdown(body)
@@ -177,8 +216,11 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
       signal?: AbortSignal,
     ): Promise<JiraIssueDetail> {
       const encoded = encodeURIComponent(key)
-      // fields 参数会让 Jira 裁剪返回体，详情必须显式带上 description。
-      const payload = await rest.get(`${apiPrefix}/issue/${encoded}?fields=${FIELDS},description`, signal)
+      // fields 参数会让 Jira 裁剪返回体，详情必须显式带上 description 与 attachment。
+      const payload = await rest.get(
+        `${apiPrefix}/issue/${encoded}?fields=${FIELDS},description,attachment`,
+        signal,
+      )
       const fields = ((payload as { fields?: unknown } | null)?.fields ?? {}) as RawFields
       const description = truncateText(
         bodyToMarkdown(site.kind, fields.description),
@@ -203,7 +245,33 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
         comments: recent.comments,
         commentsTruncated: recent.truncated,
         commentsFiltered: recent.filtered,
+        attachments: parseAttachments(fields.attachment),
       }
+    },
+    /** 附件元数据：content 是下载用的绝对 URL（认证在宿主域内）。 */
+    async attachment(
+      id: string,
+      signal?: AbortSignal,
+    ): Promise<{ filename: string; size: number; mimeType?: string; content: string }> {
+      const payload = (await rest.get(
+        `${apiPrefix}/attachment/${encodeURIComponent(id)}`,
+        signal,
+      )) as RawAttachment | null
+      const filename = optionalText(payload?.filename)
+      const content = optionalText(payload?.content)
+      if (filename === undefined || content === undefined) {
+        throw new Error(`附件 ${id} 元数据不完整：缺少 filename 或 content`)
+      }
+      return {
+        filename,
+        size: typeof payload?.size === 'number' ? payload.size : 0,
+        mimeType: optionalText(payload?.mimeType),
+        content,
+      }
+    },
+    /** 附件内容下载：url 来自 attachment() 的 content。 */
+    async download(url: string, signal?: AbortSignal): Promise<Buffer> {
+      return rest.getBinary(url, signal)
     },
     /** 连接测试：轻量身份端点，两代 API 同名。 */
     async myself(signal?: AbortSignal): Promise<void> {

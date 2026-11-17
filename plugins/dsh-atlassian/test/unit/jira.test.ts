@@ -202,6 +202,67 @@ describe('createJiraClient.issue', () => {
     expect(detail.commentsTruncated).toBe(true)
   })
 
+  it('详情带附件清单（id / filename / size / mimeType），缺字段条目剔除', async () => {
+    const { fetchImpl } = serveComments(
+      {
+        key: 'K-5',
+        fields: {
+          summary: 'S',
+          attachment: [
+            {
+              id: '100',
+              filename: '截图.png',
+              size: 2048,
+              mimeType: 'image/png',
+              content: 'https://j/c/100',
+            },
+            { id: '101' },
+            { filename: 'x.bin', size: 1 },
+          ],
+        },
+      },
+      [],
+    )
+    const client = createJiraClient(server, 'pat', fetchImpl)
+    const detail = await client.issue('K-5', { comments: 0, maxDescriptionChars: 10 })
+    expect(detail.attachments).toEqual([
+      { id: '100', filename: '截图.png', size: 2048, mimeType: 'image/png' },
+    ])
+  })
+
+  it('attachment(id) 取元数据（content 绝对 URL），download 按 URL 拉字节', async () => {
+    const { fetchImpl, urls, inits } = capture([
+      {
+        id: '100',
+        filename: 'a.png',
+        size: 3,
+        mimeType: 'image/png',
+        content: 'https://jira.example.com/secure/attachment/100/a.png',
+      },
+    ])
+    const client = createJiraClient(server, 'pat', fetchImpl)
+    const meta = await client.attachment('100')
+    expect(meta).toEqual({
+      filename: 'a.png',
+      size: 3,
+      mimeType: 'image/png',
+      content: 'https://jira.example.com/secure/attachment/100/a.png',
+    })
+    expect(urls[0]).toContain('/rest/api/2/attachment/100')
+    expect(inits[0]?.headers).toMatchObject({ authorization: 'Bearer pat' })
+
+    const binFetch: FetchLike = async () => new Response(new Uint8Array([104, 105]), { status: 200 })
+    const downloader = createJiraClient(server, 'tok', binFetch)
+    const data = await downloader.download(meta.content)
+    expect(data.toString()).toBe('hi')
+  })
+
+  it('attachment 元数据缺 filename / content 显式报错', async () => {
+    const { fetchImpl } = capture([{ id: '9', filename: 'x' }])
+    const client = createJiraClient(server, 'pat', fetchImpl)
+    await expect(client.attachment('9')).rejects.toThrow(/元数据不完整/)
+  })
+
   it('server：wiki 描述轻转换；comments=0 不请求评论端点', async () => {
     const { fetchImpl, urls } = capture([{ key: 'K-1', fields: { summary: 'S', description: 'h3. 小标题' } }])
     const client = createJiraClient(server, 'pat', fetchImpl)
