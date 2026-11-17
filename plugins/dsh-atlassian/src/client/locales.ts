@@ -25,10 +25,17 @@ export const zh = {
   'list.empty': '还没有站点。点「新建站点」添加 Jira / Confluence 所在的 Atlassian 站点。',
   'problems.title': '以下配置行无效，已忽略（可在 cordis.patch.yml 修正）：',
 
+  'tool.jira.hits': 'Jira 命中 {count} 条',
+  'tool.jira.shown': 'Jira 返回 {count} 条（总数未知）',
+  'tool.conf.hits': 'Confluence 命中 {count} 条',
+  'tool.conf.shown': 'Confluence 返回 {count} 条（总数未知）',
+  'tool.search.truncated': '已截断',
+
   'site.kindCloud': 'Cloud',
   'site.kindServer': 'Server / DC',
   'site.defaultBadge': '默认',
   'site.workspacesBadge': '工作区 ×{count}',
+  'site.commentFilterBadge': '评论过滤 ×{count}',
   'site.tokenConfigured': 'token 已配置',
   'site.tokenMissing': 'token 未配置',
   'site.jiraTokenOk': 'Jira token 已配置',
@@ -57,6 +64,9 @@ export const zh = {
   'form.workspaces': '关联工作区',
   'form.workspacesHint':
     '本站点关联的工作区目录绝对路径，逗号分隔（如 C:\\code\\acme, /home/me/acme）；当前会话的工作目录命中且唯一时自动选此站点',
+  'form.commentFilter': '评论过滤',
+  'form.commentFilterHint':
+    '读取工单时排除的评论作者，displayName 子串匹配不区分大小写，逗号分隔（如 gitlab, ci-bot）；机器账号刷屏时保住真实用户的最近评论',
   'form.token': 'API token',
   'form.tokenHint': 'Cloud：一份 Atlassian API token 两产品共用；写入宿主凭据库，不回显；留空 = 保持已存值',
   'form.tokenStored': '已保存（不回显）；留空保持不变',
@@ -114,10 +124,17 @@ export const en: { [Key in AtlassianKey]: string } = {
   'list.empty': 'No sites yet. Click "New site" to add the Atlassian site hosting your Jira / Confluence.',
   'problems.title': 'These config lines are invalid and ignored (fix them in cordis.patch.yml):',
 
+  'tool.jira.hits': '{count} Jira results',
+  'tool.jira.shown': '{count} Jira results returned (total unknown)',
+  'tool.conf.hits': '{count} Confluence results',
+  'tool.conf.shown': '{count} Confluence results returned (total unknown)',
+  'tool.search.truncated': 'truncated',
+
   'site.kindCloud': 'Cloud',
   'site.kindServer': 'Server / DC',
   'site.defaultBadge': 'Default',
   'site.workspacesBadge': '{count} workspace(s)',
+  'site.commentFilterBadge': '{count} filter(s)',
   'site.tokenConfigured': 'token configured',
   'site.tokenMissing': 'token missing',
   'site.jiraTokenOk': 'Jira token configured',
@@ -148,6 +165,9 @@ export const en: { [Key in AtlassianKey]: string } = {
   'form.workspaces': 'Linked workspaces',
   'form.workspacesHint':
     'Absolute workspace directories linked to this site, comma-separated (e.g. C:\\code\\acme, /home/me/acme); the site is auto-selected when the current session directory matches it uniquely',
+  'form.commentFilter': 'Comment filter',
+  'form.commentFilterHint':
+    'Comment authors to exclude when reading issues; displayName substring match, case-insensitive, comma-separated (e.g. gitlab, ci-bot); keeps recent comments from real users visible when bots flood issues',
   'form.token': 'API token',
   'form.tokenHint':
     'Cloud: one Atlassian API token serves both products; stored in the host credential store on save, never echoed; leave empty to keep',

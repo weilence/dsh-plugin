@@ -37,6 +37,8 @@ export interface JiraIssueDetail extends JiraIssueSummary {
   descriptionTotalChars: number
   comments: JiraComment[]
   commentsTruncated: boolean
+  /** 扫描范围内被排除名单命中的评论条数（评论端点无服务端按作者过滤，过滤在扫描时进行）。 */
+  commentsFiltered: number
 }
 
 interface RawFields {
@@ -73,6 +75,55 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
   const issueUrl = (key: string): string => `${baseUrl}/browse/${encodeURIComponent(key)}`
 
   const FIELDS = 'summary,issuetype,status,assignee,reporter,labels,created,updated'
+
+  /** 机器人刷屏保护：扫描上限（超出即停并如实报告），防被排除评论占满近期历史时无限翻页。 */
+  const COMMENT_SCAN_MAX = 200
+
+  /**
+   * 评论端点没有按作者过滤的服务端参数，且默认最旧在前：
+   * orderBy=-created 让最新在前，从最新往回逐页扫描，排除名单命中不计数，
+   * 攒满请求数或触及扫描上限即停——热工单与机器人刷屏都不把调用拖垮。
+   */
+  async function fetchRecentComments(
+    encoded: string,
+    options: { wanted: number; excludeAuthors: string[] },
+    signal?: AbortSignal,
+  ): Promise<{ comments: JiraComment[]; truncated: boolean; filtered: number }> {
+    if (options.wanted <= 0) return { comments: [], truncated: false, filtered: 0 }
+    const excluded = options.excludeAuthors.map((entry) => entry.toLowerCase())
+    const pageSize = options.wanted + 10
+    const comments: JiraComment[] = []
+    let filtered = 0
+    let scanned = 0
+    let total: number | null = null
+    for (let startAt = 0; comments.length < options.wanted; startAt += pageSize) {
+      if (total !== null && scanned >= Math.min(total, COMMENT_SCAN_MAX)) break
+      const payload = (await rest.get(
+        `${apiPrefix}/issue/${encoded}/comment?maxResults=${pageSize}&startAt=${startAt}&orderBy=-created`,
+        signal,
+      )) as { comments?: unknown; total?: unknown } | null
+      if (typeof payload?.total === 'number') total = payload.total
+      const list = Array.isArray(payload?.comments) ? (payload.comments as RawComment[]) : []
+      if (list.length === 0) break
+      for (const comment of list) {
+        scanned += 1
+        if (comments.length >= options.wanted) break
+        const author = optionalText(comment.author?.displayName) ?? ''
+        if (excluded.some((entry) => author.toLowerCase().includes(entry))) {
+          filtered += 1
+          continue
+        }
+        comments.push({
+          author,
+          created: optionalText(comment.created),
+          body: bodyToMarkdown(site.kind, comment.body),
+        })
+      }
+      // 不足一页即到末尾；同时防服务端对越界 startAt 夹取导致停在同一页。
+      if (list.length < pageSize) break
+    }
+    return { comments, truncated: total !== null && scanned < total, filtered }
+  }
 
   function parseSummary(key: string, fields: RawFields): JiraIssueSummary {
     return {
@@ -122,7 +173,7 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
     },
     async issue(
       key: string,
-      options: { comments: number; maxDescriptionChars: number },
+      options: { comments: number; maxDescriptionChars: number; excludeAuthors?: string[] },
       signal?: AbortSignal,
     ): Promise<JiraIssueDetail> {
       const encoded = encodeURIComponent(key)
@@ -133,23 +184,11 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
         bodyToMarkdown(site.kind, fields.description),
         options.maxDescriptionChars,
       )
-      let comments: JiraComment[] = []
-      let commentsTruncated = false
-      if (options.comments > 0) {
-        // 只取一页再截尾部：海量评论的工单不被整页拖垮，最近评论优先。
-        const commentPayload = (await rest.get(
-          `${apiPrefix}/issue/${encoded}/comment?maxResults=${options.comments + 10}`,
-          signal,
-        )) as { comments?: unknown; total?: unknown } | null
-        const list = Array.isArray(commentPayload?.comments) ? (commentPayload.comments as RawComment[]) : []
-        comments = list.slice(-options.comments).map((comment) => ({
-          author: optionalText(comment.author?.displayName) ?? '',
-          created: optionalText(comment.created),
-          body: bodyToMarkdown(site.kind, comment.body),
-        }))
-        const total = typeof commentPayload?.total === 'number' ? commentPayload.total : null
-        commentsTruncated = total !== null && total > list.length
-      }
+      const recent = await fetchRecentComments(
+        encoded,
+        { wanted: options.comments, excludeAuthors: options.excludeAuthors ?? [] },
+        signal,
+      )
       return {
         site: site.name,
         ...parseSummary(key, fields),
@@ -161,8 +200,9 @@ export function createJiraClient(site: ProductSite, token: string, fetchImpl?: F
         description: description.text,
         descriptionTruncated: description.truncated,
         descriptionTotalChars: description.totalChars,
-        comments,
-        commentsTruncated,
+        comments: recent.comments,
+        commentsTruncated: recent.truncated,
+        commentsFiltered: recent.filtered,
       }
     },
     /** 连接测试：轻量身份端点，两代 API 同名。 */

@@ -161,6 +161,44 @@ describe('buildTools', () => {
     ])
   })
 
+  it('jira_get_issue：站点过滤名单与调用参数合并下传，产物带 commentsFiltered', async () => {
+    const fetchSpy = vi.fn(async (url: string | URL) => {
+      const target = String(url)
+      if (target.includes('/comment?')) {
+        return new Response(
+          JSON.stringify({
+            comments: [
+              { author: { displayName: 'gitlab' }, created: '2026-01-01', body: 'bot' },
+              { author: { displayName: '张三' }, created: '2026-01-02', body: '真评论' },
+            ],
+            total: 2,
+          }),
+          { status: 200 },
+        )
+      }
+      // fields 参数会让 Jira 裁剪返回体，详情请求必须显式带 description。
+      expect(target).toContain('fields=')
+      expect(target).toContain(',description')
+      return new Response(JSON.stringify({ key: 'P-9', fields: { summary: '详情' } }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    const deps = fakeDeps()
+    const configured = { ...site, commentExcludeAuthors: ['gitlab'] }
+    const tools = buildTools({ ...deps, requireSite: () => configured })
+    const getIssue = tools[1]
+    const value = (await getIssue.execute({ key: 'P-9', excludeAuthors: ['张三'] }, fakeExec())) as {
+      comments: unknown[]
+      commentsFiltered: number
+      commentsTruncated: boolean
+    }
+    // 站点名单（gitlab）与调用参数（张三）合并后全部命中：真实评论一条不剩，如实报告过滤数。
+    expect(value.comments).toEqual([])
+    expect(value.commentsFiltered).toBe(2)
+    expect(value.commentsTruncated).toBe(false)
+    const text = (getIssue.output.render({}, value as never)[0] as { text: string }).text
+    expect(text).toContain('已按过滤名单排除 2 条评论')
+  })
+
   it('四个工具的产物满足各自 output schema 形状（宿主管道强校验，本地护栏防漂移）', async () => {
     vi.stubGlobal(
       'fetch',

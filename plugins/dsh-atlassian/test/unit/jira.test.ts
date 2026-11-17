@@ -28,6 +28,30 @@ function capture(
   return { fetchImpl, urls, inits }
 }
 
+/** 模拟评论端点的真实语义：按 startAt/maxResults/orderBy 切片，检验取数确实从最新往回翻页。 */
+function serveComments(
+  issuePayload: unknown,
+  all: { author: { displayName: string }; created: string; body: unknown }[],
+): { fetchImpl: FetchLike; urls: string[] } {
+  const urls: string[] = []
+  const fetchImpl: FetchLike = async (url) => {
+    const target = String(url)
+    urls.push(target)
+    if (target.includes('/comment?')) {
+      const params = new URL(target).searchParams
+      const startAt = Number(params.get('startAt') ?? 0)
+      const maxResults = Number(params.get('maxResults') ?? 0)
+      const ordered = params.get('orderBy') === '-created' ? [...all].reverse() : all
+      return new Response(
+        JSON.stringify({ comments: ordered.slice(startAt, startAt + maxResults), total: all.length }),
+        { status: 200 },
+      )
+    }
+    return new Response(JSON.stringify(issuePayload), { status: 200 })
+  }
+  return { fetchImpl, urls }
+}
+
 const searchPayload = {
   issues: [
     {
@@ -92,13 +116,13 @@ describe('createJiraClient.issue', () => {
     content: [{ type: 'paragraph', content: [{ type: 'text', text: '描述正文' }] }],
   }
 
-  it('cloud：ADF 描述转 markdown，评论取尾窗并报告截断', async () => {
+  it('cloud：ADF 描述转 markdown，评论从最新往回取并报告截断', async () => {
     const comments = Array.from({ length: 18 }, (_unused, index) => ({
       author: { displayName: `u${index}` },
       created: `2026-01-${String(index + 1).padStart(2, '0')}`,
       body: adfDescription,
     }))
-    const { fetchImpl, urls } = capture([
+    const { fetchImpl, urls } = serveComments(
       {
         key: 'P-9',
         fields: {
@@ -109,19 +133,72 @@ describe('createJiraClient.issue', () => {
           reporter: { displayName: '李四' },
         },
       },
-      { comments, total: 30 },
-    ])
+      comments,
+    )
     const client = createJiraClient(cloud, 'tok', fetchImpl)
     const detail = await client.issue('P-9', { comments: 5, maxDescriptionChars: 100 })
-    expect(urls[1]).toContain('/rest/api/3/issue/P-9/comment?maxResults=15')
+    expect(detail.site).toBe('acme')
+    expect(urls[1]).toContain('/rest/api/3/issue/P-9/comment?maxResults=15&startAt=0&orderBy=-created')
     expect(detail.description).toBe('描述正文')
     expect(detail.descriptionTruncated).toBe(false)
     expect(detail.labels).toEqual(['a', 'b'])
     expect(detail.reporter).toBe('李四')
-    expect(detail.comments).toHaveLength(5)
-    expect(detail.comments[0]?.author).toBe('u13')
-    expect(detail.comments[4]?.author).toBe('u17')
+    // 最新在前：攒满请求数即停，拿到的恰是最新的 5 条。
+    expect(detail.comments.map((comment) => comment.author)).toEqual(['u17', 'u16', 'u15', 'u14', 'u13'])
     expect(detail.comments[0]?.body).toBe('描述正文')
+    expect(detail.commentsTruncated).toBe(true)
+    expect(detail.commentsFiltered).toBe(0)
+  })
+
+  it('排除名单：机器人评论不计入，往回翻页攒满最近的真实评论', async () => {
+    const comments = [
+      ...Array.from({ length: 5 }, (_unused, index) => ({
+        author: { displayName: `u${index}` },
+        created: `2026-01-0${index + 1}`,
+        body: 'c',
+      })),
+      ...Array.from({ length: 15 }, (_unused, index) => ({
+        author: { displayName: 'gitlab' },
+        created: `2026-02-${String(index + 1).padStart(2, '0')}`,
+        body: 'bot',
+      })),
+    ]
+    const { fetchImpl, urls } = serveComments({ key: 'K-3', fields: { summary: 'S' } }, comments)
+    const client = createJiraClient(server, 'pat', fetchImpl)
+    const detail = await client.issue('K-3', {
+      comments: 5,
+      maxDescriptionChars: 10,
+      excludeAuthors: ['GitLab'],
+    })
+    // 第一页 15 条全是机器人（不计入），第二页攒满 5 条真实评论。
+    expect(detail.comments.map((comment) => comment.author)).toEqual(['u4', 'u3', 'u2', 'u1', 'u0'])
+    expect(detail.commentsFiltered).toBe(15)
+    expect(detail.commentsTruncated).toBe(false)
+    expect(urls[2]).toContain('startAt=15')
+  })
+
+  it('扫描上限：被排除评论占满近期历史时停在上限并如实报告', async () => {
+    const comments = [
+      ...Array.from({ length: 5 }, (_unused, index) => ({
+        author: { displayName: `u${index}` },
+        created: `2026-01-0${index + 1}`,
+        body: 'c',
+      })),
+      ...Array.from({ length: 210 }, (_unused, index) => ({
+        author: { displayName: 'gitlab' },
+        created: `2026-03-${String(index + 1).padStart(2, '0')}`,
+        body: 'bot',
+      })),
+    ]
+    const { fetchImpl } = serveComments({ key: 'K-4', fields: { summary: 'S' } }, comments)
+    const client = createJiraClient(server, 'pat', fetchImpl)
+    const detail = await client.issue('K-4', {
+      comments: 5,
+      maxDescriptionChars: 10,
+      excludeAuthors: ['gitlab'],
+    })
+    expect(detail.comments).toEqual([])
+    expect(detail.commentsFiltered).toBe(210)
     expect(detail.commentsTruncated).toBe(true)
   })
 

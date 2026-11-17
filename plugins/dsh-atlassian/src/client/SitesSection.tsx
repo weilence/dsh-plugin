@@ -41,6 +41,8 @@ interface FormState {
   email: string
   projects: string
   workspaces: string
+  /** 评论过滤名单：displayName 子串匹配（不区分大小写）。 */
+  commentExcludeAuthors: string
   /** Cloud：共用 token；Server：Jira / Confluence 各一份。 */
   jiraToken: string
   confluenceToken: string
@@ -80,6 +82,11 @@ function parseWorkspaces(text: string): string[] {
   ]
 }
 
+/** 作者显示名只按逗号分隔（名字可含空格），去空项保留原样大小写；匹配在查询时不区分大小写。 */
+function parseAuthors(text: string): string[] {
+  return parseWorkspaces(text)
+}
+
 function draftOf(state: FormState): SiteDraft {
   if (state.kind === 'cloud') {
     const draft: SiteDraft = {
@@ -92,6 +99,8 @@ function draftOf(state: FormState): SiteDraft {
     if (projects.length > 0) draft.projects = projects
     const workspaces = parseWorkspaces(state.workspaces)
     if (workspaces.length > 0) draft.workspaces = workspaces
+    const authors = parseAuthors(state.commentExcludeAuthors)
+    if (authors.length > 0) draft.commentExcludeAuthors = authors
     if (state.default) draft.default = true
     return draft
   }
@@ -105,6 +114,8 @@ function draftOf(state: FormState): SiteDraft {
   if (projects.length > 0) draft.projects = projects
   const workspaces = parseWorkspaces(state.workspaces)
   if (workspaces.length > 0) draft.workspaces = workspaces
+  const authors = parseAuthors(state.commentExcludeAuthors)
+  if (authors.length > 0) draft.commentExcludeAuthors = authors
   if (state.default) draft.default = true
   return draft
 }
@@ -127,6 +138,7 @@ function draftOfView(site: SiteView): SiteDraft {
     confluenceTokenRef: site.confluenceTokenRef,
     projects: site.projects,
     workspaces: site.workspaces,
+    commentExcludeAuthors: site.commentExcludeAuthors,
     default: site.default,
   }
 }
@@ -303,6 +315,9 @@ function SiteCard(props: {
             {(site.workspaces ?? []).length > 0 ? (
               <Pill text={t('site.workspacesBadge', { count: site.workspaces?.length ?? 0 })} />
             ) : null}
+            {(site.commentExcludeAuthors ?? []).length > 0 ? (
+              <Pill text={t('site.commentFilterBadge', { count: site.commentExcludeAuthors?.length ?? 0 })} />
+            ) : null}
           </span>
         </button>
         <span className={styles.actions}>
@@ -395,6 +410,7 @@ function SiteForm(props: {
     email: initial.email ?? '',
     projects: (initial.projects ?? []).join(', '),
     workspaces: (initial.workspaces ?? []).join(', '),
+    commentExcludeAuthors: (initial.commentExcludeAuthors ?? []).join(', '),
     jiraToken: '',
     confluenceToken: '',
     default: initial.default === true,
@@ -610,6 +626,14 @@ function SiteForm(props: {
         value={form.workspaces}
         onChange={(value) => patch({ workspaces: value })}
         hint={t('form.workspacesHint')}
+        disabled={busy}
+        wide
+      />
+      <TextField
+        label={t('form.commentFilter')}
+        value={form.commentExcludeAuthors}
+        onChange={(value) => patch({ commentExcludeAuthors: value })}
+        hint={t('form.commentFilterHint')}
         disabled={busy}
         wide
       />

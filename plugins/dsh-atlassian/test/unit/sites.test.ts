@@ -127,6 +127,26 @@ describe('validateSiteDraft', () => {
     expect(() => validateSiteDraft({ ...cloudSite, workspaces: ['  '] })).toThrow(/workspaces/)
   })
 
+  it('commentExcludeAuthors 去空去重且保留原样大小写，空数组不落字段', () => {
+    const site = validateSiteDraft({ ...cloudSite, commentExcludeAuthors: [' gitlab ', 'GitLab', 'ci-bot'] })
+    expect(site.commentExcludeAuthors).toEqual(['gitlab', 'GitLab', 'ci-bot'])
+    expect(
+      validateSiteDraft({ ...cloudSite, commentExcludeAuthors: [] }).commentExcludeAuthors,
+    ).toBeUndefined()
+  })
+
+  it('commentExcludeAuthors 非法输入逐项拒绝', () => {
+    expect(() => validateSiteDraft({ ...cloudSite, commentExcludeAuthors: 'gitlab' })).toThrow(
+      /commentExcludeAuthors/,
+    )
+    expect(() => validateSiteDraft({ ...cloudSite, commentExcludeAuthors: [1] })).toThrow(
+      /commentExcludeAuthors/,
+    )
+    expect(() => validateSiteDraft({ ...cloudSite, commentExcludeAuthors: ['  '] })).toThrow(
+      /commentExcludeAuthors/,
+    )
+  })
+
   it('normalizeWorkspacePath 与 workspaceMatches 的路径边界', () => {
     expect(normalizeWorkspacePath(' C:\\code\\acme\\ ')).toBe('C:/code/acme')
     expect(workspaceMatches('C:/code/acme', 'C:/code/acme/packages/x', false)).toBe(true)

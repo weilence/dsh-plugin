@@ -119,6 +119,12 @@ export function buildTools(deps: ToolDeps) {
           '站点名；缺省时按工单号的项目键前缀（如 PROJ-123 的 PROJ）自动匹配唯一站点，再落默认站点或唯一站点',
       },
       comments: { type: 'integer', description: '附带最近评论的条数（0-20，缺省 5；0 = 不取评论）' },
+      excludeAuthors: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          '临时追加排除的评论作者（displayName 大小写不敏感子串匹配），与站点配置的评论过滤名单合并',
+      },
     },
     output: {
       schema: {
@@ -147,6 +153,7 @@ export function buildTools(deps: ToolDeps) {
             },
           },
           commentsTruncated: { type: 'boolean', required: true },
+          commentsFiltered: { type: 'integer', required: true },
           type: { type: 'string' },
           status: { type: 'string' },
           assignee: { type: 'string' },
@@ -176,11 +183,13 @@ export function buildTools(deps: ToolDeps) {
       const token = await deps.jiraTokenOf(site)
       const client = createJiraClient(jiraProductOf(site), token)
       const comments = clamp(args.comments ?? DEFAULT_ISSUE_COMMENTS, 0, 20)
+      // 站点配置的过滤名单是常设事实，调用参数临时追加：合并后交给 client 在扫描时过滤。
+      const excludeAuthors = [...(site.commentExcludeAuthors ?? []), ...(args.excludeAuthors ?? [])]
       return JSON.parse(
         JSON.stringify(
           await client.issue(
             args.key.trim(),
-            { comments, maxDescriptionChars: DEFAULT_DESCRIPTION_CHARS },
+            { comments, maxDescriptionChars: DEFAULT_DESCRIPTION_CHARS, excludeAuthors },
             exec.signal,
           ),
         ),
@@ -344,6 +353,7 @@ interface JiraIssueValue {
   descriptionTotalChars: number
   comments: { author: string; body: string; created?: string }[]
   commentsTruncated: boolean
+  commentsFiltered: number
   type?: string
   status?: string
   assignee?: string
@@ -427,6 +437,9 @@ function renderJiraIssue(value: JiraIssueValue): string {
   }
   if (value.commentsTruncated) {
     sections.push('（评论未全部返回，仅显示最近的若干条）')
+  }
+  if (value.commentsFiltered > 0) {
+    sections.push(`（已按过滤名单排除 ${value.commentsFiltered} 条评论）`)
   }
   return sections.join('\n\n')
 }

@@ -149,6 +149,22 @@ export function validateSiteDraft(raw: unknown): SiteDraft {
     const paths = [...new Set(workspaces.map((entry) => normalizeWorkspacePath(entry as string)))]
     if (paths.length > 0) site.workspaces = paths
   }
+  const commentExcludeAuthors = raw_['commentExcludeAuthors']
+  if (commentExcludeAuthors !== undefined) {
+    if (
+      !Array.isArray(commentExcludeAuthors) ||
+      commentExcludeAuthors.some((entry) => typeof entry !== 'string' || (entry as string).trim() === '')
+    ) {
+      throw new HttpError(400, 'commentExcludeAuthors 必须是非空字符串数组')
+    }
+    // 显示名保留原样大小写（匹配在查询时不区分大小写），去空去重；空数组视为未配置。
+    const authors = [
+      ...new Set(
+        commentExcludeAuthors.map((entry) => (entry as string).trim()).filter((entry) => entry !== ''),
+      ),
+    ]
+    if (authors.length > 0) site.commentExcludeAuthors = authors
+  }
   if (raw_['default'] !== undefined) {
     if (typeof raw_['default'] !== 'boolean') throw new HttpError(400, 'default 必须是布尔值')
     if (raw_['default'] === true) site.default = true

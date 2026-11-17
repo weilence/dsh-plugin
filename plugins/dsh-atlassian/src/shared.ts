@@ -43,6 +43,11 @@ export interface SiteDraft {
   projects?: string[]
   /** 关联工作区的目录路径（归一为正斜杠、无尾分隔符）；当前会话工作目录唯一命中时优先选此站点。 */
   workspaces?: string[]
+  /**
+   * 评论过滤：displayName 命中（大小写不敏感子串）的作者，其评论不进 jira_get_issue 产物。
+   * 用于机器账号（GitLab / CI 集成）刷屏淹没真实用户评论的站点。
+   */
+  commentExcludeAuthors?: string[]
   /** 多站点时的缺省站点；全表至多一个为 true。 */
   default?: boolean
 }
