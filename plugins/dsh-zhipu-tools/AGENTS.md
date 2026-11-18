@@ -13,7 +13,7 @@
 
 ## 陷阱
 
-- `web` 行必须显式点名本插件的 provider：base 默认是 `deepseek-official` / `http`，多个可用 provider 并存时 seam 对未配置选择直接报 `WEB_PROVIDER_AMBIGUOUS`，不会自动选中后注册者。
+- `web` 行必须显式点名本插件的 provider：宿主 0.2.2-rc.4 起基础组合只固定 `fetchProvider: http`，`searchProvider` 缺省走自动选择——未配置时 seam 先选路由指定的官方 provider（DeepSeek 模型路由用 `deepseek-official`，其余路由与模型外搜索用 `deepseek-search-api`），优先者不可用且恰好只剩一个可用 provider 才自动选中（配了智谱凭据而无 DeepSeek Key 时，非 DeepSeek 路由的搜索会静默落到本插件），剩多个才报 `WEB_PROVIDER_AMBIGUOUS`。
 - `available()` 快照可能滞后（凭据在别处变更后、下一次状态读取前）：滞后 `true` 时失败由 `requireKey` 的 `WebError` 兜底，滞后 `false` 时 seam 报 `WEB_PROVIDER_CONFIGURED_UNAVAILABLE`——两种都是清晰失败，不做后台轮询。
 - `configEditor.edit` 的 change 里**不要整份展开 `inherited` 进 next**：会把部署默认值全量固化进用户层。关闭开关走 next=inherited 整行清除（官方「相等即清除」）；开启只叠加本插件的两个点名键。
 - 智谱凭据是真实秘密：不入日志、不入版本库、不在面板展示明文。

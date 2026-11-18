@@ -81,7 +81,7 @@ DSH 的「设置 → 会话」页面：搜索与过滤全部会话，归档、�
 
 ## 安装与启用
 
-需要 DSH `0.2.1-rc.2` 的会话、附件、工作区、持久化及 Web 连接服务。zstd 工件的磁盘手术需要 Node 22.15+ / 24 的内置 zstd 支持（官方桌面版自带）。
+需要 DSH `0.2.2-rc.5` 的会话、附件、工作区、持久化及 Web 连接服务。zstd 工件的磁盘手术需要 Node 22.15+ / 24 的内置 zstd 支持（官方桌面版自带）。
 
 ```bash
 dsh plugin --profile <name> add @weilence/dsh-sessions
