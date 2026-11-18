@@ -2,6 +2,8 @@
 
 面向在本仓库工作的 coding agent。面向用户的文档（各插件的功能与安装）见根与插件 README；**修改 `plugins/<name>/` 下的代码前，先读该目录的 AGENTS.md**。
 
+**AGENTS.md 的修改合并为一次写回**：需要改动任何 AGENTS.md（根文件或各插件的）时，先把文件复制到临时目录，在副本上完成全部修改，再一次性复制回原路径——每次改动都会把整份文件重新加载进上下文，多轮零散编辑会重复消耗；单次回写只触发一次加载。
+
 ## 仓库布局
 
 - `plugins/<name>/`：九个可发布 npm 插件（目录与包名——`dsh-git`→`@weilence/dsh-git`、`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
