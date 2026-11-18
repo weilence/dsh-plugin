@@ -158,8 +158,9 @@ export class RemoteStore {
 
   /** 轮询间检测阶段 / 操作迁移：连接成功与同步完成发 notice——连接成功
    *  不自动开页（入口常驻在卡片「打开」按钮），同步是长操作且弹窗已关，
-   *  结果靠 toast 呈现。自动恢复（看门狗发起的 recover）走同一 starting →
-   *  running 迁移，但文案必须区分：用户没有点过连接，是实例停了又被拉起。 */
+   *  结果靠 toast 呈现。自动动作（看门狗 recover / 转发中断的 reconnect）走
+   *  同一 starting → running 迁移，但文案必须区分：用户没有点过连接，是
+   *  实例停了被拉起 / 隧道断了被重建。 */
   private detectTransitions(next: StateResponse): void {
     let notice: PanelMessage | null = null
     for (const row of next.connections) {
@@ -177,15 +178,17 @@ export class RemoteStore {
         notice =
           prevOp === 'recover'
             ? { key: 'notice.recovered', params: { label: row.label } }
-            : prevOp === 'upgrade'
-              ? {
-                  key: 'notice.upgraded',
-                  params: {
-                    label: row.label,
-                    version: row.state.running.instance?.dsh ?? '?',
-                  },
-                }
-              : { key: 'notice.connected', params: { label: row.label } }
+            : prevOp === 'reconnect'
+              ? { key: 'notice.reconnected', params: { label: row.label } }
+              : prevOp === 'upgrade'
+                ? {
+                    key: 'notice.upgraded',
+                    params: {
+                      label: row.label,
+                      version: row.state.running.instance?.dsh ?? '?',
+                    },
+                  }
+                : { key: 'notice.connected', params: { label: row.label } }
       }
       if (notice === null && prevOp !== null && opKind === null && prevOp.startsWith('sync-')) {
         notice = syncDoneNotice(prevOp, row)

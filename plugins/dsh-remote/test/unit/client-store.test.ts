@@ -130,6 +130,38 @@ describe('RemoteStore 阶段迁移检测', () => {
     store.stopPolling()
   })
 
+  it('reconnect op 的 starting → running 发「已自动重连」toast（隧道中断被重建）', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValueOnce(
+      stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'reconnect' } })]),
+    )
+    await store.refresh()
+    expect(store.getSnapshot().notice).toBeNull()
+
+    api.state.mockResolvedValueOnce(
+      stateResponse([
+        connRow('dev', {
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    await store.refresh()
+    expect(text(store.getSnapshot().notice)).toBe('「连接 dev」的隧道曾中断，已自动重连——点「打开」重新进入')
+    store.stopPolling()
+  })
+
   it('upgrade op 的 starting → running 发「已升级」toast（带远端新版本号）', async () => {
     const store = new RemoteStore()
     api.state.mockResolvedValueOnce(

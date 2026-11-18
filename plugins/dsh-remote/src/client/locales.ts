@@ -38,6 +38,7 @@ export const zh = {
 
   'op.connect': '连接',
   'op.recover': '自动恢复',
+  'op.reconnect': '自动重连',
   'op.upgrade': '升级远端',
   'op.sync-skills': '同步 Skills',
   'op.sync-mcp': '同步 MCP',
@@ -72,6 +73,7 @@ export const zh = {
   'failed.connect': '连接失败',
   'failed.sync': '同步失败',
   'failed.recover': '自动恢复失败',
+  'failed.reconnect': '自动重连失败',
   'failed.upgrade': '升级失败',
   'card.syncMenu': '同步 ▾',
 
@@ -96,6 +98,7 @@ export const zh = {
 
   'notice.connected': '已连接「{label}」——点卡片上的「打开」进入远端页面',
   'notice.recovered': '远端实例曾停止，已自动恢复「{label}」——点「打开」重新进入',
+  'notice.reconnected': '「{label}」的隧道曾中断，已自动重连——点「打开」重新进入',
   'notice.upgraded': '远端 dsh 已升级到 {version}（{label}）',
   'notice.created': '已创建连接',
   'notice.saved': '已保存连接',
@@ -263,6 +266,7 @@ export const en: { [Key in RemoteKey]: string } = {
 
   'op.connect': 'Connect',
   'op.recover': 'Recovering',
+  'op.reconnect': 'Reconnecting',
   'op.upgrade': 'Upgrade remote',
   'op.sync-skills': 'Sync Skills',
   'op.sync-mcp': 'Sync MCP',
@@ -296,6 +300,7 @@ export const en: { [Key in RemoteKey]: string } = {
   'failed.connect': 'Connection failed',
   'failed.sync': 'Sync failed',
   'failed.recover': 'Auto-recovery failed',
+  'failed.reconnect': 'Auto-reconnect failed',
   'failed.upgrade': 'Upgrade failed',
   'card.syncMenu': 'Sync ▾',
 
@@ -321,6 +326,8 @@ export const en: { [Key in RemoteKey]: string } = {
   'notice.connected': 'Connected to "{label}" — click "Open" on the card to enter the remote page',
   'notice.recovered':
     'The remote instance had stopped and was recovered automatically — click "Open" to re-enter "{label}"',
+  'notice.reconnected':
+    'The tunnel of "{label}" had dropped and was reconnected automatically — click "Open" to re-enter',
   'notice.upgraded': 'Remote dsh upgraded to {version} ({label})',
   'notice.created': 'Connection created',
   'notice.saved': 'Connection saved',

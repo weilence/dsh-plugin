@@ -119,6 +119,11 @@ describe('buildSshInvocation', () => {
       '-N',
       '-o',
       'ExitOnForwardFailure=yes',
+      // 死链检测：黑洞隧道 ≤45s（15s × 3）显式死亡，进入引擎的自动重连路径
+      '-o',
+      'ServerAliveInterval=15',
+      '-o',
+      'ServerAliveCountMax=3',
       '-L',
       '127.0.0.1:19999:127.0.0.1:4321',
     ])

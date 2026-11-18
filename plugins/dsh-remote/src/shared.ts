@@ -151,9 +151,19 @@ export type ConnPhase = 'idle' | 'probing' | 'deploying' | 'starting' | 'running
 /** 进行中的操作（互斥：op 非空时拒绝新操作）。文字进度不在此——面板用
  *  spinner 呈现进行中，过程细节见 progress 时间线。表单里的「测试」是无状态
  *  探针，不占连接操作位。`recover` 由心跳看门狗发起（远端实例被 systemd 判为
- *  inactive / failed 后的自动收敛），面板据此区分「用户点的连接」与「自动恢复」。 */
+ *  inactive / failed 后的自动收敛）；`reconnect` 由转发中断发起（本地隧道意外
+ *  断开后的自动重连，有界重试 + 风暴抑制）——两者都复用连接全流程，面板据此
+ *  区分「用户点的连接」与「自动动作」。 */
 export interface ConnOp {
-  kind: 'connect' | 'recover' | 'upgrade' | 'sync-skills' | 'sync-mcp' | 'sync-plugins' | 'sync-prompts'
+  kind:
+    | 'connect'
+    | 'recover'
+    | 'reconnect'
+    | 'upgrade'
+    | 'sync-skills'
+    | 'sync-mcp'
+    | 'sync-plugins'
+    | 'sync-prompts'
 }
 
 /** 操作步骤时间线的一项（进行中 hover 浮层与失败详情弹窗共用）。 */

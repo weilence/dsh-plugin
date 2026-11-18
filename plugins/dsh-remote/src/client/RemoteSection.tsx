@@ -49,6 +49,7 @@ const PHASE_PILL_KEYS: Record<ConnRow['state']['phase'], { key: RemoteKey; tone:
 const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'op.connect',
   recover: 'op.recover',
+  reconnect: 'op.reconnect',
   upgrade: 'op.upgrade',
   'sync-skills': 'op.sync-skills',
   'sync-mcp': 'op.sync-mcp',
@@ -60,6 +61,7 @@ const OP_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
 const FAILED_LABEL_KEYS: Record<ConnOp['kind'], RemoteKey> = {
   connect: 'failed.connect',
   recover: 'failed.recover',
+  reconnect: 'failed.reconnect',
   upgrade: 'failed.upgrade',
   'sync-skills': 'failed.sync',
   'sync-mcp': 'failed.sync',

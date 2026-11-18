@@ -248,6 +248,11 @@ interface HealthRuntime {
   pausedUntil: number
   /** 连续自动收敛次数：达到上限即判死并停手（防崩溃循环里无限重连）。 */
   recoveries: number
+  /** 最近一次「转发中断自动重连」的触发时刻（epoch ms；NaN = 从没触发过）——
+   *  风暴抑制滑动窗口的时间锚点。 */
+  lastReconnectAt: number
+  /** 滑动窗口内的自动重连触发次数（死亡间隔超过窗口即重置为 1）。 */
+  rapidReconnects: number
 }
 
 interface ConnRuntime {
@@ -270,6 +275,8 @@ function freshHealth(): HealthRuntime {
     probing: false,
     pausedUntil: 0,
     recoveries: 0,
+    lastReconnectAt: Number.NaN,
+    rapidReconnects: 0,
   }
 }
 
@@ -305,6 +312,15 @@ const HEALTH_PAUSE_MS = 60_000
  *  「起来就崩」的实例把重连变成风暴。 */
 const RECOVERY_LIMIT = 3
 const RECOVERY_RESET_STREAK = 2
+/** 转发中断的自动重连：同一事件最多尝试几次（复用 runConnect 全流程，部署段
+ *  幂等 + systemd 单元复用秒连）；尝试间隔固定退避。 */
+const RECONNECT_LIMIT = 3
+const RECONNECT_BACKOFF_MS = 15_000
+/** 重连风暴抑制：该滑动窗口内最多触发 RECONNECT_STORM_LIMIT 次（每次触发都以
+ *  转发死亡为锚）；超过判「隧道起来就崩」停手落 error，窗口期平静（一次死亡
+ *  距上次超过窗口）即重新计数。 */
+const RECONNECT_STORM_WINDOW_MS = 180_000
+const RECONNECT_STORM_LIMIT = 3
 
 export class RemoteEngine {
   private store: StoreFile = { version: 2, connections: [], manifest: {} }
@@ -568,6 +584,11 @@ export class RemoteEngine {
 
   startConnect(id: string): void {
     const connection = this.beginOp(id, { kind: 'connect' }, 'deploying')
+    // 手动连接 = 用户在场：重置重连风暴计数，给自动重连发一轮新的信用
+    // （自动重连自身成功不清零——「起来就崩」的隧道正是靠它积累到上限的）
+    const runtime = this.runtimeOf(id)
+    runtime.health.lastReconnectAt = Number.NaN
+    runtime.health.rapidReconnects = 0
     this.step(id, 'probe-node')
     void this.runConnect(connection)
   }
@@ -838,10 +859,19 @@ export class RemoteEngine {
             // 进程已亡租约即失效，清掉免得下次清扫对着死 pid 空转
             void this.deps.forwards.clear(id)
             if (current.forward === forward && current.running !== null) {
+              current.forward = null
+              current.running = null
+              if (current.op === null) {
+                // 意外中断（休眠唤醒 / 网络切换 / sshd 重启）不再把连接丢给用户：
+                // 发起有界自动重连（风暴抑制见 beginAutoReconnect）。running /
+                // forward 已清，/state 不会短暂展示一条死隧道。
+                this.beginAutoReconnect(id, current)
+                return
+              }
+              // 在途操作的锚定转发死了：保留既有语义（error + 提示重连），
+              // 操作自身的 settle / fail 随后结算
               current.phase = 'error'
               current.error = { message: '本地端口转发中断：请重新连接（远端实例仍在运行）', kind: 'unknown' }
-              current.running = null
-              current.forward = null
             }
           })
 
@@ -962,6 +992,76 @@ export class RemoteEngine {
       this.settle(id, 'running')
     } catch (error) {
       this.fail(id, error)
+    }
+  }
+
+  /**
+   * 本地转发意外中断后的自动重连（转发 onExit 触发，事件驱动——不引入后台
+   * 定时器，面板关闭也在工作）。有界重试：同一事件最多 RECONNECT_LIMIT 次、
+   * 间隔 RECONNECT_BACKOFF_MS，复用 runConnect 全流程（部署段幂等、systemd
+   * 单元复用秒连，对休眠唤醒 / 网络切换这类秒级中断通常一两次即回 running）。
+   * 风暴抑制：RECONNECT_STORM_WINDOW_MS 滑动窗口内最多触发
+   * RECONNECT_STORM_LIMIT 次，超过判「隧道起来就崩」停手落 error（防重连
+   * 风暴，与 RECOVERY_LIMIT 同哲学）；窗口期平静即重新计数，手动连接也重置。
+   * 直接落 error（不重试）的两种形态：连接已删除；密码连接没有可用口令
+   * （宿主重启过的典型路径）——重试注定失败，直接指明补录出路。
+   */
+  private beginAutoReconnect(id: string, runtime: ConnRuntime): void {
+    let connection: StoredConnection
+    try {
+      connection = this.connectionOf(id)
+    } catch {
+      return
+    }
+    const now = this.nowMs()
+    const withinWindow =
+      Number.isFinite(runtime.health.lastReconnectAt) &&
+      now - runtime.health.lastReconnectAt < RECONNECT_STORM_WINDOW_MS
+    runtime.health.lastReconnectAt = now
+    runtime.health.rapidReconnects = withinWindow ? runtime.health.rapidReconnects + 1 : 1
+    const secretMissing = targetRequiresSecret(connection.target) && this.secretOf(connection) === null
+    if (secretMissing || runtime.health.rapidReconnects > RECONNECT_STORM_LIMIT) {
+      const detail = secretMissing
+        ? '该连接需要登录密码，当前没有可用口令'
+        : `${RECONNECT_STORM_WINDOW_MS / 1000}s 内已自动重连 ${RECONNECT_STORM_LIMIT} 次，隧道反复中断`
+      runtime.progress = {
+        kind: 'reconnect',
+        steps: [{ step: 'forward-lost', detail, at: this.deps.now() }],
+      }
+      runtime.phase = 'error'
+      runtime.error = {
+        kind: 'unknown',
+        message: secretMissing
+          ? '本地端口转发中断，且该连接需要登录密码、当前没有可用口令：请在面板补录密码后重新连接'
+          : `本地端口转发反复中断（${RECONNECT_STORM_WINDOW_MS / 1000}s 内已自动重连 ${RECONNECT_STORM_LIMIT} 次）：已停止自动重连，请重新连接`,
+      }
+      return
+    }
+    runtime.op = { kind: 'reconnect' }
+    runtime.progress = { kind: 'reconnect', steps: [] }
+    runtime.phase = 'deploying'
+    this.step(id, 'forward-lost', '本地端口转发中断，自动重连')
+    void this.runReconnect(connection)
+  }
+
+  /** 自动重连的重试循环：runConnect 失败经 fail() 清掉操作位与阶段，重试前
+   *  恢复「进行中」外观并保持互斥（重试间隙用户操作不会与下一轮尝试竞态）；
+   *  成功由 settle 收尾（面板看到一次「已自动重连」），耗尽则保留最后一轮
+   *  fail() 写入的具体错误（失败详情弹窗按 progress.kind=reconnect 取词）。 */
+  private async runReconnect(connection: StoredConnection): Promise<void> {
+    const id = connection.id
+    for (let attempt = 1; attempt <= RECONNECT_LIMIT; attempt += 1) {
+      if (attempt > 1) this.step(id, 'retry', `第 ${attempt}/${RECONNECT_LIMIT} 次尝试`)
+      await this.runConnect(connection)
+      const runtime = this.runtimeOf(id)
+      if (runtime.phase === 'running' && runtime.running !== null) return
+      if (attempt >= RECONNECT_LIMIT) {
+        this.step(id, 'retry-exhausted', `自动重连 ${RECONNECT_LIMIT} 次仍未恢复`)
+        return
+      }
+      runtime.op = { kind: 'reconnect' }
+      runtime.phase = 'deploying'
+      await this.deps.delay(RECONNECT_BACKOFF_MS)
     }
   }
 

@@ -1460,6 +1460,203 @@ describe('RemoteEngine', () => {
     expect(fake.calls.length).toBe(callsBefore + 1)
   })
 
+  describe('自动重连（转发中断，事件驱动不依赖面板轮询）', () => {
+    /** 可控转发句柄：连接成功后由测试随时触发「进程意外退出」。 */
+    function controlledForward(): ForwardHandle & { die(): void } {
+      let listener: (() => void) | null = null
+      return {
+        kill() {},
+        onExit(callback) {
+          listener = callback
+        },
+        pid: 4242,
+        die() {
+          listener?.()
+        },
+      }
+    }
+
+    function respondReady(command: string): SshResult | undefined {
+      const ready = deployReady(command)
+      if (ready !== undefined) return ready
+      if (command.includes("grep -m1 '^dsh web: '")) return launchResult()
+      return undefined
+    }
+
+    async function connectToRunning(): Promise<void> {
+      await engine.save(saveRequest())
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+    }
+
+    it('转发意外中断 → 自动重连回 running（op=reconnect，租约重录）', async () => {
+      let die: (() => void) | undefined
+      makeEngine({
+        respond: respondReady,
+        forward: () => {
+          const handle = controlledForward()
+          die = handle.die
+          return handle
+        },
+      })
+      await connectToRunning()
+      die?.()
+      await waitFor(
+        () =>
+          engine.stateOf('dev-box').phase === 'running' &&
+          engine.stateOf('dev-box').op === null &&
+          fake.forwardCalls.length === 2,
+      )
+      const state = engine.stateOf('dev-box')
+      // progress 保留最后一次操作（自动重连），面板失败详情 / hover 据此取词
+      expect(state.progress?.kind).toBe('reconnect')
+      expect(state.progress?.steps.map((step) => step.step)).toContain('forward-lost')
+      expect(state.error).toBeNull()
+      // 死亡时租约被清、重连成功重录——宿主重启的遗留清扫仍指向活进程
+      const leases = JSON.parse(await readFile(join(home, 'dsh-remote', 'forwards.json'), 'utf8')) as Record<
+        string,
+        { pid: number }
+      >
+      expect(leases['dev-box']).toMatchObject({ pid: 4242 })
+    })
+
+    it('自动重连耗尽 → error（progress.kind=reconnect，重试与终态步骤都在时间线上）', async () => {
+      let die: (() => void) | undefined
+      let down = false
+      makeEngine({
+        respond: (command) => {
+          // 探查输出坏掉 node 版本行：ensureDeployed 显式抛「远端未安装 Node」
+          if (down && command.includes('__NODE__'))
+            return { code: 0, stdout: '__NODE__(node: command not found)\n', stderr: '' }
+          return respondReady(command)
+        },
+        forward: () => {
+          const handle = controlledForward()
+          die = handle.die
+          return handle
+        },
+      })
+      await connectToRunning()
+      down = true
+      die?.()
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'error' && engine.stateOf('dev-box').op === null,
+      )
+      const state = engine.stateOf('dev-box')
+      expect(state.progress?.kind).toBe('reconnect')
+      const steps = state.progress?.steps.map((step) => step.step) ?? []
+      // 3 次尝试之间 2 次 retry，终态是「尝试耗尽」；错误保留最后一轮的具体原因
+      expect(steps.filter((step) => step === 'retry')).toHaveLength(2)
+      expect(steps.at(-1)).toBe('retry-exhausted')
+      expect(state.error?.message).toContain('远端未安装 Node')
+      // 三次尝试都在部署段失败，从未走到转发段
+      expect(fake.forwardCalls).toHaveLength(1)
+    })
+
+    it('风暴抑制：滑动窗口内第 4 次死亡停手落 error（不再建连）', async () => {
+      const deaths: (() => void)[] = []
+      makeEngine({
+        respond: respondReady,
+        forward: () => {
+          const handle = controlledForward()
+          deaths.push(handle.die)
+          return handle
+        },
+      })
+      await connectToRunning()
+      // 缺省时钟恒定：四次死亡都在同一窗口内——前 3 次各自动重连一次，
+      // 第 4 次触发抑制直接落 error
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        deaths[attempt]?.()
+        const expected = attempt + 2
+        await waitFor(
+          () =>
+            engine.stateOf('dev-box').phase === 'running' &&
+            engine.stateOf('dev-box').op === null &&
+            fake.forwardCalls.length === expected,
+        )
+      }
+      deaths[3]?.()
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'error' && engine.stateOf('dev-box').op === null,
+      )
+      expect(engine.stateOf('dev-box').error?.message).toContain('反复中断')
+      expect(fake.forwardCalls).toHaveLength(4)
+    })
+
+    it('死亡间隔超过窗口 → 风暴计数复位，自动重连照常', async () => {
+      const clock = fakeClock()
+      const deaths: (() => void)[] = []
+      makeEngine({
+        respond: respondReady,
+        now: clock.now,
+        forward: () => {
+          const handle = controlledForward()
+          deaths.push(handle.die)
+          return handle
+        },
+      })
+      await connectToRunning()
+      deaths[0]?.()
+      await waitFor(
+        () =>
+          engine.stateOf('dev-box').phase === 'running' &&
+          engine.stateOf('dev-box').op === null &&
+          fake.forwardCalls.length === 2,
+      )
+      // 隧道稳定运行 4 分钟（窗口 3 分钟）后再次中断：计数重新从 1 起算
+      clock.advance(240_000)
+      deaths[1]?.()
+      await waitFor(
+        () =>
+          engine.stateOf('dev-box').phase === 'running' &&
+          engine.stateOf('dev-box').op === null &&
+          fake.forwardCalls.length === 3,
+      )
+    })
+
+    it('手动连接重置风暴计数：停手后用户重连，下次中断仍自动重连', async () => {
+      const deaths: (() => void)[] = []
+      makeEngine({
+        respond: respondReady,
+        forward: () => {
+          const handle = controlledForward()
+          deaths.push(handle.die)
+          return handle
+        },
+      })
+      await connectToRunning()
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        deaths[attempt]?.()
+        const expected = attempt + 2
+        await waitFor(
+          () =>
+            engine.stateOf('dev-box').phase === 'running' &&
+            engine.stateOf('dev-box').op === null &&
+            fake.forwardCalls.length === expected,
+        )
+      }
+      deaths[3]?.()
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'error' && engine.stateOf('dev-box').op === null,
+      )
+      // 用户手动重连（计数清零）后，下一次中断继续享受自动重连
+      engine.startConnect('dev-box')
+      await waitFor(
+        () => engine.stateOf('dev-box').phase === 'running' && engine.stateOf('dev-box').op === null,
+      )
+      deaths[4]?.()
+      await waitFor(
+        () =>
+          engine.stateOf('dev-box').phase === 'running' &&
+          engine.stateOf('dev-box').op === null &&
+          fake.forwardCalls.length === 6,
+      )
+    })
+  })
+
   it('save：运行中改基本信息被拒（同步勾选不经 save，直传 startSync）', async () => {
     makeEngine({
       respond: (command) => {

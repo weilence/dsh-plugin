@@ -539,9 +539,24 @@ export interface SshTransport {
 
 /** 本地转发的追加参数：`-N` 不执行远端命令；`ExitOnForwardFailure=yes` 让绑
  *  不上本地口立即退出（默认只警告继续跑，会留下一个没有隧道的空转发进程）——
- *  引擎据此判「本地口没绑上」并换口重试（判据见 runConnect 转发段）。 */
+ *  引擎据此判「本地口没绑上」并换口重试（判据见 runConnect 转发段）；
+ *  `ServerAliveInterval` × `ServerAliveCountMax` 是死链检测——黑洞隧道（宿主
+ *  休眠唤醒、网络静默切换）下 ssh 进程会长时间挂着、本地 `-L` 监听照旧存在，
+ *  应用层保活让死链 ≤45s 显式死亡，进入引擎的转发中断自动重连路径。协议级
+ *  探测对 `-N` 无通道的会话同样生效；与 ControlMaster 时代「保活也挂死」的
+ *  mux bug 无关（那是本地长会话缺陷，已整体移除复用）。 */
 export function buildForwardArgs(localPort: number, remotePort: number): string[] {
-  return ['-N', '-o', 'ExitOnForwardFailure=yes', '-L', `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`]
+  return [
+    '-N',
+    '-o',
+    'ExitOnForwardFailure=yes',
+    '-o',
+    'ServerAliveInterval=15',
+    '-o',
+    'ServerAliveCountMax=3',
+    '-L',
+    `127.0.0.1:${localPort}:127.0.0.1:${remotePort}`,
+  ]
 }
 
 /** 生产 transport：宿主侧受信代码直接 spawn，认证完全复用 OpenSSH 配置 + 口令通道。 */
