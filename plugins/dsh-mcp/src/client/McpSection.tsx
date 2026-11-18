@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
+  NoticeToast,
   Panel,
   SearchBox,
   selectCls,
+  useNotice,
   useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import type { McpRow, McpScope } from '../shared'
@@ -38,10 +40,10 @@ export function McpSection(props: McpSectionProps) {
   useWideSettingsDialog()
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
   useEffect(() => {
     if (state.status === 'idle') void store.refresh()
   }, [store, state.status])
-  useEffect(() => () => store.dismissNotice(), [store])
 
   // 档位记忆在本地存储：下次打开沿用上次的查看范围。
   const [mode, setMode] = useState<ScopeMode>(() => {
@@ -82,7 +84,6 @@ export function McpSection(props: McpSectionProps) {
   const scopeRows = useMemo(() => servers.filter((row) => row.scope === mode), [servers, mode])
   const editing = editingKey !== undefined ? scopeRows.find((row) => rowKeyOf(row) === editingKey) : undefined
   const errorText = state.error === null ? null : messageText(state.error, t)
-  const noticeText = state.notice === null ? null : messageText(state.notice, t)
 
   const collapse = (): void => {
     setCreating(false)
@@ -249,9 +250,7 @@ export function McpSection(props: McpSectionProps) {
           {errorText}
         </div>
       ) : null}
-      {noticeText !== null ? (
-        <Toast key={noticeText} text={noticeText} holdMs={5000} onDone={() => store.dismissNotice()} />
-      ) : null}
+      <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
       {state.list?.warnings.map((warning) => (
         <div key={warning} className={styles.warnLine}>
           {warning}

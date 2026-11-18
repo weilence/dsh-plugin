@@ -1,5 +1,7 @@
 import type { SiteDraft, SitesView, TestResponse } from '../shared'
 import { atlassianApi } from './api'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 
 export interface PanelState {
   view: SitesView | null
@@ -16,9 +18,6 @@ export interface PanelState {
   formError: string | null
   /** 行内动作（删除 / 清凭据 / 测试）失败的原文。 */
   rowErrors: Record<string, string>
-  /** 一次性成功提示（Toast，事件时间定格）。 */
-  notice: string | null
-  noticeNonce: number
   /** 主视图会话工作目录（sessions.list 快照）；list 请求随附兜底工作区关联。 */
   workspaceCwd: string | undefined
 }
@@ -32,8 +31,6 @@ const INITIAL: PanelState = {
   loadError: null,
   formError: null,
   rowErrors: {},
-  notice: null,
-  noticeNonce: 0,
   workspaceCwd: undefined,
 }
 
@@ -42,12 +39,14 @@ type ApiOutcome = { ok: true } | { ok: false; reason: string }
 const reasonOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
- * 面板 store：只持事实与一次性状态，文案由组件在事件时间取词后经 setNotice
- * 送入（Toast 5 秒重开计时，不需跨语言存活）。
+ * 面板 store：只持事实，一次性操作反馈（保存 / 删除 / 清凭据，事件时间取词）
+ * 经 notices 通道送面板显示。
  */
 export class AtlassianStore {
   private state: PanelState = INITIAL
   private readonly listeners = new Set<() => void>()
+  /** 一次性操作反馈通道：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  readonly notices = new NoticeRelay<string>()
 
   readonly getSnapshot = (): PanelState => this.state
 
@@ -61,14 +60,6 @@ export class AtlassianStore {
   private patch(partial: Partial<PanelState>): void {
     this.state = { ...this.state, ...partial }
     for (const listener of this.listeners) listener()
-  }
-
-  setNotice(text: string): void {
-    this.patch({ notice: text, noticeNonce: this.state.noticeNonce + 1 })
-  }
-
-  dismissNotice(): void {
-    this.patch({ notice: null })
   }
 
   clearFormError(): void {

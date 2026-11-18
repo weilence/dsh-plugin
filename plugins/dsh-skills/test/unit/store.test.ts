@@ -29,6 +29,9 @@ describe('SkillsStore 首次加载', () => {
     vi.spyOn(skillsApi, 'list').mockResolvedValue({ roots: [], skills: [] })
 
     const store = new SkillsStore(makeT())
+    // 订阅即模拟面板挂载（useNotice 的 effect 订阅）
+    const seen: string[] = []
+    store.notices.subscribe((message) => seen.push(message))
     store.setScope('')
     await expect(
       store.save({
@@ -42,6 +45,6 @@ describe('SkillsStore 首次加载', () => {
       }),
     ).resolves.toBe(true)
 
-    expect(store.getSnapshot().notice).toBe('已创建技能 my-skill（C:/root/my-skill.md）')
+    expect(seen).toEqual(['已创建技能 my-skill（C:/root/my-skill.md）'])
   })
 })

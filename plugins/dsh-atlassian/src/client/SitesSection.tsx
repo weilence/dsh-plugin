@@ -1,12 +1,14 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { Button, Checkbox, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   ConfirmDialog,
+  NoticeToast,
   Panel,
   Pill,
   SelectField,
   TextField,
+  useNotice,
   useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import {
@@ -162,6 +164,7 @@ export function SitesSection(props: SitesSectionProps) {
   useEffect(() => {
     void store.refresh()
   }, [store])
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   const view = state.view
   const busy = state.busy
@@ -241,7 +244,7 @@ export function SitesSection(props: SitesSectionProps) {
           onConfirm={() => {
             void store.remove(deleting.name).then((result) => {
               if (result.ok) {
-                store.setNotice(t('notice.deleted', { name: deleting.name }))
+                store.notices.emit(t('notice.deleted', { name: deleting.name }))
                 setDeleting(null)
               }
             })
@@ -249,14 +252,7 @@ export function SitesSection(props: SitesSectionProps) {
         />
       ) : null}
 
-      {state.notice !== null ? (
-        <Toast
-          key={String(state.noticeNonce)}
-          text={state.notice}
-          holdMs={5000}
-          onDone={() => store.dismissNotice()}
-        />
-      ) : null}
+      <NoticeToast notice={actionNotice} text={(message) => message} onDismiss={dismissActionNotice} />
     </Panel>
   )
 }
@@ -473,7 +469,7 @@ function SiteForm(props: {
       })
       .then((result) => {
         if (result.ok) {
-          store.setNotice(t('notice.saved', { name }))
+          store.notices.emit(t('notice.saved', { name }))
           onDone()
         }
       })
@@ -560,7 +556,7 @@ function SiteForm(props: {
                   disabled: busy,
                   onClick: () => {
                     void store.clearToken(initial.name, 'jira').then((result) => {
-                      if (result.ok) store.setNotice(t('notice.tokenCleared', { name: initial.name }))
+                      if (result.ok) store.notices.emit(t('notice.tokenCleared', { name: initial.name }))
                     })
                   },
                 }
@@ -584,7 +580,7 @@ function SiteForm(props: {
                     disabled: busy,
                     onClick: () => {
                       void store.clearToken(initial.name, 'jira').then((result) => {
-                        if (result.ok) store.setNotice(t('notice.tokenCleared', { name: initial.name }))
+                        if (result.ok) store.notices.emit(t('notice.tokenCleared', { name: initial.name }))
                       })
                     },
                   }
@@ -610,7 +606,7 @@ function SiteForm(props: {
                     disabled: busy,
                     onClick: () => {
                       void store.clearToken(initial.name, 'confluence').then((result) => {
-                        if (result.ok) store.setNotice(t('notice.tokenCleared', { name: initial.name }))
+                        if (result.ok) store.notices.emit(t('notice.tokenCleared', { name: initial.name }))
                       })
                     },
                   }

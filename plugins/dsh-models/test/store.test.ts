@@ -9,6 +9,13 @@ import { makeT } from './i18n'
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
 
+/** 订阅操作通知通道：面板挂载期 useNotice 的测试替身。 */
+function collectNotices(store: PanelStore): { seen: PanelMessage[] } {
+  const seen: PanelMessage[] = []
+  store.notices.subscribe((message) => seen.push(message))
+  return { seen }
+}
+
 /** 一个可控的 configForms 共享表单替身（镜像快照）。 */
 function scopeStub(initial: { user?: unknown; value?: unknown; revision?: number; writable?: boolean }) {
   let snapshot = {
@@ -199,6 +206,7 @@ describe('模型目录面板 store', () => {
     const storeCredential = vi.fn<PiAiOperations['storeCredential']>(async () => undefined)
     const { operations, writeProfile } = operationsStub({ storeCredential })
     const { store } = storeOf({ scope, operations })
+    const actions = collectNotices(store)
     await store.refresh()
     const ok = await store.saveRoute(
       'anthropic',
@@ -216,18 +224,19 @@ describe('模型目录面板 store', () => {
       modelOverrides: { 'claude-x': { id: 'claude-x', maxTokens: 5 } },
     })
     expect(storeCredential).toHaveBeenCalledWith('ANTHROPIC_API_KEY', 'sk-abc')
-    expect(text(store.getSnapshot().notice)).toContain('已保存')
+    expect(text(actions.seen[0] ?? null)).toContain('已保存')
   })
 
   it('saveRoute 无变化且无密钥时直接提示而不写入', async () => {
     const scope = scopeStub({ user: { providers: { anthropic: { displayName: 'A' } } }, value: {} })
     const { operations, writeProfile } = operationsStub()
     const { store } = storeOf({ scope, operations })
+    const actions = collectNotices(store)
     await store.refresh()
     const ok = await store.saveRoute('anthropic', { displayName: 'A' })
     expect(ok).toBe(true)
     expect(writeProfile).not.toHaveBeenCalled()
-    expect(text(store.getSnapshot().notice)).toBe('没有需要保存的修改')
+    expect(text(actions.seen[0] ?? null)).toBe('没有需要保存的修改')
   })
 
   it('saveRoute 在 profile 已写入但密钥存储失败时返回失败，便于重试只补密钥', async () => {
@@ -321,6 +330,7 @@ describe('订阅登录状态', () => {
       })
       const { operations } = operationsStub({ beginAuth, authEvents, authDirectory })
       const { store } = storeOf({ scope, operations })
+      const actions = collectNotices(store)
       await store.refresh()
 
       await store.beginSignIn('openai-codex')
@@ -344,7 +354,7 @@ describe('订阅登录状态', () => {
       await vi.advanceTimersByTimeAsync(700)
       // 授权完成后不能在面板保留历史授权链接及「登录成功」结果块。
       expect(store.getSnapshot().auth.attempt).toBeNull()
-      expect(text(store.getSnapshot().notice)).toBe('账号登录成功')
+      expect(text(actions.seen[0] ?? null)).toBe('账号登录成功')
       expect(store.getSnapshot().auth.records['openai-codex']).toEqual({ configured: true, kind: 'grant' })
       // 结束后循环退出：不再发起新轮询。
       const callsAfterSettle = authEvents.mock.calls.length
@@ -432,10 +442,11 @@ describe('订阅登录状态', () => {
     const revokeAuth = vi.fn<PiAiOperations['revokeAuth']>(async () => {})
     const { operations } = operationsStub({ revokeAuth })
     const { store } = storeOf({ scope, operations })
+    const actions = collectNotices(store)
     await store.refresh()
     await store.signOut('openai-codex')
     expect(revokeAuth).toHaveBeenCalledWith('openai-codex')
-    expect(text(store.getSnapshot().notice)).toContain('已退出 openai-codex')
+    expect(text(actions.seen[0] ?? null)).toContain('已退出 openai-codex')
     expect(store.getSnapshot().error).toBeNull()
 
     const failing = vi.fn<PiAiOperations['revokeAuth']>(async () => {

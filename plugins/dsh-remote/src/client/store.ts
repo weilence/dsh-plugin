@@ -1,4 +1,6 @@
 import { errMsg } from '@dsh-plugins/shared'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { remoteApi } from './api'
 import type { PanelMessage, RemoteKey } from './locales'
 import { targetRequiresSecret } from '../shared'
@@ -27,6 +29,9 @@ export interface RemoteState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** 插件文案用词典 key 表达，Host errMsg 用 text 原样；渲染期随宿主语言翻译。 */
   error: PanelMessage | null
+  /** 事件类一次性通知（连接 / 同步等生命周期事件的迁移检测结果），由壳层
+   *  shell.overlay 的常驻显示点渲染并经 dismissNotice 清空——显示点不卸载，
+   *  onDone 必然触发，无残留无重放。 */
   notice: PanelMessage | null
   /** 每次 toast 递增：同一文案连续出现也重新计时（Toast 以它为 key）。 */
   noticeSeq: number
@@ -129,6 +134,9 @@ function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
 export class RemoteStore {
   private snapshot: RemoteState = INITIAL
   private readonly listeners = new Set<() => void>()
+  /** 操作类一次性通知（保存 / 删除 / 表单测试）：面板挂载期经 useNotice 显示，
+   *  无订阅者（分区未挂载）即丢弃。 */
+  readonly actionNotices = new NoticeRelay<PanelMessage>()
   private fastTimer: ReturnType<typeof setInterval> | null = null
   private slowTimer: ReturnType<typeof setInterval> | null = null
   private refreshGeneration = 0
@@ -136,6 +144,10 @@ export class RemoteStore {
   private refreshDirty = false
   private readonly prevPhase = new Map<string, string>()
   private readonly prevOps = new Map<string, string | null>()
+  /** 面板观察窗口：startPolling（分区挂载）开、stopPolling（卸载）关。store 的
+   *  刷新只由面板侧驱动，默认即观察中；窗口关闭后在途的 refresh 只更新数据，
+   *  不记录迁移记忆、不发一次性 notice，也不再起轮询定时器。 */
+  private observing = true
 
   getSnapshot = (): RemoteState => this.snapshot
 
@@ -151,7 +163,7 @@ export class RemoteStore {
     for (const listener of this.listeners) listener()
   }
 
-  /** 一次性 toast：递增序号让同文案也能重新开计时。 */
+  /** 事件类一次性通知：递增序号让同文案也重新开计时。 */
   private notify(message: PanelMessage): void {
     this.set({ notice: message, noticeSeq: this.snapshot.noticeSeq + 1 })
   }
@@ -207,7 +219,9 @@ export class RemoteStore {
     try {
       const list = await remoteApi.state()
       if (generation !== this.refreshGeneration) return
-      this.detectTransitions(list)
+      // 关闭窗口后在途的 refresh：数据照常落（重开面板立即见最新状态），但迁移
+      // 检测跳过——否则跨关闭窗口完成的迁移会在下次打开面板时补发迟到的 toast。
+      if (this.observing) this.detectTransitions(list)
       this.set({ status: 'ready', list, error: null })
     } catch (error) {
       if (generation !== this.refreshGeneration) return
@@ -223,6 +237,9 @@ export class RemoteStore {
   }
 
   private schedulePoll(): void {
+    // 面板已关闭（含关闭瞬间在途的 refresh 落地）：不再起任何定时器，轮询随
+    // 面板关闭即停——后台空转的轮询只会产生无人即时可见的 notice。
+    if (!this.observing) return
     const busy = this.snapshot.list !== null && anyBusy(this.snapshot.list.connections)
     if (busy && this.fastTimer === null) {
       this.fastTimer = setInterval(() => void this.refresh(), FAST_POLL_MS)
@@ -236,11 +253,17 @@ export class RemoteStore {
   }
 
   startPolling(): void {
+    this.observing = true
     void this.refresh()
     this.schedulePoll()
   }
 
+  /** 面板卸载的唯一出口（分区卸载 cleanup 调用）：除停轮询外，丢弃迁移记忆——
+   *  prev 记忆只在同一观察窗口内有效，跨关闭窗口完成的阶段 / 同步迁移是旧闻
+   *  （事实由卡片状态 pill / spinner 呈现），重开面板首轮 refresh 不据此补发
+   *  事件 toast。事件 notice 归壳层显示点清空，这里不动它。 */
   stopPolling(): void {
+    this.observing = false
     if (this.fastTimer !== null) {
       clearInterval(this.fastTimer)
       this.fastTimer = null
@@ -249,6 +272,8 @@ export class RemoteStore {
       clearInterval(this.slowTimer)
       this.slowTimer = null
     }
+    this.prevPhase.clear()
+    this.prevOps.clear()
   }
 
   async loadLocalRows(): Promise<void> {
@@ -297,7 +322,6 @@ export class RemoteStore {
   dismissNotice(): void {
     this.set({ notice: null })
   }
-
   private rowOf(id: string): ConnRow | undefined {
     return this.snapshot.list?.connections.find((row) => row.id === id)
   }
@@ -343,11 +367,11 @@ export class RemoteStore {
 
   async save(request: SaveRequest): Promise<boolean> {
     const key = request.id ?? 'new'
-    this.set({ busyId: key, error: null, notice: null })
+    this.set({ busyId: key, error: null })
     try {
       await remoteApi.save(request)
       await this.refresh()
-      this.notify(request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' })
+      this.actionNotices.emit(request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' })
       this.set({ editingId: request.id === undefined ? undefined : this.snapshot.editingId })
       return true
     } catch (error) {
@@ -363,7 +387,7 @@ export class RemoteStore {
     try {
       await remoteApi.remove(id)
       await this.refresh()
-      this.notify({ key: 'notice.deleted' })
+      this.actionNotices.emit({ key: 'notice.deleted' })
       this.set({ editingId: undefined })
       return true
     } catch (error) {
@@ -381,21 +405,21 @@ export class RemoteStore {
       const result = await remoteApi.test(request)
       if (result.ok) {
         const params = { node: result.nodeVersion ?? '?', npm: result.npmVersion ?? '?' }
-        this.notify(
+        this.actionNotices.emit(
           result.dshVersion === null
             ? { key: 'notice.test.okNoDsh', params }
             : { key: 'notice.test.ok', params: { ...params, dsh: result.dshVersion } },
         )
       } else {
         const detail = result.error?.message ?? ''
-        this.notify(
+        this.actionNotices.emit(
           detail.length === 0
             ? { key: 'notice.test.failedNoReason' }
             : { key: 'notice.test.failed', params: { detail } },
         )
       }
     } catch (error) {
-      this.notify({ key: 'notice.test.failed', params: { detail: errMsg(error) } })
+      this.actionNotices.emit({ key: 'notice.test.failed', params: { detail: errMsg(error) } })
     } finally {
       this.set({ testing: false })
     }

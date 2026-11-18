@@ -16,8 +16,10 @@ import {
   CardList,
   ConfirmDialog,
   MetaItem,
+  NoticeToast,
   Panel,
   SearchBox,
+  useNotice,
   useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
@@ -273,11 +275,12 @@ export function SessionsSection({
   useWideSettingsDialog()
   const snapshot = useWorkspaces((value) => value)
   const list = useSessions((value) => value)
-  const { working, pendingDelete, notice, batch } = useSyncExternalStore(
+  const { working, pendingDelete, batch } = useSyncExternalStore(
     store.subscribe,
     store.getSnapshot,
     store.getSnapshot,
   )
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
   const [openImport, setOpenImport] = useState(false)
   const [presetTarget, setPresetTarget] = useState<PresetTarget | null>(null)
   const [batchDialog, setBatchDialog] = useState<'migrate' | 'preset' | 'delete' | null>(null)
@@ -290,8 +293,9 @@ export function SessionsSection({
   const [showBlank, setShowBlank] = useState(false)
   /** 展开中的卡片行：一次只展开一张（与 dsh-skills 列表同款交互）。 */
   const [openId, setOpenId] = useState<SessionId | undefined>(undefined)
-  // 面板卸载即清空一次性反馈；store 跨挂载存活，不清会在下次打开时重放旧提示。
-  useEffect(() => () => store.dismissFeedback(), [store])
+  // 面板卸载即清批量结果弹窗；store 跨挂载存活，不清会在下次打开时重放。
+  // 操作通知走共享 kit（组件态），卸载自行消亡，无需这里清理。
+  useEffect(() => () => store.dismissOutcome(), [store])
   const ready = snapshot.phase === 'ready' && snapshot.state === 'idle'
   const keyword = query.trim().toLocaleLowerCase()
 
@@ -588,15 +592,12 @@ export function SessionsSection({
           }
         }}
       />
-      {notice !== null ? (
-        // 提示信息统一走 notice（官方 Toast 横幅）：成功与失败同流，淡出后清空、下次操作即替换。
-        <Toast
-          key={messageText(notice, t)}
-          text={messageText(notice, t)}
-          holdMs={5000}
-          onDone={() => store.dismissNotice()}
-        />
-      ) : null}
+      {/* 行操作 / 批量的一次性摘要走共享 kit：组件态随分区卸载消亡，不重放。 */}
+      <NoticeToast
+        notice={actionNotice}
+        text={(message) => messageText(message, t)}
+        onDismiss={dismissActionNotice}
+      />
       {pendingDelete !== null ? (
         <ConfirmDialog
           title={t('archive.deleteConfirmTitle')}

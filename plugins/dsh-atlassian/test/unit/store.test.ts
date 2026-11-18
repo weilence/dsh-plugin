@@ -99,14 +99,16 @@ describe('AtlassianStore', () => {
     expect(store.getSnapshot().rowErrors.acme).toBe('Atlassian 请求超时（30s）')
   })
 
-  it('notice 计数递增：同文案也重开 Toast 计时', () => {
+  it('notice 走通道投递：订阅者逐次收到，无订阅者丢弃（重开分区不重放）', () => {
     const store = new AtlassianStore()
-    store.setNotice('已保存')
-    const first = store.getSnapshot().noticeNonce
-    store.setNotice('已保存')
-    expect(store.getSnapshot().noticeNonce).toBe(first + 1)
-    store.dismissNotice()
-    expect(store.getSnapshot().notice).toBeNull()
+    store.notices.emit('未挂载')
+    const seen: string[] = []
+    const unsubscribe = store.notices.subscribe((message) => seen.push(message))
+    store.notices.emit('已保存')
+    store.notices.emit('已保存')
+    unsubscribe()
+    store.notices.emit('卸载后')
+    expect(seen).toEqual(['已保存', '已保存'])
   })
 
   it('workspaceCwd 随上报更新，refresh 携带 cwd 兜底', async () => {

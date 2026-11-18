@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PiAiOperations } from './operations'
@@ -13,7 +13,9 @@ import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
+  NoticeToast,
   Panel,
+  useNotice,
   useWideSettingsDialog,
   type ExpandableCardInfoItem,
 } from '@dsh-plugins/client-ui'
@@ -38,10 +40,7 @@ export function ModelCatalogSection(props: ModelCatalogSectionProps) {
   useWideSettingsDialog()
   const { t } = props
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot, props.store.getSnapshot)
-  // notice 的唯一清除路径是 Toast 的 onDone，而 Toast 计时只在挂载期间有效：
-  // 面板卸载会连 Toast 一起卸载，残留 notice 会在下次打开时重放成「刚保存过」
-  // 的假象，因此卸载时同步清掉。
-  useEffect(() => () => props.store.dismissNotice(), [props.store])
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(props.store.notices)
   const [editing, setEditing] = useState<string | undefined>(undefined)
   const [editingDirty, setEditingDirty] = useState(false)
   const [pendingExit, setPendingExit] = useState<{ next?: string; create?: true } | null>(null)
@@ -169,15 +168,12 @@ export function ModelCatalogSection(props: ModelCatalogSectionProps) {
     <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
       {!writable ? <div className={styles.notice}>{t('panel.readOnly')}</div> : null}
       {state.error ? <div className={styles.error}>{messageText(state.error, t)}</div> : null}
-      {/* 一次性提示走官方 Toast：淡出后由 dismissNotice 清空 store。 */}
-      {state.notice !== null ? (
-        <Toast
-          key={String('key' in state.notice ? state.notice.key : state.notice.text)}
-          text={messageText(state.notice, t)}
-          holdMs={5000}
-          onDone={() => props.store.dismissNotice()}
-        />
-      ) : null}
+      {/* 一次性提示走共享 kit：组件态随分区卸载消亡，不重放。 */}
+      <NoticeToast
+        notice={actionNotice}
+        text={(message) => messageText(message, t)}
+        onDismiss={dismissActionNotice}
+      />
       <div className={styles.listToolbar}>
         <Button variant="primary" disabled={busyProvider !== null} onClick={requestCreate}>
           {t('panel.createProvider')}

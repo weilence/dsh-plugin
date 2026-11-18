@@ -1,6 +1,8 @@
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { errMsg } from '@dsh-plugins/shared'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { deleteSession, runBatch } from './api'
 import type { BatchItem } from '../shared'
 import type { Message } from './locales'
@@ -35,14 +37,12 @@ export interface SessionsState {
   working: { id: SessionId; kind: 'archive' | 'restore' | 'delete' } | null
   /** 待确认的删除目标（确认弹窗）。 */
   pendingDelete: { id: SessionId; title: string } | null
-  notice: Message | null
   batch: BatchState
 }
 
 const INITIAL: SessionsState = {
   working: null,
   pendingDelete: null,
-  notice: null,
   batch: { active: false, running: false, selection: [], outcome: null },
 }
 
@@ -81,6 +81,8 @@ function summarizeBatchItem(item: BatchItem): Message {
 export class SessionsStore {
   private snapshot: SessionsState = INITIAL
   private readonly listeners = new Set<() => void>()
+  /** 一次性操作反馈（归档 / 恢复 / 删除 / 批量摘要）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  readonly notices = new NoticeRelay<Message>()
   // 归档、恢复与删除都占用宿主侧存储互斥，客户端先挡掉并发点击。
   private working = false
   private batchWorking = false
@@ -106,18 +108,6 @@ export class SessionsStore {
 
   private setBatch(patch: Partial<BatchState>): void {
     this.set({ batch: { ...this.snapshot.batch, ...patch } })
-  }
-
-  dismissNotice(): void {
-    if (this.snapshot.notice !== null) this.set({ notice: null })
-  }
-
-  /** 面板卸载即清空一次性反馈：notice 与批量结果不在下次打开时重放。 */
-  dismissFeedback(): void {
-    if (this.snapshot.notice !== null || this.snapshot.batch.outcome !== null) {
-      this.set({ notice: null })
-      this.setBatch({ outcome: null })
-    }
   }
 
   /** 打开 / 关闭删除确认弹窗；操作进行中不动弹窗。 */
@@ -188,13 +178,13 @@ export class SessionsStore {
   ): Promise<void> {
     if (this.working || this.batchWorking) return
     this.working = true
-    this.set({ working: { id, kind }, notice: null })
+    this.set({ working: { id, kind } })
     try {
       const notice = await action()
-      this.set({ notice })
+      this.notices.emit(notice)
     } catch (error) {
       const message = error instanceof StaticMessage ? error.value : { text: errMsg(error) }
-      this.set({ notice: message })
+      this.notices.emit(message)
     } finally {
       this.working = false
       this.set({ working: null })
@@ -321,11 +311,11 @@ export class SessionsStore {
           // 刷新失败不抹掉结果弹窗；侧栏过期摘要在下次刷新或重启后消除。
         }
       }
-      this.set({ notice: { key: 'batch.done', params: { ok: items.length - failed, fail: failed } } })
+      this.notices.emit({ key: 'batch.done', params: { ok: items.length - failed, fail: failed } })
     } catch (error) {
       // 整批未被执行（认证、参数或网络层失败）：无逐项结果，只提示。
       this.setBatch({ running: false })
-      this.set({ notice: { text: errMsg(error) } })
+      this.notices.emit({ text: errMsg(error) })
     } finally {
       this.batchWorking = false
     }

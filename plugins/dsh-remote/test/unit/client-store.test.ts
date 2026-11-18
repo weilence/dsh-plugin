@@ -26,6 +26,13 @@ vi.mock('../../src/client/api', () => ({ remoteApi: api }))
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
 
+/** 订阅操作通知通道：面板挂载期 useNotice 的测试替身。 */
+function collectActions(store: RemoteStore): { seen: PanelMessage[] } {
+  const seen: PanelMessage[] = []
+  store.actionNotices.subscribe((message) => seen.push(message))
+  return { seen }
+}
+
 const PASSWORD_TARGET: ConnectionTarget = {
   kind: 'direct',
   host: '10.0.0.5',
@@ -93,6 +100,7 @@ describe('RemoteStore 阶段迁移检测', () => {
     )
     await store.refresh()
     expect(text(store.getSnapshot().notice)).toBe('已连接「连接 dev」——点卡片上的「打开」进入远端页面')
+    expect(store.getSnapshot().noticeSeq).toBe(1)
     store.stopPolling()
   })
 
@@ -263,13 +271,13 @@ describe('RemoteStore 阶段迁移检测', () => {
     store.stopPolling()
   })
 
-  it('每次 toast 递增 noticeSeq（同文案也重新开计时）', async () => {
+  it('操作通知经通道投递（同一动作连续投递也逐次可见）', async () => {
     const store = new RemoteStore()
     api.state.mockResolvedValue(stateResponse([]))
+    const actions = collectActions(store)
     await store.remove('a')
-    const first = store.getSnapshot().noticeSeq
     await store.remove('a')
-    expect(store.getSnapshot().noticeSeq).toBe(first + 1)
+    expect(actions.seen).toEqual([{ key: 'notice.deleted' }, { key: 'notice.deleted' }])
     store.stopPolling()
   })
 })
@@ -277,13 +285,14 @@ describe('RemoteStore 阶段迁移检测', () => {
 describe('RemoteStore 写操作提示', () => {
   it('保存按新建 / 编辑分别提示，错误走 text 原样', async () => {
     const store = new RemoteStore()
+    const actions = collectActions(store)
     api.state.mockResolvedValue(stateResponse([]))
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
       await store.save({ label: 'a', target: { kind: 'alias', alias: 'box' }, rememberSecret: false }),
     ).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已创建连接')
+    expect(text(actions.seen[0] ?? null)).toBe('已创建连接')
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
@@ -294,7 +303,7 @@ describe('RemoteStore 写操作提示', () => {
         rememberSecret: false,
       }),
     ).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已保存连接')
+    expect(text(actions.seen[1] ?? null)).toBe('已保存连接')
 
     api.save.mockRejectedValueOnce(new Error('boom'))
     expect(
@@ -311,10 +320,11 @@ describe('RemoteStore 写操作提示', () => {
 
   it('删除成功提示', async () => {
     const store = new RemoteStore()
+    const actions = collectActions(store)
     api.state.mockResolvedValue(stateResponse([]))
     api.remove.mockResolvedValueOnce({ removed: true })
     expect(await store.remove('a')).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
+    expect(text(actions.seen[0] ?? null)).toBe('已删除连接')
     store.stopPolling()
   })
 
@@ -331,6 +341,7 @@ describe('RemoteStore 写操作提示', () => {
 describe('RemoteStore 表单测试与口令弹窗', () => {
   it('测试成功 / 失败都只产生一次性 toast，不写连接状态', async () => {
     const store = new RemoteStore()
+    const actions = collectActions(store)
     const target: ConnectionTarget = { kind: 'alias', alias: 'dev-box' }
 
     api.test.mockResolvedValueOnce({
@@ -341,7 +352,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
+    expect(text(actions.seen[0] ?? null)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
     expect(store.getSnapshot().testing).toBe(false)
 
     api.test.mockResolvedValueOnce({
@@ -352,7 +363,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
+    expect(text(actions.seen[1] ?? null)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
 
     api.test.mockResolvedValueOnce({
       ok: false,
@@ -362,7 +373,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: { message: 'Permission denied (publickey)', kind: 'auth-failed' },
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试失败：Permission denied (publickey)')
+    expect(text(actions.seen[2] ?? null)).toBe('测试失败：Permission denied (publickey)')
     store.stopPolling()
   })
 
@@ -464,6 +475,87 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
     api.sshHosts.mockRejectedValueOnce(new Error('denied'))
     await store.loadSshHosts()
     expect(text(store.getSnapshot().sshHostsError)).toBe('denied')
+    store.stopPolling()
+  })
+})
+
+describe('RemoteStore 面板关闭边界（一次性反馈不跨关闭窗口存活）', () => {
+  const RUNNING = {
+    url: 'http://127.0.0.1:18731',
+    localPort: 18731,
+    remotePort: 18730,
+    pid: 42,
+    since: '2026-01-01T00:00:00.000Z',
+    machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+    instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+    drift: null,
+    localDsh: '0.1.7-rc.2',
+    health: null,
+  }
+
+  it('关闭期间完成的连接迁移是旧闻：重开面板首轮 refresh 不补发 toast', async () => {
+    const store = new RemoteStore()
+    // 挂载期最后一轮看到 starting，随后面板关闭、连接在后台完成
+    api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'starting' })]))
+    await store.refresh()
+    store.stopPolling()
+
+    // 重开面板（startPolling 首轮 refresh）：迁移记忆已随关闭清空，不发 toast
+    api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'running', running: RUNNING })]))
+    store.startPolling()
+    await vi.waitFor(() => expect(store.getSnapshot().status).toBe('ready'))
+    expect(store.getSnapshot().notice).toBeNull()
+    store.stopPolling()
+  })
+
+  it('关闭期间完成的同步不补发摘要（prevOps 同样只在观察窗口内有效）', async () => {
+    const store = new RemoteStore()
+    api.state.mockResolvedValueOnce(
+      stateResponse([connRow('dev', { phase: 'running', op: { kind: 'sync-skills' } })]),
+    )
+    await store.refresh()
+    store.stopPolling()
+
+    api.state.mockResolvedValueOnce(
+      stateResponse([
+        connRow('dev', {
+          phase: 'running',
+          lastSync: {
+            skills: { at: '2026-01-02T00:00:00.000Z', pushed: 2 },
+            mcp: null,
+            plugins: null,
+            prompts: null,
+          },
+        }),
+      ]),
+    )
+    store.startPolling()
+    await vi.waitFor(() => expect(store.getSnapshot().status).toBe('ready'))
+    expect(store.getSnapshot().notice).toBeNull()
+    store.stopPolling()
+  })
+
+  it('关闭瞬间在途的 refresh 不记录迁移也不发 notice', async () => {
+    const store = new RemoteStore()
+    let resolveState: (value: StateResponse) => void = () => {}
+    api.state.mockReturnValueOnce(
+      new Promise<StateResponse>((resolve) => {
+        resolveState = resolve
+      }),
+    )
+    const pending = store.refresh()
+    // 关闭面板：在途请求随后才落地
+    store.stopPolling()
+    resolveState(stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'connect' } })]))
+    await pending
+    expect(store.getSnapshot().notice).toBeNull()
+    expect(store.getSnapshot().status).toBe('ready')
+
+    // 在途 refresh 未留下迁移记忆：重开面板首轮看到 running 也不发 toast
+    api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'running', running: RUNNING })]))
+    store.startPolling()
+    await vi.waitFor(() => expect(store.getSnapshot().list?.connections[0]?.state.phase).toBe('running'))
+    expect(store.getSnapshot().notice).toBeNull()
     store.stopPolling()
   })
 })

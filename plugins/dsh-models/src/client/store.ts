@@ -19,6 +19,8 @@ import {
 } from './operations'
 import type { PanelMessage, ModelsKey } from './locales'
 import { errMsg } from '@dsh-plugins/shared'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 
 export interface AuthAttemptState {
   provider: string
@@ -42,7 +44,6 @@ export interface PanelState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** 插件文案用词典 key 表达，Host 原因用 text 原样；渲染期随宿主语言翻译。 */
   error: PanelMessage | null
-  notice: PanelMessage | null
   writable: boolean
   /** 当前 namespace revision（写入 fencing）。 */
   revision: number | undefined
@@ -58,7 +59,6 @@ export interface PanelState {
 const INITIAL: PanelState = {
   status: 'idle',
   error: null,
-  notice: null,
   writable: false,
   revision: undefined,
   routes: [],
@@ -85,6 +85,8 @@ export class PanelStore {
   private readonly listeners = new Set<() => void>()
   /** 最近一次刷新用的读结果缓存，供写入后局部更新。 */
   private catalogs = new Map<string, ReadonlyMap<string, DiscoveredModelFacts>>()
+  /** 一次性操作反馈（保存 / 新建 / 删除 / 登录结果）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  readonly notices = new NoticeRelay<PanelMessage>()
   private effective = new Map<string, ReadonlyMap<string, EffectiveModelFacts>>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */
   private refreshTail: Promise<void> = Promise.resolve()
@@ -301,7 +303,8 @@ export class PanelStore {
       this.fail({ text: errMsg(error) })
       return
     }
-    this.set({ notice: { key: 'auth.signedOut', params: { provider } }, error: null })
+    this.notices.emit({ key: 'auth.signedOut', params: { provider } })
+    this.set({ error: null })
     await this.refresh()
   }
 
@@ -345,7 +348,8 @@ export class PanelStore {
     const outcome = attempt.events.at(-1)
     if (outcome === undefined || outcome.kind !== 'outcome') return
     if (outcome.status === 'authorized') {
-      this.set({ notice: { key: 'auth.success' }, error: null })
+      this.notices.emit({ key: 'auth.success' })
+      this.set({ error: null })
       void this.refreshAuth()
     } else if (outcome.status === 'failed') {
       this.set({ error: outcome.error === undefined ? { key: 'auth.failed' } : { text: outcome.error } })
@@ -423,10 +427,10 @@ export class PanelStore {
     }
     const profileChanged = !jsonEqual(keys, current ?? {})
     if (!profileChanged && (apiKey === undefined || apiKey.length === 0)) {
-      this.set({ notice: { key: 'notice.noChanges' }, error: null })
+      this.notices.emit({ key: 'notice.noChanges' })
       return true
     }
-    this.set({ busy: provider, error: null, notice: null })
+    this.set({ busy: provider, error: null })
     try {
       if (profileChanged) {
         const written = await this.commitWithConflictRetry((revision) =>
@@ -443,7 +447,7 @@ export class PanelStore {
         )
         if (!stored) return false
       }
-      this.set({ notice: { key: 'notice.saved', params: { provider } } })
+      this.notices.emit({ key: 'notice.saved', params: { provider } })
       await this.refresh()
       return true
     } catch (error) {
@@ -459,7 +463,7 @@ export class PanelStore {
     profile: PiAiProviderEntry,
     options: { apiKey?: string; notice?: PanelMessage } = {},
   ): Promise<boolean> {
-    this.set({ busy: provider, error: null, notice: null })
+    this.set({ busy: provider, error: null })
     try {
       const keys: Record<string, unknown> = { ...profile }
       if (options.apiKey !== undefined) {
@@ -481,9 +485,7 @@ export class PanelStore {
           return false
         }
       }
-      this.set({
-        notice: options.notice ?? { key: 'notice.providerSaved', params: { provider } },
-      })
+      this.notices.emit(options.notice ?? { key: 'notice.providerSaved', params: { provider } })
       await this.refresh()
       return true
     } catch (error) {
@@ -496,13 +498,13 @@ export class PanelStore {
 
   /** 删除一个 route 的用户层 profile（不清理凭据）。 */
   async deleteProvider(provider: string): Promise<void> {
-    this.set({ busy: provider, error: null, notice: null })
+    this.set({ busy: provider, error: null })
     try {
       const written = await this.commitWithConflictRetry((revision) =>
         this.operations.deleteProfile(provider, revision),
       )
       if (written) {
-        this.set({ notice: { key: 'notice.deleted', params: { provider } } })
+        this.notices.emit({ key: 'notice.deleted', params: { provider } })
         await this.refresh()
       }
     } catch (error) {
@@ -534,11 +536,7 @@ export class PanelStore {
     return this.catalogs.get(provider) ?? new Map()
   }
 
-  dismissNotice() {
-    if (this.snapshot.notice !== null) this.set({ notice: null })
-  }
-
   fail(message: PanelMessage) {
-    this.set({ error: message, notice: null })
+    this.set({ error: message })
   }
 }

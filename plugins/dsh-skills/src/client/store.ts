@@ -1,4 +1,6 @@
 import { errMsg } from '@dsh-plugins/shared'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { skillsApi } from './api'
 import type { SkillsT } from './locales'
 import type {
@@ -19,7 +21,6 @@ export function updateKey(rootId: RootId, name: string): string {
 export interface SkillsState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
-  notice: string | null
   /** 当前作用域 cwd（''= 全局档，非空 = 工作区级档）。 */
   scope: string
   roots: RootInfo[]
@@ -37,7 +38,6 @@ export interface SkillsState {
 const INITIAL: SkillsState = {
   status: 'idle',
   error: null,
-  notice: null,
   scope: '',
   roots: [],
   skills: [],
@@ -56,6 +56,8 @@ export class SkillsStore {
 
   private snapshot: SkillsState = INITIAL
   private readonly listeners = new Set<() => void>()
+  /** 一次性操作反馈（事件时间取词定格）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  readonly notices = new NoticeRelay<string>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */
   private refreshTail: Promise<void> = Promise.resolve()
   private refreshLoading = false
@@ -80,17 +82,13 @@ export class SkillsStore {
     return this.snapshot.scope === '' ? { scope: 'user' } : { cwd: this.snapshot.scope, scope: 'workspace' }
   }
 
-  dismissNotice(): void {
-    if (this.snapshot.notice !== null) this.set({ notice: null })
-  }
-
   /** 切换项目作用域并立即刷新。 */
   setScope(scope: string): void {
     // 值未变时短路避免重复刷新；但 idle（从未加载过）必须放行——store 是
     // 应用级单例，面板首次挂载若档位恰为全局，effectiveCwd 与初始 scope
     // 同为 ''，短路会让首次列表请求永不发出。
     if (scope === this.snapshot.scope && this.snapshot.status !== 'idle') return
-    this.set({ scope, status: 'loading', error: null, notice: null, skills: [], roots: [], updates: {} })
+    this.set({ scope, status: 'loading', error: null, skills: [], roots: [], updates: {} })
     void this.refresh()
   }
 
@@ -157,15 +155,14 @@ export class SkillsStore {
 
   /** 保存（新建 / 编辑）。失败返回 false 且错误已写入快照。 */
   async save(request: SaveRequest): Promise<boolean> {
-    this.set({ busy: request.name, error: null, notice: null })
+    this.set({ busy: request.name, error: null })
     try {
       const outcome = await skillsApi.save(request)
-      this.set({
-        notice:
-          request.editPath === undefined
-            ? this.t('notice.created', { name: request.name, path: outcome.path })
-            : this.t('notice.saved', { name: request.name }),
-      })
+      this.notices.emit(
+        request.editPath === undefined
+          ? this.t('notice.created', { name: request.name, path: outcome.path })
+          : this.t('notice.saved', { name: request.name }),
+      )
       await this.refresh()
       return true
     } catch (error) {
@@ -179,13 +176,13 @@ export class SkillsStore {
   /** 删除一个技能文件 / 目录包。失败返回 false 且错误已写入快照。 */
   async remove(skill: SkillRow): Promise<boolean> {
     if (skill.path === undefined) return false
-    this.set({ busy: skill.name, error: null, notice: null })
+    this.set({ busy: skill.name, error: null })
     try {
       await skillsApi.delete({
         cwd: this.snapshot.scope === '' ? undefined : this.snapshot.scope,
         path: skill.path,
       })
-      this.set({ notice: this.t('notice.deleted', { name: skill.name }) })
+      this.notices.emit(this.t('notice.deleted', { name: skill.name }))
       await this.refresh()
       return true
     } catch (error) {
@@ -198,7 +195,7 @@ export class SkillsStore {
 
   /** 克隆并扫描 Git 仓库。失败返回 null 且错误已写入快照。 */
   async gitScan(url: string): Promise<GitScanResponse | null> {
-    this.set({ gitBusy: 'scan', error: null, notice: null })
+    this.set({ gitBusy: 'scan', error: null })
     try {
       return await skillsApi.gitScan({
         url,
@@ -214,7 +211,7 @@ export class SkillsStore {
 
   /** 把选中的技能整目录安装进目标根。失败返回 null 且错误已写入快照。 */
   async gitInstall(url: string, rootId: RootId, dirs: readonly string[]): Promise<GitInstallResponse | null> {
-    this.set({ gitBusy: 'install', error: null, notice: null })
+    this.set({ gitBusy: 'install', error: null })
     try {
       const outcome = await skillsApi.gitInstall({
         url,
@@ -223,12 +220,12 @@ export class SkillsStore {
         skills: [...dirs],
       })
       if (outcome.installed.length > 0) {
-        this.set({
-          notice: this.t('notice.gitInstalled', {
+        this.notices.emit(
+          this.t('notice.gitInstalled', {
             count: outcome.installed.length,
             names: outcome.installed.map((row) => row.name).join(this.t('text.nameSeparator')),
           }),
-        })
+        )
         await this.refresh()
       }
       return outcome
@@ -242,7 +239,7 @@ export class SkillsStore {
 
   /** 检查全部 Git 安装技能的更新（按源仓库分组克隆）。结果写入 updates。 */
   async checkUpdates(): Promise<void> {
-    this.set({ gitBusy: 'check', error: null, notice: null })
+    this.set({ gitBusy: 'check', error: null })
     try {
       const response = await skillsApi.gitCheck(this.requestScope())
       const updates: Record<string, GitCheckResult> = {}
@@ -261,9 +258,7 @@ export class SkillsStore {
         parts.push(this.t('notice.check.repoErrors', { count: response.repoErrors.length }))
       }
       if (parts.length === 0) parts.push(this.t('notice.check.allCurrent'))
-      this.set({
-        notice: this.t('notice.check.done', { detail: parts.join(this.t('text.listSeparator')) }),
-      })
+      this.notices.emit(this.t('notice.check.done', { detail: parts.join(this.t('text.listSeparator')) }))
     } catch (error) {
       this.set({ error: errMsg(error) })
     } finally {
@@ -274,7 +269,7 @@ export class SkillsStore {
   /** 更新选中的 Git 安装技能（host 侧覆盖式换名）。失败明细写入 error。 */
   async updateSkills(items: readonly { rootId: RootId; name: string }[]): Promise<boolean> {
     if (items.length === 0) return false
-    this.set({ gitBusy: 'update', error: null, notice: null })
+    this.set({ gitBusy: 'update', error: null })
     try {
       const response = await skillsApi.gitUpdate({
         ...this.requestScope(),
@@ -283,13 +278,13 @@ export class SkillsStore {
       if (response.updated.length > 0) {
         const updates = { ...this.snapshot.updates }
         for (const item of items) delete updates[updateKey(item.rootId, item.name)]
-        this.set({
-          updates,
-          notice: this.t('notice.updated', {
+        this.set({ updates })
+        this.notices.emit(
+          this.t('notice.updated', {
             count: response.updated.length,
             names: response.updated.map((row) => row.name).join(this.t('text.nameSeparator')),
           }),
-        })
+        )
         await this.refresh()
       }
       const problems = [

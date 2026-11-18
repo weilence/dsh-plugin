@@ -1,4 +1,6 @@
 import { errMsg } from '@dsh-plugins/shared'
+// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { mcpApi } from './api'
 import type { PanelMessage } from './locales'
 import type { DeleteRequest, ListResponse, McpScope, SaveRequest, SetEnabledRequest } from '../shared'
@@ -7,7 +9,6 @@ export interface McpState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** 插件文案用词典 key 表达，Host 原因用 text 原样；渲染期随宿主语言翻译。 */
   error: PanelMessage | null
-  notice: PanelMessage | null
   list: ListResponse | null
   /** 主视图会话的工作目录（工作区档定位；undefined = 无主会话）。 */
   workspaceCwd: string | undefined
@@ -18,7 +19,6 @@ export interface McpState {
 const INITIAL: McpState = {
   status: 'idle',
   error: null,
-  notice: null,
   list: null,
   workspaceCwd: undefined,
   busy: null,
@@ -56,6 +56,8 @@ export interface SaveInput {
 export class McpStore {
   private snapshot: McpState = INITIAL
   private readonly listeners = new Set<() => void>()
+  /** 一次性操作反馈（保存 / 启停 / 删除）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  readonly notices = new NoticeRelay<PanelMessage>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */
   private refreshTail: Promise<void> = Promise.resolve()
   private refreshLoading = false
@@ -79,10 +81,6 @@ export class McpStore {
   private set(patch: Partial<McpState>): void {
     this.snapshot = { ...this.snapshot, ...patch }
     for (const listener of this.listeners) listener()
-  }
-
-  dismissNotice(): void {
-    if (this.snapshot.notice !== null) this.set({ notice: null })
   }
 
   /** 主视图工作目录变化（client.tsx 订阅会话列表推来）；变化才重拉。 */
@@ -147,9 +145,9 @@ export class McpStore {
     this.pollTimer = null
   }
 
-  /** 写操作成功后的刷新：立即一次，再按延迟补偿挂载与连接落定的窗口。 */
+  /** 写操作成功后的刷新：先投递一次性反馈，立即刷新一次，再按延迟补偿挂载与连接落定的窗口。 */
   private async refreshAfterMutation(notice: PanelMessage): Promise<void> {
-    this.set({ notice })
+    this.notices.emit(notice)
     await this.refresh()
     for (const delay of SETTLE_DELAYS_MS) {
       const generation = this.refreshGeneration
@@ -166,7 +164,7 @@ export class McpStore {
 
   /** 保存（新建 / 同名覆盖编辑）。失败返回 false 且错误已写入快照。 */
   async save(input: SaveInput): Promise<boolean> {
-    this.set({ busy: input.name, error: null, notice: null })
+    this.set({ busy: input.name, error: null })
     try {
       const request: SaveRequest = {
         scope: input.scope,
@@ -194,7 +192,7 @@ export class McpStore {
 
   /** 启用 / 停用。失败返回 false 且错误已写入快照。 */
   async setEnabled(request: Omit<SetEnabledRequest, 'revision' | 'cwd'>): Promise<boolean> {
-    this.set({ busy: request.name, error: null, notice: null })
+    this.set({ busy: request.name, error: null })
     try {
       await mcpApi.setEnabled({
         ...request,
@@ -216,7 +214,7 @@ export class McpStore {
 
   /** 删除一条声明。失败返回 false 且错误已写入快照。 */
   async remove(request: Omit<DeleteRequest, 'revision' | 'cwd'>, label: string): Promise<boolean> {
-    this.set({ busy: request.name, error: null, notice: null })
+    this.set({ busy: request.name, error: null })
     try {
       await mcpApi.delete({
         ...request,

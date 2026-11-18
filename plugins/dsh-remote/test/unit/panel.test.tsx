@@ -1,6 +1,8 @@
 import { Children, createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import type { UsePanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
+import { RemoteEventToast } from '../../src/client/RemoteEventToast'
 import { RemoteSection } from '../../src/client/RemoteSection'
 import { RemoteStore } from '../../src/client/store'
 import type { ConnRow, LocalRowsResponse, StateResponse } from '../../src/shared'
@@ -136,6 +138,9 @@ vi.mock('@dsh-plugins/client-ui', () => ({
   PickList: () => null,
   SelectField: () => null,
   useWideSettingsDialog: () => undefined,
+  // SSR 不跑 effect：操作通知的组件态恒为空，显示窗渲染为空
+  useNotice: () => ({ notice: null, dismiss: () => {} }),
+  NoticeToast: () => null,
 }))
 
 const api = vi.hoisted(() => ({
@@ -205,8 +210,13 @@ function localRowsFixture(): LocalRowsResponse {
   }
 }
 
+// ui-layout 的类型合并给 root 槽位 props 增加了 usePanelInfo 全局 seat（运行时由框架注入）；SSR 直构组件时补桩
+const usePanelInfo = (() => undefined) as unknown as UsePanelInfo
+
 function renderPanel(store: RemoteStore): string {
-  return renderToStaticMarkup(createElement(RemoteSection, { store, t: makeT(), close: () => {} }))
+  return renderToStaticMarkup(
+    createElement(RemoteSection, { store, t: makeT(), close: () => {}, usePanelInfo }),
+  )
 }
 
 /** SSR 不跑 effect（startPolling / loadLocalRows 都不发生），先经 refresh 灌入状态。 */
@@ -613,7 +623,7 @@ describe('远程开发面板渲染', () => {
     store.stopPolling()
   })
 
-  it('表单测试结果只以 toast 呈现（不写进卡片）', async () => {
+  it('表单测试结果不写进卡片（一次性反馈走通知通道）', async () => {
     api.state.mockReturnValue(stateResponse({}, [connRow()]))
     api.localRows.mockReturnValue(localRowsFixture())
     const store = await loadedStore()
@@ -627,8 +637,40 @@ describe('远程开发面板渲染', () => {
     await store.testDraft({ target: { kind: 'alias', alias: 'dev-box' } })
     const html = renderPanel(store)
 
-    expect(html).toContain('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
     expect(html).not.toContain('探针')
+    expect(html).not.toContain('测试通过')
+    store.stopPolling()
+  })
+
+  it('事件类通知（连接成功）由壳层显示点渲染，面板内不渲染', async () => {
+    api.state.mockReturnValueOnce(stateResponse({}, [connRow({ phase: 'starting' })]))
+    api.localRows.mockReturnValue(localRowsFixture())
+    const store = new RemoteStore()
+    await store.refresh()
+    api.state.mockReturnValue(
+      stateResponse({}, [
+        connRow({
+          phase: 'running',
+          running: {
+            url: 'http://127.0.0.1:18731',
+            localPort: 18731,
+            remotePort: 18730,
+            pid: 42,
+            since: '2026-01-01T00:00:00.000Z',
+            machine: { node: 'v22.19.0', npm: '10.8.2', dsh: '0.1.7-rc.2' },
+            instance: { dsh: '0.1.7-rc.2', plugin: '0.1.0' },
+            drift: null,
+            localDsh: '0.1.7-rc.2',
+            health: null,
+          },
+        }),
+      ]),
+    )
+    await store.refresh()
+
+    const overlay = renderToStaticMarkup(createElement(RemoteEventToast, { store, t: makeT(), usePanelInfo }))
+    expect(overlay).toContain('已连接「开发机 A」——点卡片上的「打开」进入远端页面')
+    expect(renderPanel(store)).not.toContain('已连接「开发机 A」')
     store.stopPolling()
   })
 
@@ -637,7 +679,7 @@ describe('远程开发面板渲染', () => {
     api.localRows.mockReturnValue(localRowsFixture())
     const store = await loadedStore()
     const html = renderToStaticMarkup(
-      createElement(RemoteSection, { store, t: makeT('en'), close: () => {} }),
+      createElement(RemoteSection, { store, t: makeT('en'), close: () => {}, usePanelInfo }),
     )
     expect(html).toContain('<h1>Remote development</h1>')
     expect(html).toContain('New')

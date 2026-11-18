@@ -769,6 +769,9 @@ importers:
       '@deepseek-ai/dsh-client-locale':
         specifier: 'catalog:'
         version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: 'catalog:'
+        version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-client-ui-primitives':
         specifier: 'catalog:'
         version: 0.2.2-rc.3(@deepseek-ai/cordis@4.1.0)

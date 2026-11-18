@@ -14,7 +14,7 @@ Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Serve
 - `src/attachments.ts`：附件本地缓存层——落 `dshCachePath('dsh-atlassian', 'attachments')`（官方 cache 语义：派生数据、可重下、可手删）；`sanitizeFilename` 替换路径分隔符与控制字符防目录穿越，缓存文件名带附件 id 前缀保证唯一（同 id 覆盖即刷新）；tmp + rename 原子落盘。`buildTools(deps, options)` 的 `options.attachmentsRoot` 供测试注入临时目录。
 - `src/commands.ts`：命令语法与装配。`parseJiraLine`（首段匹配工单号形态 → issue，否则整行 free）、`parseConfLine`；命令**不带站点参数**——站点一律由配置自动关联（工作区 / 项目键，见 sites.ts）。steer 文本模板面向模型（约定工具用法 + 多文档读取要求 + 引用清单格式）；handler 校验失败返回 error 文本，成功 `agent.steer(createUserMessage(...))` 后返回 success 摘要。
 - `src/client.tsx`：client apply。settings.section（order 42）+ 五个 `tool.call.toolview` keyed 注册；`inject` 声明含 `sessions`——订阅官方 `sessions.list` 快照，把主视图会话 cwd（`retainedBy.mainView > 0`）经 `/dsh-atlassian/cwd` 上报 host 并同步进 store（工作区关联事实源；上报失败静默，list 请求携带 cwd 兜底，dsh-mcp 同模式）。
-- `src/client/`：`locales.ts`（NS `dsh-atlassian`，zh 键集事实源）、`api.ts`（bridge client，自定义头 `x-dsh-atlassian`）、`store.ts`（useSyncExternalStore 三件套；store 只持事实，文案由组件在事件时间取词后 `setNotice` 送入）、`SitesSection.tsx`（站点卡片 + 行内表单 + 测试结果 + ConfirmDialog + Toast）、`tool-cards.tsx`（五张卡片：meta 驱动、检索卡预览行显示产品名与命中条数、点击展开模型渲染原文；注册声明 `locale: NS` 让框架合入标准 t seat）。
+- `src/client/`：`locales.ts`（NS `dsh-atlassian`，zh 键集事实源）、`api.ts`（bridge client，自定义头 `x-dsh-atlassian`）、`store.ts`（useSyncExternalStore 三件套；store 只持事实，一次性操作反馈经 `notices` 通道（NoticeRelay，无订阅者即丢弃）送面板显示，文案在事件时间取词）、`SitesSection.tsx`（站点卡片 + 行内表单 + 测试结果 + ConfirmDialog；一次性操作反馈走 `NoticeToast` 共享套件，组件态随分区卸载消亡不重放）、`tool-cards.tsx`（五张卡片：meta 驱动、检索卡预览行显示产品名与命中条数、点击展开模型渲染原文；注册声明 `locale: NS` 让框架合入标准 t seat）。
 
 ## 生效链路
 

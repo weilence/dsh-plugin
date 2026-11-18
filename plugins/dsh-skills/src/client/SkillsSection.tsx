@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
+  NoticeToast,
   Panel,
   SearchBox,
   selectCls,
+  useNotice,
   useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import type { SkillRow } from '../shared'
@@ -103,7 +105,7 @@ export function SkillsSection(props: SkillsSectionProps) {
   useWideSettingsDialog()
   const { store, workspace, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  useEffect(() => () => store.dismissNotice(), [store])
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   // 当前工作区 = 主视图会话（retainedBy.mainView > 0）的 cwd。
   const workspaceCwd = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot)
@@ -256,9 +258,7 @@ export function SkillsSection(props: SkillsSectionProps) {
           {state.error}
         </div>
       ) : null}
-      {state.notice !== null ? (
-        <Toast key={state.notice} text={state.notice} holdMs={5000} onDone={() => store.dismissNotice()} />
-      ) : null}
+      <NoticeToast notice={actionNotice} text={(message) => message} onDismiss={dismissActionNotice} />
       {state.status === 'loading' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
 
       {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}

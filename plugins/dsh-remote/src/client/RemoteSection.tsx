@@ -8,14 +8,16 @@ import {
   type ReactElement,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { Button, MenuSurface, StateDot, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, MenuSurface, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   CardList,
   ConfirmDialog,
   Dialog,
   MenuButton,
+  NoticeToast,
   Panel,
   TextField,
+  useNotice,
   useWideSettingsDialog,
   type ExpandableCardProps,
   type PillData,
@@ -165,6 +167,7 @@ export function RemoteSection(props: RemoteSectionProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
+  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.actionNotices)
 
   useEffect(() => {
     store.startPolling()
@@ -204,14 +207,10 @@ export function RemoteSection(props: RemoteSectionProps) {
           {messageText(state.error, t)}
         </div>
       ) : null}
-      {state.notice !== null ? (
-        <Toast
-          key={state.noticeSeq}
-          text={messageText(state.notice, t)}
-          holdMs={5000}
-          onDone={() => store.dismissNotice()}
-        />
-      ) : null}
+      {/* 操作类一次性反馈（保存 / 删除 / 表单测试）走共享 kit：组件态随分区卸载
+          消亡，不重放；事件类（连接 / 同步完成）由壳层 shell.overlay 的显示点
+          渲染（RemoteEventToast），不在面板内。 */}
+      <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
 
       <div className={styles.listToolbar}>
         <Button
