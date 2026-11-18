@@ -1,6 +1,6 @@
 # dsh-plugins
 
-面向在本仓库工作的 coding agent。面向用户的文档（各插件的功能与安装）见根与插件 README；**修改 `plugins/<name>/` 下的代码前，先读该目录的 AGENTS.md**。
+面向在本仓库工作的 coding agent。面向用户的文档（各插件的功能与安装）见根与插件 README；仓库与插件内部文档按渐进式发现组织：AGENTS.md 只留关键约束与文档索引，细节在 docs/——仓库级见下方文档索引，插件级在 `plugins/<name>/docs/`；**修改 `plugins/<name>/` 下的代码前，先读该目录的 AGENTS.md，行为细节按其索引读 docs/**。
 
 **AGENTS.md 的修改合并为一次写回**：需要改动任何 AGENTS.md（根文件或各插件的）时，先把文件复制到临时目录，在副本上完成全部修改，再一次性复制回原路径——每次改动都会把整份文件重新加载进上下文，多轮零散编辑会重复消耗；单次回写只触发一次加载。
 
@@ -11,83 +11,27 @@
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译配置。
 - 跨插件耦合的事实改动须双侧同步：智谱凭据的解析顺序（`ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`）同时实现于 dsh-zhipu-tools（搜索 provider）与 dsh-models（用量适配）。
 
-## 双 half 架构
+## 强制约定
 
-每个插件是一个 npm 包，在 loader 树里占**一条以包名为 name 的插件行**（`cordis.patch.yml` 的 insert）：
+- `plugins/<name>/` 每包在 loader 树只占**一条以包名为 name 的插件行**；host half 即使功能上 no-op 也不得删行——client bundle 进 boot 依赖宿主已激活的插件行。
+- `@deepseek-ai/*` 平台包与生产依赖一律外置（运行期由宿主 / 插件自带 node_modules 解析）：client 产物的 `require` 只能命中宿主模块表，外置依赖混进 client 产物会启动即失败（实际发生过：dayjs 误声明为 dependencies）；要内联的第三方包必须声明 devDependencies 并列入 onlyBundle 名单。
+- `tsdown.config.ts` 的 `id` 必须恒等于 package.json `name`——它是 client bundle 的注册键，不一致则无法匹配注册。
+- 平台包一律 `"catalog:"` 引用、升级只改 `pnpm-workspace.yaml` 的 catalog 一处；插件不声明 `peerDependencies`，`engines.dsh` 必须写**字面 semver range**，不能用 `catalog:`。
+- 用户可见文案只走宿主 locale 服务，插件不自建语言状态；`settings.section` 导航 label 必须是 **thunk**（写 `label: t('…')` 会在注册时定格）。
+- 组件间传 `t` 用窄类型 `TranslateNS<typeof NS>`，不用宽域 `Translate`（函数参数逆变，窄域不可赋给宽域）。
+- patch 文件编辑一律保留用户注释与无关行（行级 round-trip），不走字符串拼接重建；patch 行 `config` 是整体替换、不做深合并。
+- 写用户数据一律双保险：携带读取时的版本做乐观并发，文件落盘 tmp+mv 原子替换；破坏性操作必须基于已确认的事实。
+- 操作入口一律常驻：前置条件不满足就禁用并给出原因；成功提示走 Toast，错误与校验反馈行内常驻（细则见 [docs/panel.md](docs/panel.md)）。
+- 开发中撞上沙箱权限拦截（spawn 系统工具被禁、文件访问被拒等）：停下来向用户报告被拦的具体操作与影响，禁止未经确认把沙箱迁就写进代码或测试——开发环境的限制不是产品需求（实际发生过：测试沙箱禁 ps spawn，为绕开抽了纯函数替身测试，事后整体回退）。
+- 提交前必须运行与 CI 相同的四项检查：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`；格式化用 `pnpm format`。
 
-- **host half**：`src/index.ts`，node 侧 `apply(ctx)`，经 `ctx.webServer.register` 注册同源 HTTP 路由。
-- **client half**：`src/client.tsx`（dsh-models 为 `src/client/index.ts`），浏览器侧经 `ctx.slots` 注入设置页面板；host-only 插件可以没有 client half，构建工厂以缺省 `client` 项识别。
-- `package.json` 的 `dsh.client` 声明浏览器名录（platform / inject），`dsh.bundle.patch` 指向组合包 patch。
-- 一个包只能占一条以包名为 name 的行：子路径行（`pkg/sub`）永远不承载 client bundle，再出现第二条同名行会让宿主 client-modules 组合直接失败。
-- client bundle 进 boot 的前提是宿主 Loader 已激活该包的插件行：浏览器插件名录由 dsh-client-modules 扫描已激活条目的 `dsh.client` 声明生成——host half 即使功能上 no-op 也不得删行（dsh-notify 即此形态）。
-- 生效边界：host half 变更需重启宿主（Node ESM 缓存按 URL 命中）；client half 刷新页面即生效。
-- host half 的同源路由校验与 JSON 读写统一走 `@dsh-plugins/shared/http`；有面板 API 的插件 client 侧封装统一走 `@dsh-plugins/shared/api`，以自定义请求头区分子协议（`x-dsh-mcp` / `x-dsh-skills` / `x-dsh-remote`）；host↔client 的 wire 类型与常量按惯例集中放 `src/shared.ts`。
-- host half 是宿主侧受信代码：用户从设置页发起的文件与子进程操作直接用 node 能力（`node:fs` / `node:child_process`），不受模型沙箱策略约束。
-- 构建只声明差异点：`tsdown.config.ts` 走 `@dsh-plugins/tsdown-config` 的 `defineDshPluginConfig`。产物 `lib/index.js`（node，ESM）+ `lib/client.js`（浏览器 ModuleLoader factory），`lib/` 不入库。
+## 文档索引
 
-## 多语言约定
-
-全部用户可见文案跟随宿主语言，语言选择与回退只有宿主 locale 服务一个事实源，插件不自建语言状态：
-
-- 每个插件在自己的 `src/client/locales.ts` 持有词典：命名空间为插件 id（如 `dsh-models`），zh 是键集事实源（扁平点分键、`{param}` 插值、`as const`），`en` 逐键补全（编译期查全），`declare module '@deepseek-ai/dsh-client-ui-slots'` 合并进 `LocaleNamespaceMap`。
-- client `apply` 里 `ctx.effect(() => ctx.locale.register(NS, { zh, en }), …)` 注册，`const t = ctx.locale.bind(NS)` 绑定；slot 注册声明 `locale: NS`，框架向组件 props 合成类型化的 `t` 标准 seat——每个语言切换换新函数引用，`React.memo` 组件靠浅比较自动刷新（apply 域 `bind` 的引用恒定，只服务导航 label thunk 与事件时间取词，不得塞进 props）。`settings.section` 导航 label 必须是 **thunk**（`label: () => t('section.label')`，写 `label: t('…')` 会在注册时定格）。取消 / 关闭等公共词直接用 common 词条（`t('cancel')`、`t('close')`），不自造重复键。插件市场的展示元数据在 `<插件>/locale/<lang>.json`（meta.title / meta.description，现 zh / en 两个文件，随 `files` 的 `locale/*.json` 通配发布）；宿主其余内置语言（ja / es / fr / de / ru / pt）逐键回退 en，插件词典不补。
-- 面板组件 props 用官方组合式（份额类型 type-only 导入自 `@deepseek-ai/dsh-client-ui-slots`）：`type XxxSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS> & InjectFace<XxxSectionInjected>`，注入面 `XxxSectionInjected` 只含注册方业务事实（store 等），运行时份额与 locale seat 直接用官方类型——宿主给槽位加份额时编译期自动跟上。组件内部向子组件 / 纯函数传 `t` 用窄类型 `TranslateNS<typeof NS>`，不要用宽域 `Translate`（函数参数逆变，窄域不可赋给宽域）；单测取词用各包 `test/i18n.ts` 的 `makeT`（与宿主同一种插值语义，common 词条按需快照）。
-- 跨语言切换须存活的提示 / 错误（store 状态）用消息描述子 `{key, params} | {text}`，渲染期取词；Host errMsg 等外部事实一律 `{text}` 原样展示，不翻译不吞。即显一次性反馈（Toast、fetchStatus）允许事件时间取词。
-- Host↔client 传**语义不传文案**：可识别失败用稳定原因码（如 dsh-models 用量的 `UsageFailureCode`），client 按码翻译摘要并保留安全的原始详情；请求与语言解耦，切换语言不重新发请求。
-- 共享 `Dialog` / `ConfirmDialog` 不内嵌文案：`closeLabel`（与 `cancelLabel`）是必填 props，由调用方传 `t('close')` / `t('cancel')`。
-
-## 两层用户 patch 约定
-
-写用户层配置的插件分两条路径：dsh-mcp（与在远端做同类合并的 dsh-remote）直接编辑两层用户 patch；dsh-zhipu-tools 经宿主 `ctx.configEditor` 写入（文件锁、schema 校验、原子写等由官方保障，见插件内 AGENTS.md）。
-
-直接编辑 patch 的插件共用这一机制：
-
-- 写入目标是两层用户 patch：profile 层 `<profile>/cordis.patch.yml` 与 home 层 `$DSH_HOME/cordis.patch.yml`，按官方语义 fold（后层覆盖前层；bundle / `--patch` 引入的行只读）；patch 行的 `config` 是整体替换，不做深合并。
-- patch 文件编辑一律保留用户注释与无关行（Document / 行级 round-trip），不走字符串拼接重建。
-- 生效链路：写盘 → HMR patch watcher 在线重整，宿主未启用 HMR 时需重启；写操作后面板补偿刷新两次（约 1.2s / 4s），覆盖 watcher → 重挂载的窗口期。
-
-## 共享代码与内联机制
-
-- `packages/*` 的 exports 直指 `./src/*.ts`：构建期经 workspace symlink 解析为仓库相对路径**直接内联**，不经过 `bundle` 白名单门禁，也永远不是运行时依赖——新共享包参照 `client-ui` / `shared` 的 manifest 形态即可。
-- `host.bundle` / `client.bundle` 名单（tsdown 的 `onlyBundle`）只是**构建期校验门禁，不是内联指令**：tsdown 默认外置 `dependencies` 与 `peerDependencies`，要内联进产物的第三方包必须声明在 `devDependencies` 并列入对应名单（如各插件 host half 内联 `yaml`）；生产依赖保持外置，运行期由已安装插件自带的 node_modules 解析。`@deepseek-ai/*` 平台包一律外置，运行期由宿主解析——client 产物的 `require` 只能命中宿主模块表，外置依赖混进 client 产物会启动即失败（实际发生过：dayjs 误声明为 dependencies）。
-- `tsdown.config.ts` 的 `id` 必须恒等于 package.json `name`：它是 client bundle 的 `ModuleLoader.load({ id })` 注册键，宿主按运行时包名组装 entry 图并取 `/plugins/<id>/` bundle，两者不一致则无法匹配注册。
-- 跨插件工具进 `@dsh-plugins/shared`（导出面：`.` 同构 errMsg、`./http` host 请求校验、`./api` client 侧 HTTP 封装、`./patch` patch 文档编辑原语、`./remote` 跨插件远端传输契约），在 `packages/shared/test/` 配单测；各插件内不再复制这些函数。
-
-## 版本与发布陷阱
-
-- 插件不声明 `peerDependencies`：宿主 0.2.1 起 app-boot 兼容性预检只认 `engines.dsh`（声明即忽略 peers，未声明才回退 peers 判定）。`engines.dsh` 必须写**字面 semver range**（如 `>=0.2.1-rc.2 <0.3.0`），不能用 `catalog:`，无效范围会被判为不兼容。平台包运行期由宿主解析供给，link 开发安装的解析正确性靠 catalog 与宿主版本对齐。
-- 凡 DSH 自带包（`@deepseek-ai/*`）在 `dependencies` / `devDependencies` 里一律以 `"catalog:"` 引用，插件不得自行锁版本——平台包必须同版本协同，升级 DSH 平台只改 `pnpm-workspace.yaml` 的 catalog 一处；第三方库不进 catalog，由使用的插件自行声明。
-- 发布：改插件 version → `git tag @weilence/<目录>/vX.Y.Z` → push；CI 暂存发布后 `npm stage approve` 上线（`.github/workflows/publish.yml`）。新 scope 各包首发需手动 `npm publish` 一次。
-
-## 沙箱权限拦截
-
-- 开发中撞上沙箱导致的权限拦截（spawn 系统工具被禁、文件访问被拒等）：停下来向用户报告被拦的具体操作与影响，由用户决定放开开发权限还是走替代方案——禁止未经确认把沙箱迁就写进代码或测试（抽纯函数替身、加环境分支、换次优实现）；开发环境的限制不是产品需求（实际发生过：测试沙箱禁 ps spawn，为绕开抽了纯函数替身测试，事后整体回退）。
-
-## 代码与提交风格
-
-- 提交前必须运行与 CI 相同的四项检查：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`。
-- 格式化用 `pnpm format`。
-
-结构、类型、注释、措辞、格式、提交与验证规范见 [docs/code-style.md](docs/code-style.md)——必须遵循。
-
-## 面板交互约定
-
-- **控件优先用官方原语**（`@deepseek-ai/dsh-client-ui-primitives`，样式随宿主主题）：按钮 `Button`、单行文本 `Input`（带前导图标槽）、勾选 `Checkbox`（纯文案标签）、开关 `Switch`、徽标 `Tag` / `Pill`、状态点 `StateDot`、菜单 `Menu`、弹层 `Modal` / `MenuSurface`、提示 `Tooltip` / `Toast`、折叠 `DisclosureRow`、分段 `SegmentedControl`、设置字段 `SettingsValueField` / `SettingsSecretField`（字段标题 + 输入 + 说明/错误单槽 + 「已覆盖」徽标与「恢复默认」）。官方原语满足不了（如需要富内容标签、列表行组合、官方未导出的控件）才自绘，并在样式注释说明缘由；官方**没有**对应组件的既定自绘件：`select` 下拉、`textarea` 多行、文件选择 `input[type=file]`、清单页同款 `SearchBox`（官方清单页自身也是手绘）、富标签勾选行（`PickList`）、文字链按钮（错误详情入口等）。整卡设置表单 `SettingsForm` 需要文档模型状态（available / writable / dirty / revision…），简单插件 store 用不上时按官方页脚样式自绘保存按钮（`ConfigSection` 先例）。
-- **字段交互统一为官方 SettingsValueField 契约**（共享 kit `TextField` / `SelectField` / `TextAreaField` 一处实现）：`error` 非空即非法态——控件 `aria-invalid` 红边、说明槽**原位**显示红字错误（与 `hint` 互斥，不再用带底色的错误块）；`hint` 是字段说明行；`override`（`FieldOverride`：徽标文案 + 重置文案 + `onReset`）在标题行右侧渲染「已覆盖」徽标（官方 `Tag neutral`）+「恢复默认」文字按钮——**重置只把字段清回继承态，提交仍由表单保存完成**；字段没有继承语义就不传 `override`，整组不出现。dsh-git 插件详情页直接用官方 `SettingsValueField`（同一契约的原语形态）。
-- 设置分区统一三段式：`Panel` 标题 → 一两句简短描述（`subtitle`，zh / en 同步入词典）→ 设置内容；描述缺失或过长的分区以官方设置页 Agent presets 为参照对齐。例外：插件详情页（`plugins.bundle.config` 槽位）的页面头部已是插件名与描述，`Panel` 可整体无头部，避免标题逐字重复。
-- 列表过滤搜索统一用 `@dsh-plugins/client-ui` 的 `SearchBox`（样式对齐官方插件清单页搜索：放大镜前导 + `type="search"`，占位 / aria-label / 隐藏标签共用一词）；不自绘其他搜索框样式。
-- 用户可能引用的可见文本（URL、端点、id、路径、错误详情）一律可选中复制；与整行点击展开 / 拖拽排序的冲突用手势仲裁解决（按按下点判定归属），不得靠禁用文本选择迁就。
-- 弹窗取数（如远端清单）先与本地对比，再一次性渲染出列表，不先短暂显示旧默认值再跳变。
-- 破坏性操作必须基于已确认的事实：依赖的状态读不到就禁用操作并给出原因，绝不假设执行。
-- 写用户数据一律双保险：携带读取时的版本做乐观并发（如 `settings.mutate` 带 revision、全局提示词带内容版本），冲突后不得盲目覆盖；文件落盘一律 tmp+mv 原子替换。
-- 操作入口一律常驻：前置条件不满足时禁用并给出原因，或点击后提示所缺的前提（如插件同步需先连接远端）；随阶段切换的只是可用动作，不是入口的有无。
-- 提交 / 保存类校验与失败反馈渲染在动作按钮旁（底部动作区上方），不放表单顶部——长表单时顶部的提示区在视口外，用户点了保存看不见被拦的原因。
-- 操作结果的成功提示一律走官方 `Toast` 弹出横幅（`holdMs` 统一 5000、文本或 nonce 作 key 重开计时），不放表单内行内常驻；错误与校验反馈仍行内常驻，失败原因不随弹窗消失。一次性反馈分两类通道：**操作反馈**（保存 / 删除 / 表单测试等用户在场触发的动作）走 `@dsh-plugins/client-ui` 的通知套件——store 持 `NoticeRelay`（无订阅者即分区未挂载时 emit 直接丢弃），面板经 `useNotice` + `NoticeToast` 显示，组件态随分区卸载消亡，重开设置页不重放旧 toast；**后台事件**（连接 / 同步等完成时面板可能没开）挂宿主壳层 `shell.overlay` 槽位（ui-layout 声明、root 作用域常驻，官方 plugin-manager 的 PluginRefreshToast 先例）——notice 留 store、显示点永不卸载，`onDone` 可靠清空。跨面板生命周期发生的状态变化由常驻状态控件（pill / spinner）呈现。
-- 设置分区需要更宽弹窗时用 `@dsh-plugins/client-ui` 的 `useWideSettingsDialog()`——官方设置弹窗固定 800×800 且无尺寸 API；分区挂载期间生效、卸载即还原。
-
-## 测试约定
-
-- 每包独立 vitest，无全局配置：`pnpm --filter <pkg> test`。
-- 单测与集成测试按「是否 spawn 真外部进程 / 走真 socket」划分：纯函数与假桩（含 tmp 目录文件 IO）属单测；spawn 真 git / 真 node 子进程 / 真本地服务器的属集成测试，mock 替身会把这些测试退化成「测我们对外部工具的假设」（`-z` 重命名字段序、bash 缺分号等事实都是实证来的）。有集成测试的包 `test/` 拆 `test/unit/` 与 `test/integration/` 两层（现：dsh-git 的 log、dsh-skills 的 gitInstall / gitUpdate、dsh-mcp 的 probe、dsh-remote 的 pack）；无集成测试的包保持扁平 `test/`。默认 `pnpm --filter <pkg> test` 只跑单测（拆分包的 `test` script 即 `vitest run test/unit`，四项检查随之只覆盖单测）；集成测试**手动**执行：`pnpm -r test:integration`（单包 `pnpm --filter <pkg> test:integration`），重要改动与发版前应跑一遍。
-- host 路由测试用假 `ctx` / `webServer` + fake req/res 桩走完整的请求-响应链路（范本：各插件 `test/host.test.ts`，拆分过的包在 `test/unit/` 下）；`@dsh-plugins/shared/http` 的请求校验纯函数在 shared 包直接单测。
-- 官方契约类型一律 type-only 导入（`import type {} from '@deepseek-ai/…'` 声明合并进 `Context`），编译产物保持零运行时导入。
+- [docs/architecture.md](docs/architecture.md)：双 half 架构、共享代码与内联机制（构建产物与门禁）。
+- [docs/i18n.md](docs/i18n.md)：多语言约定（词典组织、locale seat、消息描述子）。
+- [docs/panel.md](docs/panel.md)：面板交互约定（官方原语、字段契约、通知通道、弹窗）。
+- [docs/patch.md](docs/patch.md)：两层用户 patch 约定（写入目标、round-trip、生效链路）。
+- [docs/release.md](docs/release.md)：版本与发布陷阱（engines / catalog 规则背景、发布流程）。
+- [docs/testing.md](docs/testing.md)：测试约定（单测 / 集成分层、运行方式）。
+- [docs/code-style.md](docs/code-style.md)：结构、类型、注释、措辞、格式、提交与验证规范——必须遵循。
+- 插件：`plugins/<name>/AGENTS.md`（插件关键约束与文档索引）+ `plugins/<name>/docs/`（按插件内容组织的行为规格、约束背景与测试地图等）。
