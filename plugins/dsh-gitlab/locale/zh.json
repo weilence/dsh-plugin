@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitLab 集成",
+    "description": "GitLab 深度集成：多站点连接、glab CLI 透传工具（合并请求 / 流水线 / 仓库全走 glab）、站点面板与认证探测。"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitLab",
+    "description": "Deep GitLab integration: multi-site connections, one glab CLI passthrough tool (merge requests, pipelines, repos via glab), site panel, and auth probe."
+  }
+}
