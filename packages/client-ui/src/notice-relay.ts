@@ -5,8 +5,9 @@ export interface Notice<M> {
 }
 
 /**
- * 一次性通知通道：emit 在无订阅者时直接丢弃——分区卸载后完成的迟到反馈无处显示，
- * 排队只会在下次打开分区时重放。订阅/退订对齐分区挂载/卸载（useNotice 的 effect 生命周期）。
+ * 一次性通知通道：emit 在无订阅者时直接丢弃。仓库约定消费方是常驻显示点
+ * （`ResidentNoticeToast`，挂宿主壳层 `shell.overlay` 槽位）——挂载期始终有订阅者，
+ * 触发面关闭前后完成的反馈都必达；显示点 onDone 清空，无残留无重放。
  * 零依赖模块（单独子路径导出）：store half 可直接引用，不拖入官方原语。
  */
 export class NoticeRelay<M> {

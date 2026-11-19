@@ -22,7 +22,7 @@
 - `src/client.tsx`：client apply——plugins.bundle.config（keyed 包名，自家插件详情页配置分区）+ 五个 `tool.call.toolview` keyed 注册；`inject` 声明含 `sessions`，订阅官方 `sessions.list` 快照，把主视图会话 cwd（`retainedBy.mainView > 0`）经 `/dsh-atlassian/cwd` 上报 host 并同步进 store（工作区关联事实源；上报失败静默，list 请求携带 cwd 兜底，dsh-mcp 同模式）。
 - `src/client/locales.ts`：本插件词典，命名空间 `dsh-atlassian`；词典组织与注册机制见仓库根 [docs/i18n.md](../../../docs/i18n.md)。
 - `src/client/api.ts`：bridge client，自定义头 `x-dsh-atlassian`（子协议头惯例见仓库根 [docs/architecture.md](../../../docs/architecture.md)）。
-- `src/client/store.ts`：useSyncExternalStore 三件套；store 只持事实，一次性操作反馈经 `notices`（NoticeRelay）通道送面板显示——通知机制见仓库根 [docs/panel.md](../../../docs/panel.md)。
+- `src/client/store.ts`：useSyncExternalStore 三件套；store 只持事实，一次性操作反馈经 `notices`（NoticeRelay）通道送壳层常驻显示点显示——通知机制见仓库根 [docs/panel.md](../../../docs/panel.md)。
 - `src/client/SitesSection.tsx`：站点卡片 + 行内表单 + 测试结果 + ConfirmDialog。
 - `src/client/tool-cards.tsx`：五张卡片（meta 驱动），语义见下方「卡片语义」；locale seat 注入见仓库根 [docs/i18n.md](../../../docs/i18n.md)。
 

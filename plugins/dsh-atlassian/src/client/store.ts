@@ -45,7 +45,7 @@ const reasonOf = (error: unknown): string => (error instanceof Error ? error.mes
 export class AtlassianStore {
   private state: PanelState = INITIAL
   private readonly listeners = new Set<() => void>()
-  /** 一次性操作反馈通道：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  /** 一次性操作反馈通道：壳层常驻显示点（AtlassianNoticesToast）订阅显示，onDone 清空。 */
   readonly notices = new NoticeRelay<string>()
 
   readonly getSnapshot = (): PanelState => this.state

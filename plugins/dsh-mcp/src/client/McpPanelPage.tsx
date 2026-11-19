@@ -5,12 +5,10 @@ import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
-  NoticeToast,
   Panel,
   PanelPage,
   SearchBox,
   selectCls,
-  useNotice,
 } from '@dsh-plugins/client-ui'
 import type { McpRow, McpScope } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
@@ -37,7 +35,6 @@ type ScopeMode = McpScope
 export function McpPanelPage(props: McpPanelPageProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
   useEffect(() => {
     if (state.status === 'idle') void store.refresh()
   }, [store, state.status])
@@ -249,7 +246,6 @@ export function McpPanelPage(props: McpPanelPageProps) {
             {errorText}
           </div>
         ) : null}
-        <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
         {state.list?.warnings.map((warning) => (
           <div key={warning} className={styles.warnLine}>
             {warning}

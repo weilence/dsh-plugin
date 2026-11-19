@@ -1,12 +1,14 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only：plugins.bundle.config / tool.call.toolview 槽位契约与 ctx.slots /
-// ctx.locale / ctx.sessions 的 Context 声明合并。
+// Type-only：plugins.bundle.config / tool.call.toolview / shell.overlay 槽位契约与
+// ctx.slots / ctx.locale / ctx.sessions 的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import { ResidentNoticeSlotEntry } from '@dsh-plugins/client-ui'
 import {
   TOOL_CONF_GET_PAGE,
   TOOL_CONF_SEARCH,
@@ -87,4 +89,16 @@ export function apply(ctx: ClientContext): void {
       ctx.slots.register({ name: 'tool.call.toolview', key, locale: NS }, component),
     )
   }
+
+  // 一次性通知的常驻显示点：面板内不渲染 Toast，反馈在触发面（详情页）关闭前后都能播完。
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-atlassian.notices',
+        inject: () => ({ relay: store.notices }),
+      },
+      ResidentNoticeSlotEntry,
+    ),
+  )
 }

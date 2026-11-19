@@ -1,13 +1,13 @@
-import { createElement, type ReactNode } from 'react'
+import { createElement, type ComponentProps, type ReactNode } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { NoticeRelay, NoticeToast, useNotice } from '../src'
+import { NoticeRelay, NoticeToast, ResidentNoticeSlotEntry, ResidentNoticeToast, useNotice } from '../src'
 
-const toastProps: { text: string; holdMs?: number }[] = []
+const toastProps: { text: string; holdMs?: number; onDone?: () => void }[] = []
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
-  Toast: (props: { text: string; holdMs?: number }) => {
-    toastProps.push({ text: props.text, holdMs: props.holdMs })
+  Toast: (props: { text: string; holdMs?: number; onDone?: () => void }) => {
+    toastProps.push({ text: props.text, holdMs: props.holdMs, onDone: props.onDone })
     return <div>{props.text}</div>
   },
 }))
@@ -100,5 +100,51 @@ describe('NoticeToast', () => {
       }),
     )
     expect(toastProps.at(-1)?.holdMs).toBe(8000)
+  })
+})
+
+describe('ResidentNoticeToast', () => {
+  it('emit 即渲染横幅，播完自清，再次投递重新渲染（owner 不卸载则反馈必达）', () => {
+    const relay = new NoticeRelay<string>()
+    let renderer!: ReactTestRenderer
+    act(() => {
+      renderer = create(createElement(ResidentNoticeToast<string>, { relay, text: (m) => m }))
+    })
+    expect(renderer.toJSON()).toBe(null)
+
+    act(() => relay.emit('已保存'))
+    expect(toastProps.at(-1)?.text).toBe('已保存')
+    expect(toastProps.at(-1)?.holdMs).toBe(5000)
+
+    // 模拟横幅播完：onDone 清空后不再渲染，无残留。
+    act(() => toastProps.at(-1)?.onDone?.())
+    expect(renderer.toJSON()).toBe(null)
+
+    // 清空后再投递照常显示；未清空就再投递则换 nonce 重开计时（由 Toast key 保证）。
+    act(() => relay.emit('已保存'))
+    expect(toastProps.at(-1)?.text).toBe('已保存')
+    act(() => renderer.unmount())
+  })
+})
+
+describe('ResidentNoticeSlotEntry', () => {
+  it('注入面提供 relay 即渲染纯文本横幅，播完自清（无需 locale seat）', () => {
+    const relay = new NoticeRelay<string>()
+    let renderer!: ReactTestRenderer
+    act(() => {
+      renderer = create(
+        createElement(ResidentNoticeSlotEntry, { relay } as unknown as ComponentProps<
+          typeof ResidentNoticeSlotEntry
+        >),
+      )
+    })
+    expect(renderer.toJSON()).toBe(null)
+
+    act(() => relay.emit('已保存'))
+    expect(toastProps.at(-1)?.text).toBe('已保存')
+
+    act(() => toastProps.at(-1)?.onDone?.())
+    expect(renderer.toJSON()).toBe(null)
+    act(() => renderer.unmount())
   })
 })

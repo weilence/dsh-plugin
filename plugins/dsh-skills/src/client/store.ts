@@ -56,7 +56,7 @@ export class SkillsStore {
 
   private snapshot: SkillsState = INITIAL
   private readonly listeners = new Set<() => void>()
-  /** 一次性操作反馈（事件时间取词定格）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  /** 一次性操作反馈（事件时间取词定格）：壳层常驻显示点（SkillsNoticesToast）订阅显示，onDone 清空。 */
   readonly notices = new NoticeRelay<string>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */
   private refreshTail: Promise<void> = Promise.resolve()

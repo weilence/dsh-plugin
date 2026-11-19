@@ -15,10 +15,10 @@ export type RemoteEventToastProps = PropsRuntime<'shell.overlay'> &
   InjectFace<RemoteEventToastInjected>
 
 /**
- * 事件类一次性通知的壳层显示点（官方 plugin-manager 的 PluginRefreshToast 先例）：
- * 挂在常驻的 shell.overlay 上，连接 / 同步等生命周期事件发生即显示、onDone 经
- * dismissNotice 清空——显示点永不卸载，notice 无残留无重放，与面板内操作反馈
- * （NoticeToast）分流。
+ * 一次性通知的壳层常驻显示点（官方 plugin-manager 的 PluginRefreshToast 先例）：
+ * 挂在常驻的 shell.overlay 上，操作与事件通知（连接 / 同步生命周期、保存 / 删除 /
+ * 表单测试）发生即显示、onDone 经 dismissNotice 清空——显示点永不卸载，触发面
+ * （面板 / 弹窗）关闭前后完成的反馈都能播完，无残留无重放。
  */
 export function RemoteEventToast(props: RemoteEventToastProps) {
   const { store, t } = props

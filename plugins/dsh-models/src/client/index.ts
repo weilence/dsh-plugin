@@ -2,6 +2,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -10,6 +11,7 @@ import { createOperations, type PiAiOperations } from './operations'
 import { PanelStore } from './store'
 import { NS, en, zh } from './locales'
 import { ModelCatalogSection, type ModelCatalogInjected } from './ModelCatalogSection'
+import { ModelsNoticesToast, type ModelsNoticesInjected } from './ModelsNoticesToast'
 import { ProviderUsageChip } from './usage/UsageChip'
 
 export const inject: string[] = [
@@ -73,6 +75,18 @@ export function apply(ctx: ClientContext) {
         inject: (): ModelCatalogInjected => catalogInjected,
       },
       ModelCatalogSection,
+    ),
+  )
+  // 一次性通知的常驻显示点：面板 / 弹窗内不渲染 Toast，反馈在触发面关闭前后都能播完。
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-models.notices',
+        locale: NS,
+        inject: (): ModelsNoticesInjected => ({ relay: store.notices }),
+      },
+      ModelsNoticesToast,
     ),
   )
 }

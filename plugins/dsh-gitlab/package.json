@@ -19,6 +19,7 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
         "@deepseek-ai/dsh-client-ui-renderer"
       ]
     }
@@ -69,6 +70,7 @@
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",
+    "@deepseek-ai/dsh-client-ui-layout": "catalog:",
     "@deepseek-ai/dsh-client-ui-plugin-manager": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",

@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { ConfirmDialog, NoticeToast, Panel, Pill, TextField, useNotice } from '@dsh-plugins/client-ui'
+import { ConfirmDialog, Panel, Pill, TextField } from '@dsh-plugins/client-ui'
 import { SITE_NAME_PATTERN, type SiteDraft, type SiteView } from '../shared'
 import { NS, type GitlabT } from './locales'
 import styles from './SitesSection.module.css'
@@ -71,8 +71,6 @@ export function SitesSection(props: SitesSectionProps) {
   useEffect(() => {
     void store.refresh()
   }, [store])
-  // 一次性操作反馈：订阅对齐分区挂载 / 卸载，重开详情页不重放旧 toast。
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   const view = state.view
   const busy = state.busy
@@ -166,8 +164,6 @@ export function SitesSection(props: SitesSectionProps) {
           }}
         />
       ) : null}
-
-      <NoticeToast notice={actionNotice} text={(message) => message} onDismiss={dismissActionNotice} />
     </Panel>
   )
 }

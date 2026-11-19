@@ -29,7 +29,7 @@ describe('SkillsStore 首次加载', () => {
     vi.spyOn(skillsApi, 'list').mockResolvedValue({ roots: [], skills: [] })
 
     const store = new SkillsStore(makeT())
-    // 订阅即模拟面板挂载（useNotice 的 effect 订阅）
+    // 订阅即模拟常驻显示点挂载
     const seen: string[] = []
     store.notices.subscribe((message) => seen.push(message))
     store.setScope('')

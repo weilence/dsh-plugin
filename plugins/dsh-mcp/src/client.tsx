@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import { McpNoticesToast, type McpNoticesInjected } from './client/McpNoticesToast'
 import { McpPanelIcon } from './client/McpPanelIcon'
 import { McpPanelPage, type McpPanelInjected } from './client/McpPanelPage'
 import { NS, en, zh } from './client/locales'
@@ -76,6 +77,18 @@ export function apply(ctx: ClientContext) {
         label: () => t('section.label'),
       },
       McpPanelIcon,
+    ),
+  )
+  // 一次性通知的常驻显示点：面板内不渲染 Toast，反馈在触发面（面板）关闭前后都能播完。
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-mcp.notices',
+        locale: NS,
+        inject: (): McpNoticesInjected => ({ relay: store.notices }),
+      },
+      McpNoticesToast,
     ),
   )
 }

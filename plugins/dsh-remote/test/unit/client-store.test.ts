@@ -22,16 +22,9 @@ const api = vi.hoisted(() => ({
 
 vi.mock('../../src/client/api', () => ({ remoteApi: api }))
 
-/** 快照消息 → 展示文本（与面板渲染同一取词路径）。 */
+/** 快照消息 → 展示文本（与常驻显示点渲染同一取词路径）。 */
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
-
-/** 订阅操作通知通道：面板挂载期 useNotice 的测试替身。 */
-function collectActions(store: RemoteStore): { seen: PanelMessage[] } {
-  const seen: PanelMessage[] = []
-  store.actionNotices.subscribe((message) => seen.push(message))
-  return { seen }
-}
 
 const PASSWORD_TARGET: ConnectionTarget = {
   kind: 'direct',
@@ -271,13 +264,15 @@ describe('RemoteStore 阶段迁移检测', () => {
     store.stopPolling()
   })
 
-  it('操作通知经通道投递（同一动作连续投递也逐次可见）', async () => {
+  it('操作通知并入常驻事件通道（重复投递递增 noticeSeq 重新计时）', async () => {
     const store = new RemoteStore()
     api.state.mockResolvedValue(stateResponse([]))
-    const actions = collectActions(store)
     await store.remove('a')
+    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
+    const seq = store.getSnapshot().noticeSeq
     await store.remove('a')
-    expect(actions.seen).toEqual([{ key: 'notice.deleted' }, { key: 'notice.deleted' }])
+    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
+    expect(store.getSnapshot().noticeSeq).toBe(seq + 1)
     store.stopPolling()
   })
 })
@@ -285,14 +280,13 @@ describe('RemoteStore 阶段迁移检测', () => {
 describe('RemoteStore 写操作提示', () => {
   it('保存按新建 / 编辑分别提示，错误走 text 原样', async () => {
     const store = new RemoteStore()
-    const actions = collectActions(store)
     api.state.mockResolvedValue(stateResponse([]))
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
       await store.save({ label: 'a', target: { kind: 'alias', alias: 'box' }, rememberSecret: false }),
     ).toBe(true)
-    expect(text(actions.seen[0] ?? null)).toBe('已创建连接')
+    expect(text(store.getSnapshot().notice)).toBe('已创建连接')
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
@@ -303,7 +297,7 @@ describe('RemoteStore 写操作提示', () => {
         rememberSecret: false,
       }),
     ).toBe(true)
-    expect(text(actions.seen[1] ?? null)).toBe('已保存连接')
+    expect(text(store.getSnapshot().notice)).toBe('已保存连接')
 
     api.save.mockRejectedValueOnce(new Error('boom'))
     expect(
@@ -320,11 +314,10 @@ describe('RemoteStore 写操作提示', () => {
 
   it('删除成功提示', async () => {
     const store = new RemoteStore()
-    const actions = collectActions(store)
     api.state.mockResolvedValue(stateResponse([]))
     api.remove.mockResolvedValueOnce({ removed: true })
     expect(await store.remove('a')).toBe(true)
-    expect(text(actions.seen[0] ?? null)).toBe('已删除连接')
+    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
     store.stopPolling()
   })
 
@@ -341,7 +334,6 @@ describe('RemoteStore 写操作提示', () => {
 describe('RemoteStore 表单测试与口令弹窗', () => {
   it('测试成功 / 失败都只产生一次性 toast，不写连接状态', async () => {
     const store = new RemoteStore()
-    const actions = collectActions(store)
     const target: ConnectionTarget = { kind: 'alias', alias: 'dev-box' }
 
     api.test.mockResolvedValueOnce({
@@ -352,7 +344,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(actions.seen[0] ?? null)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
     expect(store.getSnapshot().testing).toBe(false)
 
     api.test.mockResolvedValueOnce({
@@ -363,7 +355,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(actions.seen[1] ?? null)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
+    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
 
     api.test.mockResolvedValueOnce({
       ok: false,
@@ -373,7 +365,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: { message: 'Permission denied (publickey)', kind: 'auth-failed' },
     })
     await store.testDraft({ target })
-    expect(text(actions.seen[2] ?? null)).toBe('测试失败：Permission denied (publickey)')
+    expect(text(store.getSnapshot().notice)).toBe('测试失败：Permission denied (publickey)')
     store.stopPolling()
   })
 

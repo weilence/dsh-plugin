@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, StateDot, Tag, Toast, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot, Tag, IconPlusOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   discoveredToCatalogEntry,
   lookupModelEntry,
@@ -72,6 +72,8 @@ export interface RouteEditorProps {
     api?: string
     apiKey?: string
   }): Promise<readonly { id: string; name?: string; contextWindow?: number; maxTokens?: number }[]>
+  /** 获取成功的一次性横幅上送常驻显示点（store.notices），组件内不再渲染成功 Toast。 */
+  onSuccessNotice(text: string): void
   /** 保存整份候选 profile；返回是否成功（成功后由调用方决定退出）。 */
   onSave(candidate: PiAiProviderEntry, apiKey?: string): Promise<boolean>
 }
@@ -130,8 +132,8 @@ export function RouteEditor(props: RouteEditorProps) {
   const [touched, setTouched] = useState(false)
   const [localError, setLocalError] = useState<PanelMessage | null>(null)
   const [fetching, setFetching] = useState(false)
-  /** 获取模型的结果反馈：显示在按钮旁边（弹窗顶部的提示区滚动在外，看不见）。 */
-  const [fetchStatus, setFetchStatus] = useState<{ kind: 'ok' | 'info' | 'error'; text: string } | undefined>(
+  /** 获取结果中需要停留阅读的反馈（info / error）显示在按钮旁边；成功走常驻显示点横幅。 */
+  const [fetchStatus, setFetchStatus] = useState<{ kind: 'info' | 'error'; text: string } | undefined>(
     undefined,
   )
   /** 新增模式下已实时应用到草稿的条目 id：支持边输入边改名（移除旧条目再重新规划）。 */
@@ -363,17 +365,17 @@ export function RouteEditor(props: RouteEditorProps) {
       // 循环里只累加了本地变量，必须在这里折叠回草稿状态。
       if (added > 0) setDraftProfile(profile)
       const sourceLabel = catalogRoute ? 'models.dev' : 'Endpoint'
-      setFetchStatus(
-        added === 0
-          ? { kind: 'info', text: t('editor.fetchNoNew', { source: sourceLabel }) }
-          : {
-              kind: 'ok',
-              text:
-                skipped > 0
-                  ? t('editor.fetchOkSkipped', { source: sourceLabel, added, skipped })
-                  : t('editor.fetchOk', { source: sourceLabel, added }),
-            },
-      )
+      if (added === 0) {
+        // 没有新增：结果性反馈需要停留阅读，行内常驻。
+        setFetchStatus({ kind: 'info', text: t('editor.fetchNoNew', { source: sourceLabel }) })
+      } else {
+        // 成功横幅上送常驻显示点：弹窗关闭前后都能播完（仓库通知约定）。
+        props.onSuccessNotice(
+          skipped > 0
+            ? t('editor.fetchOkSkipped', { source: sourceLabel, added, skipped })
+            : t('editor.fetchOk', { source: sourceLabel, added }),
+        )
+      }
     } catch (error) {
       setFetchStatus({ kind: 'error', text: errMsg(error) })
     } finally {
@@ -663,21 +665,8 @@ export function RouteEditor(props: RouteEditorProps) {
               {fetching ? t('import.fetching') : t('import.fetch')}
             </Button>
           </div>
-          {/* 一次性成功走官方 Toast（淡出后清空，完成回调只清仍为 ok 的状态，不误清新结果）；
-              info / error 行内常驻——没有新增、失败原因需要停留阅读。 */}
-          {fetchStatus !== undefined && fetchStatus.kind === 'ok' ? (
-            <Toast
-              key={fetchStatus.text}
-              text={fetchStatus.text}
-              holdMs={5000}
-              onDone={() =>
-                setFetchStatus((current) =>
-                  current !== undefined && current.kind === 'ok' ? undefined : current,
-                )
-              }
-            />
-          ) : null}
-          {fetchStatus !== undefined && fetchStatus.kind !== 'ok' ? (
+          {/* 需要停留阅读的获取反馈行内常驻——没有新增、失败原因要看清；成功横幅已上送常驻显示点。 */}
+          {fetchStatus !== undefined ? (
             <div
               className={fetchStatus.kind === 'error' ? styles.error : styles.notice}
               role={fetchStatus.kind === 'error' ? 'alert' : undefined}

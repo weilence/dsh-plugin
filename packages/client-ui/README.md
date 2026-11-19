@@ -12,9 +12,18 @@ DSH 插件共享的 client UI 组件。
 
 ## 子路径导出
 
-- `.` 组件（表单 Field 套件 / Dialog 与 ConfirmDialog / MenuButton / PickList / ExpandableCard / CardList / MetaItem / ModelTable / Panel / Pill / ToneChip）
+- `.` 组件（表单 Field 套件 / Dialog 与 ConfirmDialog / MenuButton / PickList / ExpandableCard / CardList / MetaItem / ModelTable / Panel / Pill / ToneChip / 通知套件）
 - `./styles` 共享基础样式表的类名映射（领域组件按 `{...shared, ...local}` 合并后使用）
 - `./tone` 语气色调色板（toneStyles + ToneChip）
+- `./notice-relay` 一次性通知通道（零依赖，store half 直接引用）
+
+## 常驻通知
+
+凡 Toast 提示（无论成功失败）显示点必须常驻——挂宿主壳层 `shell.overlay` 槽位，不随面板 / 弹窗卸载；面板 / 弹窗内一律不渲染 Toast（通道划分见根 docs/panel.md）：
+
+- store 持 `NoticeRelay<M>` 保留通知事实，emit 时按事件时间取词（或传消息描述子由显示点渲染期取词）；
+- 常驻显示点二选一：`ResidentNoticeToast`（自定文本解析，描述子型通道配插件窄 t 类型）或现成条目 `ResidentNoticeSlotEntry`（纯文本通道，注入面提供 `relay` 即可，无需 locale seat）；
+- 横幅 `holdMs` 统一 5000、nonce 作 key 重开计时，`onDone` 清空——无残留无重放。
 
 ## 设置弹窗加宽
 

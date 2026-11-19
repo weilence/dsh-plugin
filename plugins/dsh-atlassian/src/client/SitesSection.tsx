@@ -1,15 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  ConfirmDialog,
-  NoticeToast,
-  Panel,
-  Pill,
-  SelectField,
-  TextField,
-  useNotice,
-} from '@dsh-plugins/client-ui'
+import { ConfirmDialog, Panel, Pill, SelectField, TextField } from '@dsh-plugins/client-ui'
 import {
   PROJECT_KEY_PATTERN,
   SITE_NAME_PATTERN,
@@ -161,7 +153,6 @@ export function SitesSection(props: SitesSectionProps) {
   useEffect(() => {
     void store.refresh()
   }, [store])
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   const view = state.view
   const busy = state.busy
@@ -249,8 +240,6 @@ export function SitesSection(props: SitesSectionProps) {
           }}
         />
       ) : null}
-
-      <NoticeToast notice={actionNotice} text={(message) => message} onDismiss={dismissActionNotice} />
     </Panel>
   )
 }

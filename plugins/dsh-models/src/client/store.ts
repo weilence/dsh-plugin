@@ -85,7 +85,7 @@ export class PanelStore {
   private readonly listeners = new Set<() => void>()
   /** 最近一次刷新用的读结果缓存，供写入后局部更新。 */
   private catalogs = new Map<string, ReadonlyMap<string, DiscoveredModelFacts>>()
-  /** 一次性操作反馈（保存 / 新建 / 删除 / 登录结果）：面板挂载期经 useNotice 显示，无订阅者即丢弃。 */
+  /** 一次性操作反馈（保存 / 新建 / 删除 / 登录结果）：壳层常驻显示点（ModelsNoticesToast）订阅显示，onDone 清空。 */
   readonly notices = new NoticeRelay<PanelMessage>()
   private effective = new Map<string, ReadonlyMap<string, EffectiveModelFacts>>()
   /** 串行化刷新，避免并发刷新互相覆盖。 */

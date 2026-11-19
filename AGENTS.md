@@ -22,7 +22,7 @@
 - 组件间传 `t` 用窄类型 `TranslateNS<typeof NS>`，不用宽域 `Translate`（函数参数逆变，窄域不可赋给宽域）。
 - patch 文件编辑一律保留用户注释与无关行（行级 round-trip），不走字符串拼接重建；patch 行 `config` 是整体替换、不做深合并。
 - 写用户数据一律双保险：携带读取时的版本做乐观并发，文件落盘 tmp+mv 原子替换；破坏性操作必须基于已确认的事实。
-- 操作入口一律常驻：前置条件不满足就禁用并给出原因；成功提示走 Toast，错误与校验反馈行内常驻（细则见 [docs/panel.md](docs/panel.md)）。
+- 操作入口一律常驻：前置条件不满足就禁用并给出原因；凡 Toast 提示——无论成功失败——显示点必须常驻：挂宿主壳层 `shell.overlay` 槽位（共享套件 `ResidentNoticeToast`），不随面板 / 弹窗卸载。成功反馈按场景可选、可以没有提示；错误与校验反馈默认行内常驻，若以 Toast 呈现失败同样走常驻显示点（细则见 [docs/panel.md](docs/panel.md)）。
 - 开发中撞上沙箱权限拦截（spawn 系统工具被禁、文件访问被拒等）：停下来向用户报告被拦的具体操作与影响，禁止未经确认把沙箱迁就写进代码或测试——开发环境的限制不是产品需求（实际发生过：测试沙箱禁 ps spawn，为绕开抽了纯函数替身测试，事后整体回退）。
 - 提交前必须运行与 CI 相同的四项检查：`pnpm -r typecheck && pnpm -r test && pnpm -r build && pnpm format:check`；格式化用 `pnpm format`。
 

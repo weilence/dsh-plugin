@@ -1,6 +1,4 @@
 import { errMsg } from '@dsh-plugins/shared'
-// 纯通道子路径：不拖入依赖宿主原语的视图模块（store half 的测试不换 env）
-import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { remoteApi } from './api'
 import type { PanelMessage, RemoteKey } from './locales'
 import { targetRequiresSecret } from '../shared'
@@ -134,9 +132,6 @@ function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
 export class RemoteStore {
   private snapshot: RemoteState = INITIAL
   private readonly listeners = new Set<() => void>()
-  /** 操作类一次性通知（保存 / 删除 / 表单测试）：面板挂载期经 useNotice 显示，
-   *  无订阅者（面板未挂载）即丢弃。 */
-  readonly actionNotices = new NoticeRelay<PanelMessage>()
   private fastTimer: ReturnType<typeof setInterval> | null = null
   private slowTimer: ReturnType<typeof setInterval> | null = null
   private refreshGeneration = 0
@@ -371,7 +366,7 @@ export class RemoteStore {
     try {
       await remoteApi.save(request)
       await this.refresh()
-      this.actionNotices.emit(request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' })
+      this.notify(request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' })
       this.set({ editingId: request.id === undefined ? undefined : this.snapshot.editingId })
       return true
     } catch (error) {
@@ -387,7 +382,7 @@ export class RemoteStore {
     try {
       await remoteApi.remove(id)
       await this.refresh()
-      this.actionNotices.emit({ key: 'notice.deleted' })
+      this.notify({ key: 'notice.deleted' })
       this.set({ editingId: undefined })
       return true
     } catch (error) {
@@ -405,21 +400,21 @@ export class RemoteStore {
       const result = await remoteApi.test(request)
       if (result.ok) {
         const params = { node: result.nodeVersion ?? '?', npm: result.npmVersion ?? '?' }
-        this.actionNotices.emit(
+        this.notify(
           result.dshVersion === null
             ? { key: 'notice.test.okNoDsh', params }
             : { key: 'notice.test.ok', params: { ...params, dsh: result.dshVersion } },
         )
       } else {
         const detail = result.error?.message ?? ''
-        this.actionNotices.emit(
+        this.notify(
           detail.length === 0
             ? { key: 'notice.test.failedNoReason' }
             : { key: 'notice.test.failed', params: { detail } },
         )
       }
     } catch (error) {
-      this.actionNotices.emit({ key: 'notice.test.failed', params: { detail: errMsg(error) } })
+      this.notify({ key: 'notice.test.failed', params: { detail: errMsg(error) } })
     } finally {
       this.set({ testing: false })
     }

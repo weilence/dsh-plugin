@@ -139,9 +139,6 @@ vi.mock('@dsh-plugins/client-ui', () => ({
   IssueList: () => null,
   PickList: () => null,
   SelectField: () => null,
-  // SSR 不跑 effect：操作通知的组件态恒为空，显示窗渲染为空
-  useNotice: () => ({ notice: null, dismiss: () => {} }),
-  NoticeToast: () => null,
 }))
 
 const api = vi.hoisted(() => ({

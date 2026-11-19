@@ -9,7 +9,7 @@ import { makeT } from './i18n'
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
 
-/** 订阅操作通知通道：面板挂载期 useNotice 的测试替身。 */
+/** 订阅操作通知通道：常驻显示点订阅行为的测试替身。 */
 function collectNotices(store: PanelStore): { seen: PanelMessage[] } {
   const seen: PanelMessage[] = []
   store.notices.subscribe((message) => seen.push(message))

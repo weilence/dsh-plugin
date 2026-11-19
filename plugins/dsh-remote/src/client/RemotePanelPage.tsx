@@ -14,11 +14,9 @@ import {
   ConfirmDialog,
   Dialog,
   MenuButton,
-  NoticeToast,
   Panel,
   PanelPage,
   TextField,
-  useNotice,
   type ExpandableCardProps,
   type PillData,
 } from '@dsh-plugins/client-ui'
@@ -166,7 +164,6 @@ export function RemotePanelPage(props: RemotePanelPageProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.actionNotices)
 
   useEffect(() => {
     store.startPolling()
@@ -208,10 +205,8 @@ export function RemotePanelPage(props: RemotePanelPageProps) {
             {messageText(state.error, t)}
           </div>
         ) : null}
-        {/* 操作类一次性反馈（保存 / 删除 / 表单测试）走共享 kit：组件态随面板卸载
-            消亡，不重放；事件类（连接 / 同步完成）由壳层 shell.overlay 的显示点
-            渲染（RemoteEventToast），不在面板内。 */}
-        <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
+        {/* 操作与事件的一次性 toast 统一由壳层 shell.overlay 的常驻显示点渲染
+            （RemoteEventToast），面板内不再渲染。 */}
 
         <div className={styles.listToolbar}>
           <Button

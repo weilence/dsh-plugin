@@ -13,9 +13,7 @@ import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
-  NoticeToast,
   Panel,
-  useNotice,
   useWideSettingsDialog,
   type ExpandableCardInfoItem,
 } from '@dsh-plugins/client-ui'
@@ -40,7 +38,6 @@ export function ModelCatalogSection(props: ModelCatalogSectionProps) {
   useWideSettingsDialog()
   const { t } = props
   const state = useSyncExternalStore(props.store.subscribe, props.store.getSnapshot, props.store.getSnapshot)
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(props.store.notices)
   const [editing, setEditing] = useState<string | undefined>(undefined)
   const [editingDirty, setEditingDirty] = useState(false)
   const [pendingExit, setPendingExit] = useState<{ next?: string; create?: true } | null>(null)
@@ -168,12 +165,6 @@ export function ModelCatalogSection(props: ModelCatalogSectionProps) {
     <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
       {!writable ? <div className={styles.notice}>{t('panel.readOnly')}</div> : null}
       {state.error ? <div className={styles.error}>{messageText(state.error, t)}</div> : null}
-      {/* 一次性提示走共享 kit：组件态随分区卸载消亡，不重放。 */}
-      <NoticeToast
-        notice={actionNotice}
-        text={(message) => messageText(message, t)}
-        onDismiss={dismissActionNotice}
-      />
       <div className={styles.listToolbar}>
         <Button variant="primary" disabled={busyProvider !== null} onClick={requestCreate}>
           {t('panel.createProvider')}
@@ -272,6 +263,8 @@ export function ModelCatalogSection(props: ModelCatalogSectionProps) {
                     setEditingDirty(false)
                   }}
                   onFetchModels={(request) => props.operations.discoverEndpoint(request)}
+                  // 获取成功的一次性横幅上送常驻显示点（store.notices），弹窗关闭前后都能播完。
+                  onSuccessNotice={(text) => props.store.notices.emit({ text })}
                   onSave={(candidate, apiKey) => props.store.saveRoute(route.provider, candidate, { apiKey })}
                 />
               ) : null,

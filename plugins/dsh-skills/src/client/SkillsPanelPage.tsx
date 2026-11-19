@@ -5,12 +5,10 @@ import {
   CardList,
   ConfirmDialog,
   ExpandableCard,
-  NoticeToast,
   Panel,
   PanelPage,
   SearchBox,
   selectCls,
-  useNotice,
 } from '@dsh-plugins/client-ui'
 import type { SkillRow } from '../shared'
 import { sourceOrder } from '../shared'
@@ -104,7 +102,6 @@ export type SkillsPanelPageProps = PropsRuntime<'main'> &
 export function SkillsPanelPage(props: SkillsPanelPageProps) {
   const { store, workspace, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
-  const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   // 当前工作区 = 主视图会话（retainedBy.mainView > 0）的 cwd。
   const workspaceCwd = useSyncExternalStore(workspace.subscribe, workspace.getSnapshot, workspace.getSnapshot)
@@ -259,7 +256,6 @@ export function SkillsPanelPage(props: SkillsPanelPageProps) {
             {state.error}
           </div>
         ) : null}
-        <NoticeToast notice={actionNotice} text={(message) => message} onDismiss={dismissActionNotice} />
         {state.status === 'loading' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
 
         {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}

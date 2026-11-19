@@ -75,6 +75,7 @@ function renderEditor(declared: boolean) {
       onCancel: () => {},
       onExit: () => {},
       onFetchModels: async () => [],
+      onSuccessNotice: () => {},
       onSave: async () => true,
     }),
   )

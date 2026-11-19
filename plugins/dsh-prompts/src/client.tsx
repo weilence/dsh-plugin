@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import { Button, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ResidentNoticeSlotEntry, useWideSettingsDialog } from '@dsh-plugins/client-ui'
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { Panel, useWideSettingsDialog } from '@dsh-plugins/client-ui'
+import { Panel } from '@dsh-plugins/client-ui'
 import { createBridgeClient } from '@dsh-plugins/shared/api'
 import { errMsg } from '@dsh-plugins/shared'
 import { FILE_PATH, SAVE_PATH, type PromptFile } from './shared'
@@ -15,6 +18,10 @@ import styles from './client.module.css'
 export const inject: string[] = ['slots', 'locale']
 
 const api = createBridgeClient('x-dsh-prompts')
+
+// 一次性成功通知的通道：emit 时按事件时间取词定格（即显一次性反馈的既有约定），
+// 由 shell.overlay 常驻显示点（本文件底部注册）订阅显示——设置分区卸载不影响横幅播完。
+const notices = new NoticeRelay<string>()
 
 /** 完整组件 props：运行时份额 + locale 标准 seat（本面板无注入面）。 */
 type PromptSectionProps = PropsRuntime<'settings.section'> & PropsLocale<typeof NS>
@@ -26,7 +33,6 @@ function PromptSection({ t }: PromptSectionProps) {
   const [busy, setBusy] = useState(false)
   // 事件时间取词的即显消息：出现即随当前语言渲染，不跨语言切换存活。
   const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
   const dirty = file !== null && draft !== file.content
 
   useEffect(() => {
@@ -51,7 +57,6 @@ function PromptSection({ t }: PromptSectionProps) {
     if (file === null) return
     setBusy(true)
     setError(null)
-    setNotice(null)
     try {
       const result = await api.request<PromptFile>(SAVE_PATH, {
         method: 'POST',
@@ -59,7 +64,7 @@ function PromptSection({ t }: PromptSectionProps) {
       })
       setFile(result)
       setDraft(result.content)
-      setNotice(t('notice.saved'))
+      notices.emit(t('notice.saved'))
     } catch (cause) {
       setError(t('save.failed', { detail: errMsg(cause) }))
     } finally {
@@ -84,10 +89,6 @@ function PromptSection({ t }: PromptSectionProps) {
         <p role="alert" className={styles.error}>
           {error}
         </p>
-      ) : null}
-      {/* 一次性成功提示走官方 Toast：淡出后清空，下次操作即替换；文本相同也换 key 重开计时。 */}
-      {notice !== null ? (
-        <Toast key={notice} text={notice} holdMs={5000} onDone={() => setNotice(null)} />
       ) : null}
       <div className={styles.actions}>
         <Button
@@ -117,6 +118,17 @@ export function apply(ctx: Context): void {
         locale: NS,
       },
       PromptSection,
+    ),
+  )
+  // 一次性通知的常驻显示点：设置分区内不渲染 Toast，反馈在分区关闭前后都能播完。
+  ctx.slots.inject('shell.overlay', () =>
+    ctx.slots.register(
+      {
+        name: 'shell.overlay',
+        id: 'dsh-prompts.notices',
+        inject: () => ({ relay: notices }),
+      },
+      ResidentNoticeSlotEntry,
     ),
   )
 }
