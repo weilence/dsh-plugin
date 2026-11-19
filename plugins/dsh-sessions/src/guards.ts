@@ -40,7 +40,12 @@ export function assertNotLoaded(ctx: Context, id: SessionId): void {
   // 相遇，实际归属取决于声明进入程序的顺序。这里显式按宿主侧类型取用，不依赖该顺序。
   const store = ctx.sessions as unknown as Pick<SessionStore, 'get'>
   if (store.get(id) !== undefined) {
-    throw new HttpError(409, `会话「${id}」仍加载在宿主内存中，请重启宿主或关闭该会话后重试`)
+    // 宿主对打开过的会话长期持有（官方 RPC 面没有卸载入口，归档也只停活动不清内存），
+    // 文案只指向唯一可行的出路：重启宿主。
+    throw new HttpError(
+      409,
+      `会话「${id}」仍加载在宿主内存中（宿主在会话被打开后会持续持有，直至重启），请重启宿主后重试`,
+    )
   }
 }
 

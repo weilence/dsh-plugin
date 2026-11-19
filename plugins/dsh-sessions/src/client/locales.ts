@@ -6,6 +6,9 @@ export type SessionsT = TranslateNS<typeof NS>
 export const zh = {
   'menu.migrate': '迁移到工作区…',
   'menu.preset': '迁移预设…',
+  'session.probeLoading': '正在检查会话加载状态…',
+  'session.loadedBlocking':
+    '会话已加载在宿主内存中（宿主在会话被打开后会持续持有，直至重启），请重启宿主后重试。',
   'migrate.disabledSubagent': '子会话不提供迁移，请迁移主会话。',
   'preset.disabledSubagent': '子会话不提供预设迁移。',
   workspace: '目标工作区',
@@ -39,6 +42,9 @@ export type SessionsKey = keyof typeof zh
 export const en: { [Key in SessionsKey]: string } = {
   'menu.migrate': 'Migrate to workspace…',
   'menu.preset': 'Migrate preset…',
+  'session.probeLoading': 'Checking whether the session is loaded…',
+  'session.loadedBlocking':
+    'The session is loaded in host memory (the host keeps it loaded once opened, until restart); restart the host and try again.',
   'migrate.disabledSubagent': 'Sub-sessions cannot be migrated; migrate the main session instead.',
   'preset.disabledSubagent': 'Preset migration is not offered for sub-sessions.',
   workspace: 'Target workspace',

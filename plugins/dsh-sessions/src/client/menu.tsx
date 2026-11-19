@@ -27,11 +27,15 @@ export function SessionMenuItems({
   open,
   t,
 }: SessionMenuItemsProps) {
-  // 行菜单打开即重渲染：此处读官方会话快照做前置闸门（快照未及加载时保持可用，host 侧仍会拒绝）。
+  // 行菜单打开即重渲染：此处读官方会话快照做前置闸门（子会话禁用；running 或本客户端
+  // 持有引用时必然已加载，同样禁用）。快照未及加载或盲区（已加载但空闲且未被本客户端
+  // 持有）时条目保持可用，弹窗探针与 host 侧守卫仍会拦——客户端闸门只是前置反馈。
   const summary = useSessions((value) => value.byId[sessionId])
   const [, setMenuOpen] = useMenuOpenState()
   // 官方行身份的 displayTitle 无标题时为空串；弹窗标题与会话 ID 兜底。
   const title = displayTitle !== '' ? displayTitle : sessionId
+  const retained = Object.values(summary?.retainedBy ?? {}).some((count) => count > 0)
+  const loaded = summary?.running === true || retained
   const request = (kind: SessionDialogRequest['kind']): void => {
     setMenuOpen(false)
     open({ kind, sessionId, title })
@@ -42,16 +46,16 @@ export function SessionMenuItems({
       <MenuItemButton
         separatorBefore
         icon={<IconWorkspaceTreeOutlineRegular />}
-        disabled={subagent}
-        disabledReason={t('migrate.disabledSubagent')}
+        disabled={subagent || loaded}
+        disabledReason={subagent ? t('migrate.disabledSubagent') : t('session.loadedBlocking')}
         onSelect={() => request('migrate')}
       >
         {t('menu.migrate')}
       </MenuItemButton>
       <MenuItemButton
         icon={<IconAgentPresetOutlineRegular />}
-        disabled={subagent}
-        disabledReason={t('preset.disabledSubagent')}
+        disabled={subagent || loaded}
+        disabledReason={subagent ? t('preset.disabledSubagent') : t('session.loadedBlocking')}
         onSelect={() => request('preset')}
       >
         {t('menu.preset')}

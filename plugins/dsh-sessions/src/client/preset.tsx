@@ -1,10 +1,11 @@
-/** 预设迁移弹窗：打开时一次性拉取宿主预设清单再渲染，目标预设经宿主侧校验。 */
+/** 预设迁移弹窗：打开时一次性拉取宿主预设清单与加载探针再渲染，目标预设经宿主侧校验。 */
 import { useEffect, useRef, useState } from 'react'
-import { Button, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { errMsg } from '@dsh-plugins/shared'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { fetchPresets, migrateSessionPreset } from './api'
+import { useLoadProbe } from './loaded'
 import { messageText, type Message, type SessionsT } from './locales'
 import localStyles from '../client.module.css'
 
@@ -21,17 +22,25 @@ type PresetPhase =
 export function PresetDialog({
   t,
   target,
+  probeSessionLoaded,
+  onSuccess,
   onClose,
 }: {
   t: SessionsT
   target: PresetTarget
+  probeSessionLoaded: (sessionId: SessionId, signal?: AbortSignal) => Promise<boolean>
+  /** 上报成功结果：常驻条目据此弹出成功横幅并关闭弹窗。 */
+  onSuccess: (message: Message) => void
   onClose: () => void
 }) {
   const [phase, setPhase] = useState<PresetPhase>({ kind: 'loading' })
+  // 已加载闸门：probing 期间禁用提交，loaded 禁用并给行内原因，探测失败按「未知」放行。
+  const loadPhase = useLoadProbe(probeSessionLoaded, target.sessionId)
   const [preset, setPreset] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Message | null>(null)
   const working = useRef(false)
+  const loadBlocked = loadPhase === 'probing' || loadPhase === 'loaded'
 
   useEffect(() => {
     let cancelled = false
@@ -48,14 +57,14 @@ export function PresetDialog({
   }, [])
 
   const submit = async () => {
-    if (working.current || preset === '') return
+    if (working.current || preset === '' || loadBlocked) return
     if (phase.kind !== 'ready') return
     working.current = true
     setBusy(true)
     setNotice(null)
     try {
       const result = await migrateSessionPreset(target.sessionId, preset)
-      setNotice(
+      onSuccess(
         result.migrated
           ? {
               key: 'preset.done',
@@ -64,6 +73,7 @@ export function PresetDialog({
           : { key: 'preset.unchanged', params: { title: target.title, preset: result.newPreset } },
       )
     } catch (error) {
+      // 失败行内常驻（不随时间消失），弹窗保持打开供直接重试；重试或改选时清空。
       setNotice({ text: errMsg(error) })
     } finally {
       working.current = false
@@ -83,15 +93,8 @@ export function PresetDialog({
       footer={
         <div className={styles.footer}>
           <div className={styles.feedback} aria-live="polite">
-            {/* 提示信息统一走 notice（官方 Toast，z-1100 盖过 Modal 的 1000 遮罩）；成功与失败同流。 */}
-            {notice !== null ? (
-              <Toast
-                key={messageText(notice, t)}
-                text={messageText(notice, t)}
-                holdMs={5000}
-                onDone={() => setNotice(null)}
-              />
-            ) : null}
+            {/* 失败与校验反馈行内常驻（不随时间消失，重试/改选时清空）；成功走常驻条目的横幅并关闭弹窗。 */}
+            {notice !== null ? <p role="alert">{messageText(notice, t)}</p> : null}
             {busy ? <p role="status">{t('preset.working')}</p> : null}
           </div>
           <div className={styles.actions}>
@@ -100,7 +103,7 @@ export function PresetDialog({
             </Button>
             <Button
               variant="primary"
-              disabled={busy || phase.kind !== 'ready' || preset === ''}
+              disabled={busy || phase.kind !== 'ready' || preset === '' || loadBlocked}
               onClick={() => void submit()}
             >
               {t('preset.confirm')}
@@ -111,6 +114,8 @@ export function PresetDialog({
     >
       <div className={styles.fields}>
         <p className={styles.warning}>{t('preset.description')}</p>
+        {loadPhase === 'probing' ? <p role="status">{t('session.probeLoading')}</p> : null}
+        {loadPhase === 'loaded' ? <p role="alert">{t('session.loadedBlocking')}</p> : null}
         <label>
           {t('preset.target')}
           <select

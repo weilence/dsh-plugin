@@ -22,13 +22,18 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   MenuItemButton: ({
     onSelect,
     disabled,
-    disabledReason: _disabledReason,
+    disabledReason,
     icon: _icon,
     separatorBefore: _separatorBefore,
     danger: _danger,
     children,
   }: ComponentProps<typeof import('@deepseek-ai/dsh-client-ui-primitives').MenuItemButton>) => (
-    <button role="menuitem" data-disabled={disabled} onClick={disabled ? undefined : onSelect}>
+    <button
+      role="menuitem"
+      data-disabled={disabled}
+      data-reason={disabledReason}
+      onClick={disabled ? undefined : onSelect}
+    >
       {children}
     </button>
   ),
@@ -84,7 +89,8 @@ function workspaceSnapshot(overrides: Partial<WorkspaceSnapshot> = {}): Workspac
   }
 }
 
-function sessionSnapshot(subagent = false) {
+function sessionSnapshot(options: { subagent?: boolean; running?: boolean; retained?: boolean } = {}) {
+  const { subagent = false, running = false, retained = false } = options
   return {
     phase: 'ready' as const,
     ids: [alpha],
@@ -107,9 +113,9 @@ function sessionSnapshot(subagent = false) {
             id: alpha,
             displayTitle: 'Alpha investigation',
             cwd: '/project/alpha-cwd',
-            running: false,
+            running,
             blank: false,
-            retainedBy: {},
+            retainedBy: retained ? { gateway: 1 } : {},
             updatedAt: 1_800_000_000_000,
           },
         },
@@ -160,10 +166,22 @@ const clickButton = (renderer: ReactTestRenderer, label: string): void => {
   })
 }
 
-const menuItems = (renderer: ReactTestRenderer): Array<{ label: string; disabled: unknown }> =>
+const menuItems = (
+  renderer: ReactTestRenderer,
+): Array<{ label: string; disabled: unknown; reason: unknown }> =>
   renderer.root
     .findAll((node: ReactTestInstance) => node.type === 'button' && node.props.role === 'menuitem')
-    .map((node) => ({ label: String(node.children[0]), disabled: node.props['data-disabled'] }))
+    .map((node) => ({
+      label: String(node.children[0]),
+      disabled: node.props['data-disabled'],
+      reason: node.props['data-reason'],
+    }))
+
+/** 弹窗 footer 的确认按钮（两种弹窗的确认文案都是「迁移」，与「关闭」可区分）。 */
+const confirmButton = (renderer: ReactTestRenderer): ReactTestInstance =>
+  renderer.root
+    .findAll((node: ReactTestInstance) => node.type === 'button' && node.children.includes('迁移'))
+    .find(Boolean)!
 
 const dialogTitles = (renderer: ReactTestRenderer): string[] =>
   renderer.root
@@ -176,11 +194,19 @@ interface MenuHarnessOptions {
   sessionId?: SessionId
   displayTitle?: string
   subagent?: boolean
+  running?: boolean
+  retained?: boolean
 }
 
 function menuHarness(options: MenuHarnessOptions = {}) {
-  const { sessionId = alpha, displayTitle = 'Alpha investigation', subagent = false } = options
-  const sessionSource = source(sessionSnapshot(subagent))
+  const {
+    sessionId = alpha,
+    displayTitle = 'Alpha investigation',
+    subagent = false,
+    running = false,
+    retained = false,
+  } = options
+  const sessionSource = source(sessionSnapshot({ subagent, running, retained }))
   const bridge = createRequestsBridge()
   const open = vi.fn((request: SessionDialogRequest) => bridge.open(request))
   const setMenuOpen = vi.fn()
@@ -201,12 +227,15 @@ function menuHarness(options: MenuHarnessOptions = {}) {
   return { renderer, bridge, open, setMenuOpen }
 }
 
-function dialogsHarness(request: SessionDialogRequest | null) {
+type ProbeFn = (sessionId: SessionId, signal?: AbortSignal) => Promise<boolean>
+
+function dialogsHarness(request: SessionDialogRequest | null, options: { probe?: ProbeFn } = {}) {
   const bridge = createRequestsBridge()
   if (request !== null) bridge.open(request)
   const workspaceSource = source(workspaceSnapshot())
   const useWorkspaceList = () => useSyncExternalStore(workspaceSource.subscribe, workspaceSource.getSnapshot)
   const refresh = vi.fn<ISessions['refresh']>(async () => {})
+  const probeSessionLoaded: ProbeFn = options.probe ?? vi.fn(async () => false)
   const renderer = mount(
     <SessionDialogsEntry
       {...({
@@ -214,10 +243,11 @@ function dialogsHarness(request: SessionDialogRequest | null) {
         bridge,
         useWorkspaceList,
         refreshSessions: refresh,
+        probeSessionLoaded,
       } as unknown as ComponentProps<typeof SessionDialogsEntry>)}
     />,
   )
-  return { renderer, bridge, refresh }
+  return { renderer, bridge, refresh, probeSessionLoaded }
 }
 
 describe('会话行菜单条目', () => {
@@ -246,6 +276,16 @@ describe('会话行菜单条目', () => {
     expect(items.map((item) => item.disabled)).toEqual([true, true])
   })
 
+  it('官方快照报告 running 或被本客户端持有时按已加载禁用两项条目', () => {
+    const loadedReason = zh['session.loadedBlocking']
+    const running = menuHarness({ running: true }).renderer
+    expect(menuItems(running).map((item) => item.disabled)).toEqual([true, true])
+    expect(menuItems(running).map((item) => item.reason)).toEqual([loadedReason, loadedReason])
+    const retained = menuHarness({ retained: true }).renderer
+    expect(menuItems(retained).map((item) => item.disabled)).toEqual([true, true])
+    expect(menuItems(retained).map((item) => item.reason)).toEqual([loadedReason, loadedReason])
+  })
+
   it('行标题为空时弹窗标题回退为会话 ID', () => {
     const { renderer, open, setMenuOpen } = menuHarness({ sessionId: alpha, displayTitle: '' })
     act(() => {
@@ -271,7 +311,7 @@ describe('弹窗宿主', () => {
     expect(dialogTitles(preset.renderer)).toContain('迁移 Agent 预设')
   })
 
-  it('选择工作区提交迁移，归属未完成时提示补救指引', async () => {
+  it('选择工作区提交迁移成功后关闭弹窗，归属未完成时经常驻横幅提示补救指引', async () => {
     vi.mocked(migrateSessionToWorkspace).mockResolvedValueOnce({
       ok: true,
       moved: true,
@@ -283,6 +323,8 @@ describe('弹窗宿主', () => {
       sessionId: alpha,
       title: 'Alpha investigation',
     })
+    // 等加载探针落定为未加载后再操作（默认探针返回 false）。
+    await act(async () => {})
     const select = renderer.root.findByType('select')
     act(() => {
       select.props.onChange({ target: { value: 'project' } })
@@ -292,10 +334,32 @@ describe('弹窗宿主', () => {
     })
     expect(migrateSessionToWorkspace).toHaveBeenCalledExactlyOnceWith(String(alpha), 'project')
     expect(refresh).toHaveBeenCalledOnce()
+    // 弹窗已关，成功横幅由常驻条目渲染。
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
     expect(text(renderer).some((value) => value.includes('请重启宿主后再次迁移'))).toBe(true)
   })
 
-  it('预设弹窗拉取清单后提交迁移', async () => {
+  it('迁移请求失败时弹窗保持打开，失败原因行内常驻', async () => {
+    vi.mocked(migrateSessionToWorkspace).mockRejectedValueOnce(new Error('storage busy'))
+    const { renderer } = dialogsHarness({
+      kind: 'migrate',
+      sessionId: alpha,
+      title: 'Alpha investigation',
+    })
+    await act(async () => {})
+    const select = renderer.root.findByType('select')
+    act(() => {
+      select.props.onChange({ target: { value: 'project' } })
+    })
+    await act(async () => {
+      clickButton(renderer, '迁移')
+    })
+    // 弹窗保持打开供直接重试，错误行内常驻不消失。
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(1)
+    expect(text(renderer).some((value) => value.includes('storage busy'))).toBe(true)
+  })
+
+  it('预设弹窗拉取清单后提交迁移，成功后关闭弹窗', async () => {
     const { renderer } = dialogsHarness({ kind: 'preset', sessionId: alpha, title: 'Alpha investigation' })
     await act(async () => {})
     expect(fetchPresets).toHaveBeenCalledOnce()
@@ -308,7 +372,46 @@ describe('弹窗宿主', () => {
       clickButton(renderer, '迁移')
     })
     expect(migrateSessionPreset).toHaveBeenCalledExactlyOnceWith(String(alpha), 'writer')
+    expect(renderer.root.findAllByProps({ role: 'dialog' })).toHaveLength(0)
     expect(text(renderer).some((value) => value.includes('writer'))).toBe(true)
+  })
+
+  it('加载探针确认已加载时禁用确认按钮并给行内原因', async () => {
+    const probe = vi.fn<ProbeFn>(async () => true)
+    const { renderer, probeSessionLoaded } = dialogsHarness(
+      { kind: 'preset', sessionId: alpha, title: 'Alpha investigation' },
+      { probe },
+    )
+    await act(async () => {})
+    expect(probeSessionLoaded).toBe(probe)
+    expect(probe).toHaveBeenCalledExactlyOnceWith(String(alpha), expect.anything())
+    expect(confirmButton(renderer).props.disabled).toBe(true)
+    expect(text(renderer).some((value) => value.includes('会话已加载在宿主内存中'))).toBe(true)
+  })
+
+  it('探测期间禁用确认按钮并显示检查状态', () => {
+    const { renderer } = dialogsHarness(
+      { kind: 'preset', sessionId: alpha, title: 'Alpha investigation' },
+      { probe: () => new Promise<boolean>(() => {}) },
+    )
+    expect(confirmButton(renderer).props.disabled).toBe(true)
+    expect(text(renderer).some((value) => value.includes('正在检查会话加载状态'))).toBe(true)
+  })
+
+  it('探针失败按未知放行，确认按钮恢复可用', async () => {
+    const probe = vi.fn<ProbeFn>(async () => {
+      throw new Error('probe failed')
+    })
+    const { renderer } = dialogsHarness(
+      { kind: 'preset', sessionId: alpha, title: 'Alpha investigation' },
+      { probe },
+    )
+    await act(async () => {})
+    await act(async () => {
+      renderer.root.findByType('select').props.onChange({ target: { value: 'writer' } })
+    })
+    expect(confirmButton(renderer).props.disabled).toBe(false)
+    expect(text(renderer).some((value) => value.includes('会话已加载在宿主内存中'))).toBe(false)
   })
 })
 
