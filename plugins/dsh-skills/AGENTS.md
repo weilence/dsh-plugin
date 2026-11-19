@@ -1,6 +1,6 @@
 # @weilence/dsh-skills
 
-设置页「Skills 管理」插件：直接扫描四个标准技能根（与官方 skill-filesystem provider 同一套发现与校验规则）再合并全局注册表的只读来源；对可写根新建 / 编辑 / 删除，Git 仓库技能安装与更新跟踪。
+侧栏「Skills 管理」全局面板插件：直接扫描四个标准技能根（与官方 skill-filesystem provider 同一套发现与校验规则）再合并全局注册表的只读来源；对可写根新建 / 编辑 / 删除，Git 仓库技能安装与更新跟踪。
 
 ## 心智模型
 

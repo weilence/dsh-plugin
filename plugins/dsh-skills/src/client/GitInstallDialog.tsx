@@ -6,7 +6,7 @@ import type { SkillsStore } from './store'
 import type { SkillsT } from './locales'
 import { rootOptionLabel } from './locales'
 import shared from '@dsh-plugins/client-ui/styles'
-import local from './SkillsSection.module.css'
+import local from './SkillsPanelPage.module.css'
 
 const styles = { ...shared, ...local }
 
