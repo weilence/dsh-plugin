@@ -114,4 +114,3 @@ type ModelProfile = PiAiModelProfile
 - 重构类改动（内联、合并、删除）必须保持行为不变，以单测通过为准。
 - 构建是否成功必须以退出码为准，不以「文件存在、时间戳新」判断——`clean: false` 失败会留下旧产物。
 - 默认值与配置改动必须覆盖使用默认值的调用方——显式传值的调用方测不到默认值分支。
-- 提交前必须运行与 CI 相同的四项检查：typecheck、test、build、format:check（命令见 AGENTS.md）。

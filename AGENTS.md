@@ -6,7 +6,7 @@
 
 ## 仓库布局
 
-- `plugins/<name>/`：九个可发布 npm 插件（目录与包名——`dsh-git`→`@weilence/dsh-git`、`dsh-mcp`→`@weilence/dsh-mcp`、`dsh-models`→`@weilence/dsh-models`、`dsh-notify`→`@weilence/dsh-notify`、`dsh-prompts`→`@weilence/dsh-prompts`、`dsh-remote`→`@weilence/dsh-remote`、`dsh-sessions`→`@weilence/dsh-sessions`、`dsh-skills`→`@weilence/dsh-skills`、`dsh-zhipu-tools`→`@weilence/dsh-zhipu-tools`），独立版本、独立发布；包名统一 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
+- `plugins/<name>/`：可发布 npm 插件，包名恒为 `@weilence/<目录名>`（目录名即去 scope 包名），独立版本、独立发布；插件清单以根 README 插件表为准。包名一律带 `@weilence/*` scope（weilence.com 域名空间；无 scope 的包名 `dsh-remote` 曾被 npm 第三方包占用）。
 - `packages/`：私有 workspace 源码包，不发布——`tsdown-config`（双 half 构建工厂）、`client-ui`（共享 client UI 组件）、`shared`（host 请求校验 / errMsg / client 侧 HTTP 封装 / patch 文档编辑原语）。
 - `pnpm-workspace.yaml`：catalog 共享版本表；`tsconfig.base.json`：公共编译配置。
 - 跨插件耦合的事实改动须双侧同步：智谱凭据的解析顺序（`ZAI_CODING_CN_API_KEY` 缺席时尝试 `ZAI_API_KEY`）同时实现于 dsh-zhipu-tools（搜索 provider）与 dsh-models（用量适配）。
@@ -17,6 +17,7 @@
 - `@deepseek-ai/*` 平台包与生产依赖一律外置（运行期由宿主 / 插件自带 node_modules 解析）：client 产物的 `require` 只能命中宿主模块表，外置依赖混进 client 产物会启动即失败（实际发生过：dayjs 误声明为 dependencies）；要内联的第三方包必须声明 devDependencies 并列入 onlyBundle 名单。
 - `tsdown.config.ts` 的 `id` 必须恒等于 package.json `name`——它是 client bundle 的注册键，不一致则无法匹配注册。
 - 平台包一律 `"catalog:"` 引用、升级只改 `pnpm-workspace.yaml` 的 catalog 一处；插件不声明 `peerDependencies`，`engines.dsh` 必须写**字面 semver range**，不能用 `catalog:`。
+- 模型工具产物按 output schema 强校验——宿主管道缺字段整个调用直接失败：新增 / 修改工具必须同步 schema 与该插件单测的形状走查器。
 - 用户可见文案只走宿主 locale 服务，插件不自建语言状态；`settings.section` 导航 label 必须是 **thunk**（写 `label: t('…')` 会在注册时定格）。
 - 组件间传 `t` 用窄类型 `TranslateNS<typeof NS>`，不用宽域 `Translate`（函数参数逆变，窄域不可赋给宽域）。
 - patch 文件编辑一律保留用户注释与无关行（行级 round-trip），不走字符串拼接重建；patch 行 `config` 是整体替换、不做深合并。

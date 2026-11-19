@@ -12,7 +12,6 @@ Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Serve
 
 - 命令 handler 禁止网络调用——它是人类直达通道，不是模型代理。
 - 新增工具必须同步定义 output schema、render、presentationMeta 与卡片（kind 判别 + client 守卫），四件套缺一卡片就静默回落通用卡。
-- 宿主管道对工具产物按 output schema 强校验，缺字段整个调用直接失败——新增工具必须把 execute 产物纳进单测形状走查器。
 
 ## 生效链路
 

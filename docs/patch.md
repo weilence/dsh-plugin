@@ -6,6 +6,5 @@
 
 直接编辑 patch 的插件共用这一机制：
 
-- 写入目标是两层用户 patch：profile 层 `<profile>/cordis.patch.yml` 与 home 层 `$DSH_HOME/cordis.patch.yml`，按官方语义 fold（后层覆盖前层；bundle / `--patch` 引入的行只读）；patch 行的 `config` 是整体替换，不做深合并。
-- patch 文件编辑一律保留用户注释与无关行（Document / 行级 round-trip），不走字符串拼接重建。
+- 写入目标是两层用户 patch：profile 层 `<profile>/cordis.patch.yml` 与 home 层 `$DSH_HOME/cordis.patch.yml`，按官方语义 fold（后层覆盖前层；bundle / `--patch` 引入的行只读）。
 - 生效链路：写盘 → HMR patch watcher 在线重整，宿主未启用 HMR 时需重启；写操作后面板补偿刷新两次（约 1.2s / 4s），覆盖 watcher → 重挂载的窗口期。

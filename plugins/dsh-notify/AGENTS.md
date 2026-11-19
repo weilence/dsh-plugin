@@ -4,7 +4,6 @@
 
 ## 实现约束
 
-- host half 接近 no-op 也不得删插件行——client bundle 进 boot 依赖宿主已激活的插件行（机制见根 [docs/architecture.md](../../docs/architecture.md)）。
 - 提问 / 审批监听必须走 `sessionStatus` 汇聚点，直接 `$on` waterfall 事件收不到（缘由见 [docs/behavior.md](docs/behavior.md)）。
 - spawn `dsh://open` 前必须从子进程环境清掉 `ELECTRON_RUN_AS_NODE`，否则 Electron 以纯 Node 模式启动、不解析协议参数（详见 [docs/behavior.md](docs/behavior.md)）。
 
