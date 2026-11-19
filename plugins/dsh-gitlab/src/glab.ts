@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { GlabStatusView } from './shared'
 
@@ -156,7 +155,12 @@ export function glabCandidates(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
 ): GlabResolution[] {
-  const exe = platform === 'win32' ? 'glab.exe' : 'glab'
+  // 分隔符跟随请求平台：node:path 的 join/delimiter 跟随宿主平台，Windows 宿主上
+  // 解析 darwin/linux 语义会拼出反斜杠路径（候选要回显给用户）。惯例位置是固定的
+  // POSIX 路径，恒用 / 拼接；PATH 条目按请求平台的分隔符拆分与拼接。
+  const win32 = platform === 'win32'
+  const exe = win32 ? 'glab.exe' : 'glab'
+  const joinExe = (dir: string, sep: '/' | '\\'): string => `${dir.replace(/[\\/]+$/, '')}${sep}${exe}`
   const seen = new Set<string>()
   const result: GlabResolution[] = []
   const add = (entry: GlabResolution): void => {
@@ -166,11 +170,11 @@ export function glabCandidates(
   }
   if (configured !== undefined && configured.trim() !== '') add({ path: configured.trim(), bare: false })
   for (const dir of ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin']) {
-    add({ path: join(dir, exe), bare: false })
+    add({ path: joinExe(dir, '/'), bare: false })
   }
-  for (const dir of (env.PATH ?? '').split(delimiter)) {
+  for (const dir of (env.PATH ?? '').split(win32 ? ';' : ':')) {
     const trimmed = dir.trim()
-    if (trimmed !== '') add({ path: join(trimmed, exe), bare: false })
+    if (trimmed !== '') add({ path: joinExe(trimmed, win32 ? '\\' : '/'), bare: false })
   }
   add({ path: exe, bare: true })
   return result
