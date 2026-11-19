@@ -6,9 +6,6 @@ import { zstdCompress } from 'node:zlib'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { HttpError } from '@dsh-plugins/shared/http'
-import { runBatch } from '../src/batch'
-import { deleteSessionCascade } from '../src/delete'
 import { migrateSession } from '../src/move'
 import { migratePreset } from '../src/preset'
 import { encodeIdSegment, encodeProjectKey, readSessionArtifactFile } from '../src/surgery'
@@ -153,70 +150,6 @@ function workspaceEntity(fixture: Fixture, id: string, canonicalPath: string): W
   }
   return entity
 }
-
-describe.each([false, true])('级联删除（zstd=%s）', (zstd) => {
-  let f: Fixture
-  let root: string
-  let oldCwd: string
-
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-sessions-delete-'))
-    oldCwd = join(root, 'old-ws')
-    await mkdir(oldCwd)
-    f = makeFixture(true)
-    ;(f.stored as unknown as { __root?: string }).__root = root
-    await writeArtifact(root, 'root', oldCwd, [eventLine('user/message', {}, 0)], zstd)
-    await writeArtifact(root, 'child1', oldCwd, [], zstd)
-    await writeArtifact(root, 'child1a', oldCwd, [], zstd)
-    await writeArtifact(root, 'other', oldCwd, [eventLine('user/message', {}, 0)], zstd)
-    f.stored.set('root', { header: headerOf('root', oldCwd), formatStatus: 'current' })
-    f.stored.set('child1', {
-      header: headerOf('child1', oldCwd, { origin: 'subagent', parentSession: 'root' }),
-    })
-    f.stored.set('child1a', {
-      header: headerOf('child1a', oldCwd, { origin: 'subagent', parentSession: 'child1' }),
-    })
-    f.stored.set('other', { header: headerOf('other', oldCwd), formatStatus: 'current' })
-  })
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true })
-  })
-
-  it('后代逆序级联删除，无关会话保留、账本与归档条目清理', async () => {
-    const result = await deleteSessionCascade(f.ctx, root, 'root')
-    expect(result).toEqual({
-      filesRemoved: true,
-      archiveCleared: true,
-      deletedSubagents: ['child1a', 'child1'],
-    })
-    for (const id of ['root', 'child1', 'child1a']) {
-      await expect(exists(join(root, encodeProjectKey(oldCwd), encodeIdSegment(id)))).resolves.toBe(false)
-    }
-    await expect(exists(join(root, encodeProjectKey(oldCwd), encodeIdSegment('other')))).resolves.toBe(true)
-    expect(f.registry.unarchiveSession).toHaveBeenCalledTimes(3)
-  })
-
-  it('谱系扫描失败即拒绝，不动任何文件', async () => {
-    ;(f.ctx.sessionPersistence.list as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('disk offline'),
-    )
-    await expect(deleteSessionCascade(f.ctx, root, 'root')).rejects.toThrow('disk offline')
-    await expect(exists(join(root, encodeProjectKey(oldCwd), encodeIdSegment('root')))).resolves.toBe(true)
-  })
-
-  it('任一后代已加载或活跃即整体拒绝', async () => {
-    f.live.add('child1')
-    await expect(deleteSessionCascade(f.ctx, root, 'root')).rejects.toThrow('仍加载在宿主内存中')
-    f.live.delete('child1')
-    f.activity.set('child1a', [{ kind: 'turn' }])
-    await expect(deleteSessionCascade(f.ctx, root, 'root')).rejects.toThrow('仍有进行中的活动')
-    await expect(exists(join(root, encodeProjectKey(oldCwd), encodeIdSegment('child1a')))).resolves.toBe(true)
-  })
-
-  it('无效会话 id 拒绝', async () => {
-    await expect(deleteSessionCascade(f.ctx, root, '../escape')).rejects.toThrow(HttpError)
-  })
-})
 
 describe.each([false, true])('原地迁移（zstd=%s）', (zstd) => {
   let f: Fixture
@@ -415,94 +348,5 @@ describe('预设迁移', () => {
     await expect(migratePreset(f.ctx, root, { sessionId: 'root', toPreset: 'coder' })).rejects.toThrow(
       '仍加载在宿主内存中',
     )
-  })
-})
-
-describe('批量编排', () => {
-  let f: Fixture
-  let root: string
-  let oldCwd: string
-
-  beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), 'dsh-sessions-batch-'))
-    oldCwd = join(root, 'old-ws')
-    await mkdir(oldCwd)
-    f = makeFixture(true)
-    ;(f.stored as unknown as { __root?: string }).__root = root
-    for (const [id, extra] of [
-      ['root', {}],
-      ['child1', { origin: 'subagent', parentSession: 'root' }],
-      ['other', {}],
-    ] as const) {
-      await writeArtifact(root, id, oldCwd, [eventLine('user/message', {}, 0)], false)
-      f.stored.set(id, { header: headerOf(id, oldCwd, extra), formatStatus: 'current' })
-    }
-  })
-  afterEach(async () => {
-    await rm(root, { recursive: true, force: true })
-  })
-
-  it('删除级联去重：父子同批时后到者标记 cascaded，只执行一次主删除', async () => {
-    const items = await runBatch(f.ctx, root, {
-      action: 'delete',
-      sessionIds: ['root', 'child1'],
-    })
-    expect(items).toEqual([
-      {
-        sessionId: 'root',
-        ok: true,
-        result: { filesRemoved: true, archiveCleared: true, deletedSubagents: ['child1'] },
-      },
-      { sessionId: 'child1', ok: true, cascaded: true },
-    ])
-  })
-
-  it('单项失败不中断后续，失败项携带原始原因', async () => {
-    f.live.add('child1')
-    const items = await runBatch(f.ctx, root, {
-      action: 'delete',
-      sessionIds: ['child1', 'other'],
-    })
-    expect(items[0]!.ok).toBe(false)
-    if (!items[0]!.ok) expect(items[0]!.error).toContain('仍加载在宿主内存中')
-    expect(items[1]).toMatchObject({ sessionId: 'other', ok: true })
-    await expect(exists(join(root, encodeProjectKey(oldCwd), encodeIdSegment('other')))).resolves.toBe(false)
-  })
-
-  it('请求去重：重复 id 只执行一次', async () => {
-    const items = await runBatch(f.ctx, root, {
-      action: 'delete',
-      sessionIds: ['other', 'other', 'other'],
-    })
-    expect(items).toHaveLength(1)
-    expect(items[0]).toMatchObject({ sessionId: 'other', ok: true })
-  })
-
-  it('空数组、超上限、未知动作与缺失 payload 显式拒绝', async () => {
-    await expect(runBatch(f.ctx, root, { action: 'delete', sessionIds: [] })).rejects.toThrow('非空数组')
-    await expect(
-      runBatch(f.ctx, root, { action: 'delete', sessionIds: Array.from({ length: 201 }, (_, i) => `s${i}`) }),
-    ).rejects.toThrow('200 条')
-    await expect(
-      runBatch(f.ctx, root, { action: 'explode' as 'delete', sessionIds: ['root'] }),
-    ).rejects.toThrow('action 不支持')
-    await expect(runBatch(f.ctx, root, { action: 'migrate', sessionIds: ['root'] })).rejects.toThrow(
-      'workspaceId',
-    )
-    await expect(runBatch(f.ctx, root, { action: 'preset', sessionIds: ['root'] })).rejects.toThrow(
-      'toPreset',
-    )
-  })
-
-  it('批量预设逐项执行并逐项返回', async () => {
-    const items = await runBatch(f.ctx, root, {
-      action: 'preset',
-      sessionIds: ['root', 'other'],
-      payload: { toPreset: 'writer' },
-    })
-    expect(items).toEqual([
-      { sessionId: 'root', ok: true, result: { migrated: true, oldPreset: undefined, newPreset: 'writer' } },
-      { sessionId: 'other', ok: true, result: { migrated: true, oldPreset: undefined, newPreset: 'writer' } },
-    ])
   })
 })

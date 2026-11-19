@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Sessions",
-    "description": "Import DSH ZIPs with session logs, child sessions and attachments, search, restore or permanently delete archived sessions on the current instance from the Sessions panel, and migrate sessions between workspaces from the sidebar session menu."
+    "description": "From the sidebar session row menu, migrate a session in place to another workspace or migrate its Agent preset."
   }
 }

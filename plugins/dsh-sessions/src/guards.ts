@@ -1,7 +1,7 @@
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute, parse } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionActivity } from '@deepseek-ai/dsh-workspace'
@@ -36,7 +36,10 @@ export async function targetCwd(cwd: string): Promise<string> {
 
 /** 已加载的会话由宿主持有活内存态与追加路径，绕过它做磁盘手术会制造僵尸写入；一律拒绝。 */
 export function assertNotLoaded(ctx: Context, id: SessionId): void {
-  if (ctx.sessions.get(id) !== undefined) {
+  // host 进程的 ctx.sessions 就是官方 SessionStore；类型面与客户端 ISessions 经同名声明合并
+  // 相遇，实际归属取决于声明进入程序的顺序。这里显式按宿主侧类型取用，不依赖该顺序。
+  const store = ctx.sessions as unknown as Pick<SessionStore, 'get'>
+  if (store.get(id) !== undefined) {
     throw new HttpError(409, `会话「${id}」仍加载在宿主内存中，请重启宿主或关闭该会话后重试`)
   }
 }

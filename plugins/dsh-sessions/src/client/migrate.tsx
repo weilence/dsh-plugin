@@ -1,49 +1,18 @@
 /**
- * 会话行「迁移到工作区」：菜单条目发起请求，shell.overlay 常驻条目持有弹窗——
- * 行随菜单关闭而卸载，弹窗必须挂在行外；两者经本模块的桥共享请求。
+ * 「迁移到工作区」弹窗：shell.overlay 常驻条目持有弹窗——
+ * 行随菜单关闭而卸载，弹窗必须挂在行外；请求经 requests 桥送达。
  */
 import { useRef, useState, useSyncExternalStore } from 'react'
-import { Button, MenuItemButton, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type { SessionId } from '@deepseek-ai/dsh-session'
 import { errMsg } from '@dsh-plugins/shared'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { migrateSessionToWorkspace } from './api'
 import { messageText, NS, type Message, type SessionsT } from './locales'
+import type { RequestsBridge, SessionDialogRequest } from './requests'
 import localStyles from '../client.module.css'
 
 const styles = { ...sharedStyles, ...localStyles }
-
-export interface MigrateTarget {
-  sessionId: SessionId
-  title: string
-}
-
-export function createMigrateBridge() {
-  let request: MigrateTarget | null = null
-  const listeners = new Set<() => void>()
-  return {
-    subscribe: (listener: () => void) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-    get: () => request,
-    open: (target: MigrateTarget) => {
-      request = target
-      listeners.forEach((listener) => listener())
-    },
-    close: () => {
-      request = null
-      listeners.forEach((listener) => listener())
-    },
-  }
-}
-
-export type MigrateBridge = ReturnType<typeof createMigrateBridge>
 
 /** 与官方设置份额 useWorkspaces 同一只读口径的钩子工厂，经注入面携带。 */
 export function workspaceSnapshotHook(workspaces: IWorkspaces): () => WorkspaceSnapshot {
@@ -54,73 +23,23 @@ export function workspaceSnapshotHook(workspaces: IWorkspaces): () => WorkspaceS
     )
 }
 
-export interface MigrateMenuItemInjected {
-  requestMigrate: (target: MigrateTarget) => void
-}
-type MigrateMenuItemProps = PropsRuntime<'sidebar.workspaces.session.menu.item'> &
-  PropsLocale<typeof NS> &
-  InjectFace<MigrateMenuItemInjected>
-
-export function MigrateMenuItem({
-  sessionId,
-  displayTitle,
-  useMenuOpenState,
-  requestMigrate,
-  t,
-}: MigrateMenuItemProps) {
-  const [, setMenuOpen] = useMenuOpenState()
-  return (
-    <MenuItemButton
-      separatorBefore
-      onSelect={() => {
-        setMenuOpen(false)
-        requestMigrate({ sessionId, title: displayTitle })
-      }}
-    >
-      {t('migrate')}
-    </MenuItemButton>
-  )
-}
-
+/** shell.overlay 注入面里迁移弹窗需要的份额；弹窗分发宿主见 dialogs.tsx。 */
 export interface MigrateDialogInjected {
-  bridge: MigrateBridge
+  bridge: RequestsBridge
   // 命名避开全局标准席位的 useWorkspaces 选择器钩子，注入面保持自有事实源。
   useWorkspaceList: () => WorkspaceSnapshot
   refreshSessions: () => Promise<void>
 }
-type MigrateDialogEntryProps = PropsRuntime<'shell.overlay'> &
-  PropsLocale<typeof NS> &
-  InjectFace<MigrateDialogInjected>
-
-export function MigrateDialogEntry({
-  bridge,
-  useWorkspaceList,
-  refreshSessions,
-  t,
-}: MigrateDialogEntryProps) {
-  const request = useSyncExternalStore(bridge.subscribe, bridge.get)
-  if (request === null) return null
-  return (
-    <MigrateDialog
-      key={request.sessionId}
-      t={t}
-      target={request}
-      useWorkspaceList={useWorkspaceList}
-      refreshSessions={refreshSessions}
-      onClose={bridge.close}
-    />
-  )
-}
 
 type MigrateDialogProps = {
   t: SessionsT
-  target: MigrateTarget
+  target: Pick<SessionDialogRequest, 'sessionId' | 'title'>
   useWorkspaceList: () => WorkspaceSnapshot
   refreshSessions: () => Promise<void>
   onClose: () => void
 }
 
-function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }: MigrateDialogProps) {
+export function MigrateDialog({ t, target, useWorkspaceList, refreshSessions, onClose }: MigrateDialogProps) {
   const snapshot = useWorkspaceList()
   const [workspaceId, setWorkspaceId] = useState('')
   const [busy, setBusy] = useState(false)

@@ -53,7 +53,8 @@
 
 - `ctx.remoteTransport` 复用唯一引擎注册，共享契约在 `@dsh-plugins/shared/remote`；只公开连接清单及会话预览 / 导入两条 POST。
 - 每次请求经已连接隧道的启动 token 换取 authority 绑定 Cookie（复用 `exchangeTunnelCookie`）；接收路由仍须宿主认证与 `x-dsh-sessions` 标记；不持久化 Cookie、不跟随跳转，连接变化或提交结果不明时要求重新预览。
-- 会话档案与面板由 dsh-sessions 管理；会话迁移只新增或跳过一致内容，不采用环境同步的覆盖语义。
+- 会话档案由 dsh-sessions 管理；会话迁移只新增或跳过一致内容，不采用环境同步的覆盖语义。
+- 陷阱：接收端是 dsh-sessions 的导入路由，而 dsh-sessions 已移除 ZIP 导入域——通道当前没有可用接收端，跨机会话迁移停用；通道代码按「受限转发」语义保留，导入域恢复时即恢复可用，不要为此放宽路径白名单。
 
 ## 陷阱（连接与隧道）
 
