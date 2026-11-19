@@ -40,7 +40,7 @@ const reasonOf = (error: unknown): string => (error instanceof Error ? error.mes
 
 /**
  * 面板 store：只持事实，一次性操作反馈（保存 / 删除，事件时间取词）经 notices
- * 通道送面板显示——无订阅者（分区未挂载）即丢弃，重开设置页不重放旧 Toast。
+ * 通道送面板显示——无订阅者（分区未挂载）即丢弃，重开详情页不重放旧 Toast。
  */
 export class GitlabStore {
   private state: PanelState = INITIAL

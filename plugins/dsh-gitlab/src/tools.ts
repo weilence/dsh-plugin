@@ -31,7 +31,8 @@ export function buildTools(deps: ToolDeps) {
       },
       site: {
         type: 'string',
-        description: '站点名（设置页中的站点名）；缺省按当前工作区唯一命中自动选站，再落默认站点或唯一站点',
+        description:
+          '站点名（插件详情页配置的站点名）；缺省按当前工作区唯一命中自动选站，再落默认站点或唯一站点',
       },
       cwd: {
         type: 'string',

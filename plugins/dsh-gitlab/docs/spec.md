@@ -4,7 +4,7 @@
 
 ## 插件定位
 
-- 设置页「GitLab」插件：多站点连接管理 + 一个 `glab` CLI 透传模型工具。用常驻成本约 200 token 的单工具替代 GitLab MCP 约 2 万 token 的几十个工具 schema，能力经 glab 全量覆盖（`glab api` 可达任意 REST / GraphQL 端点）。
+- 插件详情页配置分区「GitLab」：多站点连接管理 + 一个 `glab` CLI 透传模型工具。用常驻成本约 200 token 的单工具替代 GitLab MCP 约 2 万 token 的几十个工具 schema，能力经 glab 全量覆盖（`glab api` 可达任意 REST / GraphQL 端点）。
 - 插件不代管凭据：站点只存根地址，认证走用户自己的 glab 登录态（keyring / 配置文件 / 用户自己的 `GITLAB_TOKEN` 环境变量均可）；执行时 env 只注入 `GITLAB_HOST` 选站。
 - HTTP 层走 `@dsh-plugins/shared/http` 的同源请求约束（回环 Host 校验、`sec-fetch-site` 跨站拒绝、请求体上限）；读取走 `@dsh-plugins/shared` 的 errMsg，host↔client wire 类型集中在 `src/shared.ts`。
 
@@ -15,7 +15,7 @@
 - `src/sites.ts`：站点注册表。站点元数据存本插件行 config（`configEditor.configuration()` 现读——profile 覆盖非空以覆盖为准，写入走 `ctx.configEditor.edit`）；`glabPath` 可选配置指定二进制路径。`normalizeSites` 把非法行降级为 problems 不炸整表；`chooseSite` 选站顺序见下节。
 - `src/glab.ts`：spawn 层——`runGlab`（argv 直传不经 shell、`BoundedCapture` 头尾各 16K 有界捕获、StringDecoder 防多字节截断、超时 SIGKILL 并销毁 stdio 流后返回部分产物置 timedOut、调用方取消原样抛 AbortError）、`displayCommand`（产物展示用的 argv 引号化）、`glabCandidates`（候选解析顺序见 docs/traps.md）、`resolveGlabStatus`（首个可执行候选 + 版本探测）。
 - `src/tools.ts`：`defineTool` × 1（`glab`）。工具描述内置子命令速查与 `glab api` 兜底指引；参数 args / site / cwd / timeoutSec（1–300，缺省 60，超最大值进程超时外层留 10s 收尾余量）；output schema 含 site / command / exitCode / stdout / stderr / truncated / timedOut / durationMs；产物经一次 JSON 往返剔除 undefined；**无 presentationMeta**——单工具产物走宿主通用卡（取舍见 docs/decisions.md）。
-- `src/client.tsx`：client apply。settings.section（order 43）+ cwd 上报桥（sessions.list 快照 → `/dsh-gitlab/cwd`，上报失败静默、list 请求带 cwd 兜底）。无工具卡片。
+- `src/client.tsx`：client apply。plugins.bundle.config（keyed 包名，自家插件详情页配置分区）+ cwd 上报桥（sessions.list 快照 → `/dsh-gitlab/cwd`，上报失败静默、list 请求带 cwd 兜底）。无工具卡片。
 - `src/client/`：`locales.ts`（NS `dsh-gitlab`，zh 键集事实源）、`api.ts`（bridge client，自定义头 `x-dsh-gitlab`）、`store.ts`（useSyncExternalStore 三件套 + `NoticeRelay` 操作反馈通道）、`SitesSection.tsx`（glab 状态行 + 站点卡片 + 行内表单 + 测试结果 + ConfirmDialog + NoticeToast；取消 / 关闭 / 删除 / 保存用宿主 common 词条）。
 
 ## 站点模型与选站
@@ -33,8 +33,8 @@
 
 ## 面板行为语义
 
-- 分区三段式：Panel 标题 → subtitle（配置与认证说明）→ 内容；挂载期间经 `useWideSettingsDialog()` 加宽官方设置弹窗，卸载即还原。
+- 挂 `plugins.bundle.config` 槽位（插件详情页，描述与 rows 之间）：页面头部已是插件名与描述，`Panel` 整体无头部（根 docs/panel.md 例外条款）；详情页是全宽主面板，不再走 `useWideSettingsDialog()`。
 - 顶部 glab 状态行：探测到显示路径与版本；未找到显示安装与 `glabPath` 指引 + 刷新按钮（重探测入口常驻）。
 - 站点为可展开卡片：行内新建 / 编辑表单（名称 / 地址 / 关联工作区 / 默认站点勾选），提交校验（slug 重名、URL 形态）失败行内常驻；「测试连接」逐行执行 `testSite`，结果按站点名归档展示。
-- 一次性操作反馈（保存 / 删除成功）走 `@dsh-plugins/client-ui` 通知套件：store 持 `NoticeRelay`（文案事件时间取词 emit），面板经 `useNotice` + `NoticeToast` 显示——分区未挂载即丢弃，重开设置页不重放旧 toast。
+- 一次性操作反馈（保存 / 删除成功）走 `@dsh-plugins/client-ui` 通知套件：store 持 `NoticeRelay`（文案事件时间取词 emit），面板经 `useNotice` + `NoticeToast` 显示——分区未挂载即丢弃，重开详情页不重放旧 toast。
 - 无效配置行（problems）在列表上方常驻展示，指引到 cordis.patch.yml 修正。

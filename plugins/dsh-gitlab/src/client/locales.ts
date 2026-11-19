@@ -10,10 +10,6 @@ export type GitlabT = TranslateNS<typeof NS>
 
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
-  'section.label': 'GitLab',
-  'panel.subtitle':
-    '配置 GitLab 站点连接并检查 glab CLI 环境：保存后 glab 工具即可使用。认证使用你自己的 glab 登录态（glab auth login），插件不代存 token；「测试连接」验证认证是否有效。',
-
   'action.new': '新建站点',
   'action.refresh': '刷新',
   'action.edit': '编辑',
@@ -62,10 +58,6 @@ export const zh = {
 export type GitlabKey = keyof typeof zh
 
 export const en: { [Key in GitlabKey]: string } = {
-  'section.label': 'GitLab',
-  'panel.subtitle':
-    'Configure GitLab site connections and check the glab CLI environment: once saved, the glab tool becomes available. Authentication uses your own glab login (glab auth login); the plugin never stores tokens. "Test connection" verifies whether your auth works.',
-
   'action.new': 'New site',
   'action.refresh': 'Refresh',
   'action.edit': 'Edit',

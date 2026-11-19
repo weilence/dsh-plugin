@@ -234,7 +234,7 @@ export function createSitesManager(ctx: Context, options: SitesManagerOptions = 
     requireSite(name) {
       const { sites: current } = normalizeSites(readRow(ctx).sites)
       if (current.length === 0) {
-        throw new HttpError(409, '未配置任何 GitLab 站点：请到设置页添加站点')
+        throw new HttpError(409, '未配置任何 GitLab 站点：请在插件详情页添加站点')
       }
       return chooseSite(current, { name, workspaceCwd }, { caseInsensitive })
     },

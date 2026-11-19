@@ -51,7 +51,7 @@ export async function apply(ctx: Context, options: ApplyOptions = {}): Promise<v
       requireSite: (name) => sites.requireSite(name),
       glabPath: () => {
         const path = sites.glabStatus().path
-        if (path === null) throw new Error('glab 可执行文件不可用：请到设置页查看 GitLab 分区的 glab 状态')
+        if (path === null) throw new Error('glab 可执行文件不可用：请在插件详情页查看 glab 状态')
         return path
       },
     }).map((tool) => ctx.tools.register(tool, { when: () => sites.usable() }))

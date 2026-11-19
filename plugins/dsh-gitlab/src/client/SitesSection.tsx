@@ -1,15 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Button, Checkbox } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  ConfirmDialog,
-  NoticeToast,
-  Panel,
-  Pill,
-  TextField,
-  useNotice,
-  useWideSettingsDialog,
-} from '@dsh-plugins/client-ui'
+import { ConfirmDialog, NoticeToast, Panel, Pill, TextField, useNotice } from '@dsh-plugins/client-ui'
 import { SITE_NAME_PATTERN, type SiteDraft, type SiteView } from '../shared'
 import { NS, type GitlabT } from './locales'
 import styles from './SitesSection.module.css'
@@ -19,7 +11,7 @@ export interface GitlabSectionInjected {
   store: GitlabStore
 }
 
-export type SitesSectionProps = PropsRuntime<'settings.section'> &
+export type SitesSectionProps = PropsRuntime<'plugins.bundle.config'> &
   PropsLocale<typeof NS> &
   InjectFace<GitlabSectionInjected>
 
@@ -72,8 +64,6 @@ const BLANK_SITE: SiteView = { name: '', url: '' }
 
 export function SitesSection(props: SitesSectionProps) {
   const { store, t } = props
-  // 官方设置弹窗固定 800×800 且无尺寸 API：本分区挂载期间加宽，卸载即还原。
-  useWideSettingsDialog()
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [deleting, setDeleting] = useState<SiteView | null>(null)
@@ -81,7 +71,7 @@ export function SitesSection(props: SitesSectionProps) {
   useEffect(() => {
     void store.refresh()
   }, [store])
-  // 一次性操作反馈：订阅对齐分区挂载 / 卸载，重开设置页不重放旧 toast。
+  // 一次性操作反馈：订阅对齐分区挂载 / 卸载，重开详情页不重放旧 toast。
   const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
 
   const view = state.view
@@ -91,8 +81,9 @@ export function SitesSection(props: SitesSectionProps) {
     setEditing(editing?.mode === 'new' ? null : { mode: 'new' })
   }
 
+  // 插件详情页的页面头部已是插件名与描述，Panel 整体无头部（根 docs/panel.md 例外条款）。
   return (
-    <Panel subtitle={t('panel.subtitle')}>
+    <Panel>
       <GlabStatusLine
         status={view?.glab}
         loading={state.loading}

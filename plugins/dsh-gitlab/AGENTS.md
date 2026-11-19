@@ -1,6 +1,6 @@
 # @weilence/dsh-gitlab
 
-设置页「GitLab」插件。定位是替代 GitLab MCP 的全量工具注入：host half spawn glab CLI（认证外包给用户自己的 glab 登录态，插件只注入 GITLAB_HOST 选站），注册一个 `glab` 透传模型工具；client half 提供站点设置面板（含 glab 环境探测与认证测试）。全仓约定（双 half、多语言、面板原语、测试分层）见根 AGENTS.md 文档索引。
+插件详情页配置面板「GitLab」。定位是替代 GitLab MCP 的全量工具注入：host half spawn glab CLI（认证外包给用户自己的 glab 登录态，插件只注入 GITLAB_HOST 选站），注册一个 `glab` 透传模型工具；client half 在插件详情页提供站点配置面板（含 glab 环境探测与认证测试）。全仓约定（双 half、多语言、面板原语、测试分层）见根 AGENTS.md 文档索引。
 
 ## 实现约束
 
