@@ -1,8 +1,8 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only：settings.section / tool.call.toolview 槽位契约与 ctx.slots /
+// Type-only：plugins.bundle.config / tool.call.toolview 槽位契约与 ctx.slots /
 // ctx.locale / ctx.sessions 的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
@@ -35,9 +35,6 @@ export const inject: string[] = [
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-atlassian: copy dictionaries')
-  // 导航 label thunk 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
-  // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
-  const t = ctx.locale.bind(NS)
   const store = new AtlassianStore()
   const injected: AtlassianSectionInjected = { store }
 
@@ -62,13 +59,13 @@ export function apply(ctx: ClientContext): void {
   report()
   ctx.effect(() => ctx.sessions.list.subscribe(report), 'dsh-atlassian: workspace cwd bridge')
 
-  ctx.slots.inject('settings.section', () => {
+  // 面板挂自家 bundle 详情页（keyed by 包名）：装了插件点开卡片即见面板，
+  // 不再占设置页一级导航。
+  ctx.slots.inject('plugins.bundle.config', () => {
     return ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'dsh-atlassian',
-        order: 42,
-        label: () => t('section.label'),
+        name: 'plugins.bundle.config',
+        key: '@weilence/dsh-atlassian',
         locale: NS,
         inject: () => injected,
       },

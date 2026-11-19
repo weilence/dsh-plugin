@@ -71,7 +71,7 @@ export function buildTools(deps: ToolDeps, options: ToolOptions = {}) {
       site: {
         type: 'string',
         description:
-          '站点名（设置页中的站点名）；缺省时按 JQL 里的项目键自动匹配唯一站点，再落默认站点或唯一站点',
+          '站点名（插件详情页配置的站点名）；缺省时按 JQL 里的项目键自动匹配唯一站点，再落默认站点或唯一站点',
       },
       limit: { type: 'integer', description: `返回条数上限（1-${JIRA_SEARCH_LIMIT_MAX}，缺省 15）` },
     },

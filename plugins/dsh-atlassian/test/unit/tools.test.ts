@@ -114,7 +114,7 @@ describe('buildTools', () => {
   it('requireSite 的失败（未配站点）直接上抛为工具失败', async () => {
     const [search] = buildTools({
       requireSite: () => {
-        throw new Error('未配置任何 Atlassian 站点：请到设置页添加站点并配置 token')
+        throw new Error('未配置任何 Atlassian 站点：请在插件详情页添加站点并配置 token')
       },
       jiraTokenOf: async () => 'tok',
       confluenceTokenOf: async () => 'tok',

@@ -9,7 +9,6 @@ import {
   SelectField,
   TextField,
   useNotice,
-  useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import {
   PROJECT_KEY_PATTERN,
@@ -27,7 +26,7 @@ export interface AtlassianSectionInjected {
   store: AtlassianStore
 }
 
-export type SitesSectionProps = PropsRuntime<'settings.section'> &
+export type SitesSectionProps = PropsRuntime<'plugins.bundle.config'> &
   PropsLocale<typeof NS> &
   InjectFace<AtlassianSectionInjected>
 
@@ -155,8 +154,6 @@ const BLANK_SITE: SiteView = {
 
 export function SitesSection(props: SitesSectionProps) {
   const { store, t } = props
-  // 官方设置弹窗固定 800×800 且无尺寸 API：本分区挂载期间加宽，卸载即还原。
-  useWideSettingsDialog()
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [editing, setEditing] = useState<Editing | null>(null)
   const [deleting, setDeleting] = useState<SiteView | null>(null)
@@ -173,8 +170,9 @@ export function SitesSection(props: SitesSectionProps) {
     setEditing(editing?.mode === 'new' ? null : { mode: 'new' })
   }
 
+  // 插件详情页的页面头部已是插件名与描述，Panel 整体无头部（根 docs/panel.md 例外条款）。
   return (
-    <Panel subtitle={t('panel.subtitle')}>
+    <Panel>
       <div className={styles.toolbar}>
         <Button variant="primary" disabled={busy} onClick={toggleNew}>
           {t('action.new')}

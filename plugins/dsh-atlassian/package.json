@@ -20,7 +20,6 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-renderer",
-        "@deepseek-ai/dsh-client-ui-settings",
         "@deepseek-ai/dsh-client-ui-tool"
       ]
     }
@@ -72,10 +71,10 @@
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "catalog:",
     "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
     "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
     "@deepseek-ai/dsh-client-ui-session": "catalog:",
-    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
     "@deepseek-ai/dsh-client-ui-tool": "catalog:",
     "@deepseek-ai/dsh-commands": "catalog:",

@@ -4,7 +4,7 @@
 
 ## 插件定位
 
-- Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Server/DC 双形态），注册五个只读模型工具与 `/jira`、`/conf` 命令；client half 提供站点设置面板与 `tool.call.toolview` 工具卡片。
+- Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Server/DC 双形态），注册五个只读模型工具与 `/jira`、`/conf` 命令；client half 在插件详情页提供站点配置面板与 `tool.call.toolview` 工具卡片。
 - M1 范围只读（附件下载到本地缓存是只读链路的一部分）；写操作（评论 + 状态流转）、@ 候选、主面板工作台、事件自动化是后续里程碑，未实现。
 - 面向用户的功能介绍与安装说明见 [README.md](../README.md)。
 
@@ -19,7 +19,7 @@
 - `src/tools.ts`：`defineTool` × 5。output schema 用宿主统一 DSL；产物经一次 JSON 往返剔除 undefined（lossless JSON 要求）；`presentationMeta` 投影卡片事实（kind 判别：jira-issue / jira-attachment / jira-search / confluence-search / confluence-page），持久化在 tool/result 上供卡片回放读取。
 - `src/attachments.ts`：附件本地缓存层——落 `dshCachePath('dsh-atlassian', 'attachments')`（官方 cache 语义：派生数据、可重下、可手删）；`sanitizeFilename` 替换路径分隔符与控制字符防目录穿越；缓存文件名带附件 id 前缀保证唯一（同 id 覆盖即刷新）；tmp + rename 原子落盘；`buildTools(deps, options)` 的 `options.attachmentsRoot` 供测试注入临时目录。
 - `src/commands.ts`：命令语法与装配——`parseJiraLine`（首段匹配工单号形态 → issue，否则整行 free）、`parseConfLine`；命令不带站点参数，站点由配置自动关联（见下方「站点与凭据模型」）；steer 文本模板面向模型（约定工具用法 + 多文档读取要求 + 引用清单格式）；handler 校验失败返回 error 文本，成功 `agent.steer(createUserMessage(...))` 后返回 success 摘要。
-- `src/client.tsx`：client apply——settings.section（order 42）+ 五个 `tool.call.toolview` keyed 注册；`inject` 声明含 `sessions`，订阅官方 `sessions.list` 快照，把主视图会话 cwd（`retainedBy.mainView > 0`）经 `/dsh-atlassian/cwd` 上报 host 并同步进 store（工作区关联事实源；上报失败静默，list 请求携带 cwd 兜底，dsh-mcp 同模式）。
+- `src/client.tsx`：client apply——plugins.bundle.config（keyed 包名，自家插件详情页配置分区）+ 五个 `tool.call.toolview` keyed 注册；`inject` 声明含 `sessions`，订阅官方 `sessions.list` 快照，把主视图会话 cwd（`retainedBy.mainView > 0`）经 `/dsh-atlassian/cwd` 上报 host 并同步进 store（工作区关联事实源；上报失败静默，list 请求携带 cwd 兜底，dsh-mcp 同模式）。
 - `src/client/locales.ts`：本插件词典，命名空间 `dsh-atlassian`；词典组织与注册机制见仓库根 [docs/i18n.md](../../../docs/i18n.md)。
 - `src/client/api.ts`：bridge client，自定义头 `x-dsh-atlassian`（子协议头惯例见仓库根 [docs/architecture.md](../../../docs/architecture.md)）。
 - `src/client/store.ts`：useSyncExternalStore 三件套；store 只持事实，一次性操作反馈经 `notices`（NoticeRelay）通道送面板显示——通知机制见仓库根 [docs/panel.md](../../../docs/panel.md)。

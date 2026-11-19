@@ -10,10 +10,6 @@ export type AtlassianT = TranslateNS<typeof NS>
 
 /** zh 是键集的事实源；en 逐键补全，缺失键在编译期报错。 */
 export const zh = {
-  'section.label': 'Atlassian',
-  'panel.subtitle':
-    '配置 Jira / Confluence 站点连接：保存后 jira_* 与 confluence_* 工具、/jira 与 /conf 命令即可使用。token 存宿主凭据库，不写进配置文件。',
-
   'action.new': '新建站点',
   'action.refresh': '刷新',
   'action.edit': '编辑',
@@ -109,10 +105,6 @@ export const zh = {
 export type AtlassianKey = keyof typeof zh
 
 export const en: { [Key in AtlassianKey]: string } = {
-  'section.label': 'Atlassian',
-  'panel.subtitle':
-    'Configure Jira / Confluence site connections: once saved, the jira_* and confluence_* tools plus the /jira and /conf commands become available. Tokens live in the host credential store, never in config files.',
-
   'action.new': 'New site',
   'action.refresh': 'Refresh',
   'action.edit': 'Edit',

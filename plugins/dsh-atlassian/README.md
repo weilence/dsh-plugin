@@ -4,7 +4,7 @@ DSH Web 插件：把 Jira 与 Confluence 深度接入开发流程——多站点
 
 ## 功能
 
-- **站点与凭据**：设置页「Atlassian」分区管理多站点，两种形态的字段严格分开：
+- **站点与凭据**：在插件详情页的配置面板管理多站点，两种形态的字段严格分开：
   - **Cloud**：一个 Atlassian 站点地址（`atlassianUrl`，如 `https://acme.atlassian.net`，Jira 与 Confluence 同域）+ 账号邮箱 + 一份 API token（两产品共用）；
   - **Server / DC**：Jira 地址（`jiraUrl`）与 Confluence 地址（`confluenceUrl`）**必须分别填写**，token 也各自独立（`jiraTokenRef` 的 Jira PAT、`confluenceTokenRef` 的 Confluence PAT——两个应用的令牌不通用）。
   - 每行站点还可声明项目 / 空间键（`projects`）与关联工作区（`workspaces`，目录绝对路径），多站点时据此自动选站。站点元数据存本插件行 config（用户可在 cordis.patch.yml 手工维护），token 存宿主凭据库（不落配置文件、不回显）；引用名缺省派生：Cloud `ATLASSIAN_<站点名>_TOKEN`、Server `ATLASSIAN_<站点名>_JIRA_TOKEN` / `ATLASSIAN_<站点名>_CONFLUENCE_TOKEN`，也可用同名环境变量兜底。每行站点可单独「测试连接」（Jira / Confluence 各自用各自的凭据探测一次轻量端点）。
@@ -54,4 +54,4 @@ DSH Web 插件：把 Jira 与 Confluence 深度接入开发流程——多站点
 dsh plugin --profile <name> add @weilence/dsh-atlassian
 ```
 
-安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可看到「Atlassian」菜单。
+安装后重启宿主生效；宿主启用 HMR 时刷新页面即可看到「Atlassian」菜单。

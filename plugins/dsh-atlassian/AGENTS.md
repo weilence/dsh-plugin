@@ -1,6 +1,6 @@
 # @weilence/dsh-atlassian
 
-Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Server/DC 双形态），注册五个只读模型工具与 `/jira`、`/conf` 命令，client half 提供站点设置面板与 `tool.call.toolview` 工具卡片。M1 范围只读，附件下载到本地缓存是只读链路的一部分；写操作（评论 + 状态流转）、@ 候选、主面板工作台、事件自动化是后续里程碑，未实现——工具面加任何写能力都超出当前范围。
+Atlassian 集成插件：host half 直连 Jira / Confluence REST（Cloud + Server/DC 双形态），注册五个只读模型工具与 `/jira`、`/conf` 命令，client half 在插件详情页提供站点配置面板与 `tool.call.toolview` 工具卡片。M1 范围只读，附件下载到本地缓存是只读链路的一部分；写操作（评论 + 状态流转）、@ 候选、主面板工作台、事件自动化是后续里程碑，未实现——工具面加任何写能力都超出当前范围。
 
 ## 站点模型
 

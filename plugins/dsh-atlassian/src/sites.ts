@@ -378,7 +378,7 @@ export function createSitesManager(ctx: Context): SitesManager {
     requireSite(name, hint) {
       const { sites } = normalizeSites(readRow(ctx).sites)
       if (sites.length === 0) {
-        throw new HttpError(409, '未配置任何 Atlassian 站点：请到设置页添加站点并配置 token')
+        throw new HttpError(409, '未配置任何 Atlassian 站点：请在插件详情页添加站点并配置 token')
       }
       return chooseSite(sites, { name, hint, workspaceCwd }, { caseInsensitive })
     },
@@ -388,7 +388,7 @@ export function createSitesManager(ctx: Context): SitesManager {
       if (resolved === undefined) {
         throw new HttpError(
           409,
-          `站点「${site.name}」的 Jira token 未配置（凭据 ${ref}：可在设置页填入，或以环境变量提供）`,
+          `站点「${site.name}」的 Jira token 未配置（凭据 ${ref}：可在插件详情页填入，或以环境变量提供）`,
         )
       }
       return resolved.value
@@ -399,7 +399,7 @@ export function createSitesManager(ctx: Context): SitesManager {
       if (resolved === undefined) {
         throw new HttpError(
           409,
-          `站点「${site.name}」的 Confluence token 未配置（凭据 ${ref}：可在设置页填入，或以环境变量提供）`,
+          `站点「${site.name}」的 Confluence token 未配置（凭据 ${ref}：可在插件详情页填入，或以环境变量提供）`,
         )
       }
       return resolved.value
