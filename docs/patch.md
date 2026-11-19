@@ -2,7 +2,7 @@
 
 本文件承载写用户层配置插件共用的 patch 机制；强制约定（round-trip、`config` 整体替换）见根 AGENTS.md「强制约定」。
 
-写用户层配置的插件分两条路径：dsh-mcp（与在远端做同类合并的 dsh-remote）直接编辑两层用户 patch；dsh-zhipu-tools 经宿主 `ctx.configEditor` 写入（文件锁、schema 校验、原子写等由官方保障，见插件内 AGENTS.md）。
+写用户层配置的插件直接编辑两层用户 patch：dsh-mcp，与在远端做同类合并的 dsh-remote（dsh-zhipu-tools 曾经宿主 `ctx.configEditor` 写入，provider 选择回归官方设置页后已不再写用户层配置）。
 
 直接编辑 patch 的插件共用这一机制：
 

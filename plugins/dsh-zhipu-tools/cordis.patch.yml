@@ -2,7 +2,7 @@
 #
 # 安装后（dependencies + dsh.profile.bundles 均含 dsh-zhipu-tools），
 # 启动时 profile boot 会合并本 patch，把插件行插入 host composition。
-# 不改动官方 web 组合：端点地址由面板展示，用户自行填入内置 Web 搜索设置。
+# 不改动官方 web 组合：provider 在官方「网页搜索与获取」设置页点名即生效。
 - insert:
     - id: dsh-zhipu-tools
       name: '@weilence/dsh-zhipu-tools'

@@ -1106,39 +1106,15 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 'catalog:'
         version: 4.1.0(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)
-      '@deepseek-ai/dsh-api-remotes':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-scope@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))
-      '@deepseek-ai/dsh-client-locale':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-plugin-manager':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-renderer':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-client-ui-slots':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-config-editor':
         specifier: 'catalog:'
         version: 0.2.2-rc.5(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-app-boot@0.2.2-rc.5(@deepseek-ai/cordis-plugin-group@1.1.0(@deepseek-ai/cordis-plugin-loader@1.1.0)(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/cordis-plugin-include@1.1.0)(@deepseek-ai/cordis-plugin-loader@1.1.0)(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-home-paths@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0))(@deepseek-ai/dsh-launch-environment@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)))
       '@deepseek-ai/dsh-credentials':
         specifier: 'catalog:'
         version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
-      '@deepseek-ai/dsh-host-webserver':
-        specifier: 'catalog:'
-        version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)
       '@deepseek-ai/dsh-web':
         specifier: 'catalog:'
         version: 0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-llm@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)(@deepseek-ai/dsh-error@0.2.2-rc.5(@deepseek-ai/cordis@4.1.0)))
-      '@dsh-plugins/client-ui':
-        specifier: workspace:*
-        version: link:../../packages/client-ui
       '@dsh-plugins/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -1148,21 +1124,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.3
-      '@types/react':
-        specifier: 'catalog:'
-        version: 18.3.31
-      '@types/react-dom':
-        specifier: 'catalog:'
-        version: 18.3.7(@types/react@18.3.31)
-      lightningcss:
-        specifier: 'catalog:'
-        version: 1.33.0
-      react:
-        specifier: 'catalog:'
-        version: 18.3.1
-      react-dom:
-        specifier: 'catalog:'
-        version: 18.3.1(react@18.3.1)
       tsdown:
         specifier: 'catalog:'
         version: 0.23.0(typescript@7.0.2)

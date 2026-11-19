@@ -18,7 +18,7 @@
 | [dsh-remote](plugins/dsh-remote)               | `@weilence/dsh-remote`      | 设置页「远程开发」：经 SSH 别名 / 密码 / 密钥文件三种登录方式管理远端机上的完整 dsh web 实例——连接（内含远端部署）+ 端口转发后直接打开；表单内可先测试连通性；勾选同步 skills / MCP / 插件，只新增 / 覆盖，永不删除远端内容 |
 | [dsh-sessions](plugins/dsh-sessions/README.md) | `@weilence/dsh-sessions`    | 设置页「会话」：搜索与过滤全部会话（工作区 / 归档状态 / 子会话 / 运行中 / 空白 + 四种排序），行内归档、恢复、原地跨工作区迁移、迁移 Agent 预设与级联删除；导入宿主 ZIP；侧栏会话行「…」菜单可迁移到其他工作区               |
 | [dsh-skills](plugins/dsh-skills)               | `@weilence/dsh-skills`      | 设置页「Skills 管理」：浏览官方注册表合并的技能目录，对项目 / 用户的四个标准技能根新建、编辑、删除技能文件（frontmatter 行级 round-trip，未知字段保留）                                                                     |
-| [dsh-zhipu-tools](plugins/dsh-zhipu-tools)     | `@weilence/dsh-zhipu-tools` | 插件详情页「智谱 Web 搜索」：把智谱联网搜索与网页阅读注册为 `web_search` / `web_fetch` 的可选 provider，开关实时反映并可一键切换（密钥复用智谱凭据）；用量展示由 `dsh-models` 承载                                          |
+| [dsh-zhipu-tools](plugins/dsh-zhipu-tools)     | `@weilence/dsh-zhipu-tools` | 「智谱 Web 搜索」：把智谱联网搜索与网页阅读注册为 `web_search` / `web_fetch` 的可选 provider，在官方「网页搜索与获取」设置页点名即用（密钥复用智谱凭据）；用量展示由 `dsh-models` 承载                                      |
 
 各插件的功能、安装与配置说明见其目录内 README。
 
