@@ -1,6 +1,6 @@
 # @weilence/dsh-mcp
 
-DSH web 插件：在设置页新增「MCP 管理」菜单，以两份 `.mcp.json` 文件（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）为持久化事实源，把其中的 MCP 服务器动态挂载进官方 [mcp-client](https://github.com/deepseek-ai/deepseek-harness/tree/develop/packages/mcp/mcp-client)，并实时展示每个服务器的连接状态与已注册工具。
+DSH web 插件：在侧栏新增「MCP 管理」全局面板，以两份 `.mcp.json` 文件（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）为持久化事实源，把其中的 MCP 服务器动态挂载进官方 [mcp-client](https://github.com/deepseek-ai/deepseek-harness/tree/develop/packages/mcp/mcp-client)，并实时展示每个服务器的连接状态与已注册工具。
 
 ## 功能
 
@@ -10,7 +10,6 @@ DSH web 插件：在设置页新增「MCP 管理」菜单，以两份 `.mcp.json
 - **新建 / 编辑**：表单覆盖两种传输形态的常用键（stdio 的 `command`/`args`/`env`/`cwd` 与 streamable-http 的 `url`/`headers`，及 `toolCallTimeoutMs`、`failOnStartupError`），也支持 JSON 直接粘贴；粘贴按业界标准 MCP JSON（`mcpServers` 包装 / 直接映射 / 单个服务器对象）解析，高级键（`reconnect`、`maxInstructionBytes`）在编辑 JSON 视图中可见可改、原样往返；`disabled` 转换为文件里的行级停用扩展键。服务器名即文件里的键，编辑时锁定（改名 = 删除后新建）。
 - **同名遮蔽**：工作区档与全局档同名时，工作区档生效、全局档标记「被工作区档遮蔽」不挂载（对齐 Claude Code 的项目覆盖语义）；删除工作区档条目后全局档自动恢复。
 - **写盘双保险**：所有写操作携带读取时的文件内容版本做乐观并发，外部修改后冲突（409）提示刷新；文件落盘 tmp+mv 原子替换。JSON 无注释可保，写回统一两空格缩进，键集与键序（含未知键、顶层 `$schema` 等额外键）身份保留。
-- **宽版弹窗**：进入本分区时自动加宽宿主设置弹窗（官方将面板固定为 800×800 且无尺寸 API），切到其他分区即还原，不影响其余设置页。
 
 ## 作用域
 
@@ -37,4 +36,4 @@ DSH web 插件：在设置页新增「MCP 管理」菜单，以两份 `.mcp.json
 dsh plugin --profile <name> add @weilence/dsh-mcp
 ```
 
-安装后重启宿主生效；宿主启用 HMR 时刷新设置页即可看到「MCP 管理」菜单。
+安装后重启宿主生效；宿主启用 HMR 时刷新页面即可看到侧栏「MCP 管理」入口。

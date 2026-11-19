@@ -15,6 +15,7 @@ export {
 export { CardList, type CardListProps } from './CardList'
 export { MetaItem } from './MetaItem'
 export { Panel } from './Panel'
+export { PanelPage } from './PanelPage'
 export { ModelTable, type ModelTableRowData } from './ModelTable'
 export { formatTokenCount } from './format'
 export { Dialog } from './Dialog'

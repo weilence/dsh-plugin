@@ -1,15 +1,20 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-// Type-only：settings.section 槽位契约、ctx.slots / ctx.sessions / ctx.locale 的
-// Context 声明合并。
+// Type-only：main / sidebar.panellist 槽位契约、ctx.slots / ctx.sessions / ctx.locale
+// 的 Context 声明合并。
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
-import { McpSection, type McpSectionInjected } from './client/McpSection'
+import { McpPanelIcon } from './client/McpPanelIcon'
+import { McpPanelPage, type McpPanelInjected } from './client/McpPanelPage'
 import { NS, en, zh } from './client/locales'
 import { McpStore } from './client/store'
 import { mcpApi } from './client/api'
+
+/** 全局面板 id：侧栏入口（sidebar.panellist）与中栏页面（main keyed）同 id 关联。 */
+const MCP_PANEL_ID = 'dsh-mcp'
 
 export const inject: string[] = [
   'slots',
@@ -21,11 +26,11 @@ export const inject: string[] = [
 
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'dsh-mcp: copy dictionaries')
-  // 导航 label thunk 用 apply 域绑定；面板的 t 由注册声明 locale 命名空间获得
-  // 框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
+  // 侧栏入口 label thunk 用 apply 域绑定；页面的 t 由注册声明 locale 命名空间
+  // 获得框架标准 seat（每个语言切换换新引用，memo 组件靠浅比较自动刷新）。
   const t = ctx.locale.bind(NS)
   const store = new McpStore()
-  const injected: McpSectionInjected = { store }
+  const injected: McpPanelInjected = { store }
 
   // 主视图会话的工作目录（官方 sessions.list 快照，随会话列表变化更新）。
   const mainWorkspaceCwd = (): string | undefined => {
@@ -48,17 +53,29 @@ export function apply(ctx: ClientContext) {
   report()
   ctx.effect(() => ctx.sessions.list.subscribe(report), 'dsh-mcp: workspace cwd bridge')
 
-  ctx.slots.inject('settings.section', () => {
-    return ctx.slots.register(
+  // 全局面板：清单页是日常打开的工作面，不占设置页一级导航；点击侧栏入口
+  // 由侧栏外壳调 layout.selectPanel 打开，插件不自管导航。
+  ctx.slots.inject('main', () =>
+    ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'dsh-mcp',
-        order: 41,
-        label: () => t('section.label'),
+        name: 'main',
+        key: MCP_PANEL_ID,
         locale: NS,
-        inject: (): McpSectionInjected => injected,
+        inject: (): McpPanelInjected => injected,
       },
-      McpSection,
-    )
-  })
+      McpPanelPage,
+    ),
+  )
+  ctx.slots.inject('sidebar.panellist', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.panellist',
+        id: MCP_PANEL_ID,
+        order: 20,
+        locale: NS,
+        label: () => t('section.label'),
+      },
+      McpPanelIcon,
+    ),
+  )
 }

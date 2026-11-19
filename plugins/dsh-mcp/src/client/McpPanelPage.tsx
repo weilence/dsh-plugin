@@ -7,10 +7,10 @@ import {
   ExpandableCard,
   NoticeToast,
   Panel,
+  PanelPage,
   SearchBox,
   selectCls,
   useNotice,
-  useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import type { McpRow, McpScope } from '../shared'
 import { endpointOf, transportOf } from '../mcpConfig'
@@ -18,26 +18,23 @@ import { messageText, type McpT, type NS } from './locales'
 import type { McpStore } from './store'
 import { McpServerForm, McpServerView, ToolsDialog } from './McpServerForm'
 import shared from '@dsh-plugins/client-ui/styles'
-import local from './McpSection.module.css'
+import local from './McpPanelPage.module.css'
 
 const styles = { ...shared, ...local }
 
 /** 注册方注入面（client.tsx 装配，slot inject 回调提供）。 */
-export interface McpSectionInjected {
+export interface McpPanelInjected {
   store: McpStore
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
-export type McpSectionProps = PropsRuntime<'settings.section'> &
-  PropsLocale<typeof NS> &
-  InjectFace<McpSectionInjected>
+export type McpPanelPageProps = PropsRuntime<'main'> & PropsLocale<typeof NS> & InjectFace<McpPanelInjected>
 
 const MODE_KEY = 'dsh-mcp/scope-mode'
 
 type ScopeMode = McpScope
 
-export function McpSection(props: McpSectionProps) {
-  useWideSettingsDialog()
+export function McpPanelPage(props: McpPanelPageProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const { notice: actionNotice, dismiss: dismissActionNotice } = useNotice(store.notices)
@@ -194,134 +191,137 @@ export function McpSection(props: McpSectionProps) {
     }
   }
 
+  // 全局面板页壳承载标题与说明；Panel 无头部，只作内容列的纵向间距容器。
   return (
-    <Panel title={t('section.label')} subtitle={t('panel.subtitle')}>
-      {/* 工具行：档位下拉 + 搜索过滤 + 动作按钮，其下紧接列表。 */}
-      <div className={styles.toolbar}>
-        {/* 裸 select：可访问名经 aria-label，省掉堆叠标签的高度。 */}
-        <select
-          className={`${selectCls} ${styles.scopeSelect}`}
-          aria-label={t('scope.label')}
-          value={mode}
-          onChange={(event) => changeMode(event.target.value as ScopeMode)}
-        >
-          <option value="global">{t('list.global')}</option>
-          <option value="workspace" disabled={state.list?.workspacePath == null}>
-            {workspaceName === undefined
-              ? t('list.workspace')
-              : t('list.workspaceNamed', { name: workspaceName })}
-          </option>
-        </select>
-        {state.status === 'ready' ? (
-          <SearchBox
-            className={styles.search}
-            label={t('search.placeholder')}
-            value={filter}
-            onChange={setFilter}
-          />
-        ) : null}
-        <div className={styles.toolbarActions}>
-          <Button
-            variant="primary"
-            disabled={state.status !== 'ready'}
-            onClick={() => {
-              setEditingKey(undefined)
-              setCreating(!creating)
-            }}
+    <PanelPage title={t('section.label')} subtitle={t('panel.subtitle')}>
+      <Panel>
+        {/* 工具行：档位下拉 + 搜索过滤 + 动作按钮，其下紧接列表。 */}
+        <div className={styles.toolbar}>
+          {/* 裸 select：可访问名经 aria-label，省掉堆叠标签的高度。 */}
+          <select
+            className={`${selectCls} ${styles.scopeSelect}`}
+            aria-label={t('scope.label')}
+            value={mode}
+            onChange={(event) => changeMode(event.target.value as ScopeMode)}
           >
-            {t('action.create')}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={state.status === 'loading'}
-            onClick={() => void store.refresh()}
-          >
-            {t('action.refresh')}
-          </Button>
-        </div>
-      </div>
-      {/* 工作区档选着了却定位不到（本地记忆的档位、cwd 还没上报）时给原因。 */}
-      {mode === 'workspace' && state.list?.workspacePath == null ? (
-        <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
-      ) : null}
-
-      {errorText ? (
-        <div className={styles.error} role="alert">
-          {errorText}
-        </div>
-      ) : null}
-      <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
-      {state.list?.warnings.map((warning) => (
-        <div key={warning} className={styles.warnLine}>
-          {warning}
-        </div>
-      ))}
-      {state.status === 'loading' ? <div className={styles.loading}>{t('list.loading')}</div> : null}
-
-      {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}
-      <CardList
-        items={visible}
-        getKey={rowKeyOf}
-        before={
-          creating ? (
-            <ExpandableCard
-              title={t('action.create')}
-              open
-              onToggle={() => {
-                if (!busy) setCreating(false)
+            <option value="global">{t('list.global')}</option>
+            <option value="workspace" disabled={state.list?.workspacePath == null}>
+              {workspaceName === undefined
+                ? t('list.workspace')
+                : t('list.workspaceNamed', { name: workspaceName })}
+            </option>
+          </select>
+          {state.status === 'ready' ? (
+            <SearchBox
+              className={styles.search}
+              label={t('search.placeholder')}
+              value={filter}
+              onChange={setFilter}
+            />
+          ) : null}
+          <div className={styles.toolbarActions}>
+            <Button
+              variant="primary"
+              disabled={state.status !== 'ready'}
+              onClick={() => {
+                setEditingKey(undefined)
+                setCreating(!creating)
               }}
             >
-              <McpServerForm
-                mode="create"
-                defaultScope={mode}
-                store={store}
-                t={t}
-                busy={busy}
-                error={errorText}
-                onDone={collapse}
-                onCancel={collapse}
-              />
-            </ExpandableCard>
-          ) : null
-        }
-        empty={
-          state.status === 'ready' ? (
-            <div className={styles.empty}>
-              {keyword.length > 0
-                ? t('list.emptyFiltered', { keyword: filter.trim() })
-                : t('list.emptyScope')}
-            </div>
-          ) : null
-        }
-        renderCard={renderCard}
-      />
+              {t('action.create')}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={state.status === 'loading'}
+              onClick={() => void store.refresh()}
+            >
+              {t('action.refresh')}
+            </Button>
+          </div>
+        </div>
+        {/* 工作区档选着了却定位不到（本地记忆的档位、cwd 还没上报）时给原因。 */}
+        {mode === 'workspace' && state.list?.workspacePath == null ? (
+          <span className={styles.scopeHint}>{t('scope.noWorkspaceHint')}</span>
+        ) : null}
 
-      {deleting !== undefined ? (
-        <ConfirmDialog
-          title={t('delete.title', { name: deleting.name })}
-          body={t('delete.body', {
-            file:
-              deleting.scope === 'global'
-                ? (state.list?.globalPath ?? '')
-                : (state.list?.workspacePath ?? ''),
-          })}
-          confirmLabel={t('delete')}
-          cancelLabel={t('cancel')}
-          closeLabel={t('close')}
-          busy={busy}
-          onCancel={() => setDeleting(undefined)}
-          onConfirm={() => {
-            const target = deleting
-            setDeleting(undefined)
-            if (editingKey === rowKeyOf(target)) setEditingKey(undefined)
-            void store.remove({ scope: target.scope, name: target.name }, target.name)
-          }}
+        {errorText ? (
+          <div className={styles.error} role="alert">
+            {errorText}
+          </div>
+        ) : null}
+        <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
+        {state.list?.warnings.map((warning) => (
+          <div key={warning} className={styles.warnLine}>
+            {warning}
+          </div>
+        ))}
+        {state.status === 'loading' ? <div className={styles.loading}>{t('list.loading')}</div> : null}
+
+        {/* 新建卡片放在首行，触发按钮就在上方；长列表不会把表单推离视口。 */}
+        <CardList
+          items={visible}
+          getKey={rowKeyOf}
+          before={
+            creating ? (
+              <ExpandableCard
+                title={t('action.create')}
+                open
+                onToggle={() => {
+                  if (!busy) setCreating(false)
+                }}
+              >
+                <McpServerForm
+                  mode="create"
+                  defaultScope={mode}
+                  store={store}
+                  t={t}
+                  busy={busy}
+                  error={errorText}
+                  onDone={collapse}
+                  onCancel={collapse}
+                />
+              </ExpandableCard>
+            ) : null
+          }
+          empty={
+            state.status === 'ready' ? (
+              <div className={styles.empty}>
+                {keyword.length > 0
+                  ? t('list.emptyFiltered', { keyword: filter.trim() })
+                  : t('list.emptyScope')}
+              </div>
+            ) : null
+          }
+          renderCard={renderCard}
         />
-      ) : null}
-      {toolsRow !== undefined ? (
-        <ToolsDialog row={toolsRow} t={t} onClose={() => setToolsRow(undefined)} />
-      ) : null}
-    </Panel>
+
+        {deleting !== undefined ? (
+          <ConfirmDialog
+            title={t('delete.title', { name: deleting.name })}
+            body={t('delete.body', {
+              file:
+                deleting.scope === 'global'
+                  ? (state.list?.globalPath ?? '')
+                  : (state.list?.workspacePath ?? ''),
+            })}
+            confirmLabel={t('delete')}
+            cancelLabel={t('cancel')}
+            closeLabel={t('close')}
+            busy={busy}
+            onCancel={() => setDeleting(undefined)}
+            onConfirm={() => {
+              const target = deleting
+              setDeleting(undefined)
+              if (editingKey === rowKeyOf(target)) setEditingKey(undefined)
+              void store.remove({ scope: target.scope, name: target.name }, target.name)
+            }}
+          />
+        ) : null}
+        {toolsRow !== undefined ? (
+          <ToolsDialog row={toolsRow} t={t} onClose={() => setToolsRow(undefined)} />
+        ) : null}
+      </Panel>
+    </PanelPage>
   )
 }
 

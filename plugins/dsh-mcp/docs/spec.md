@@ -4,7 +4,7 @@
 
 ## 插件定位
 
-- 设置页「MCP 管理」插件：以两份 `.mcp.json`（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）为持久化事实源，把其中的 MCP 服务器动态挂载 / 更新 / 卸载进 Loader 的 mcp-client 行，并实时展示每个服务器的连接状态与已注册工具。
+- 全局面板「MCP 管理」插件：以两份 `.mcp.json`（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）为持久化事实源，把其中的 MCP 服务器动态挂载 / 更新 / 卸载进 Loader 的 mcp-client 行，并实时展示每个服务器的连接状态与已注册工具。
 - 作用域仅这两份文件：cordis.patch.yml / cordis.yml 里直接声明的行与其他插件挂的 mcp-client 行一律不读取、不展示、不修改。
 - HTTP 层走与 dsh-skills 同一套同源请求约束：回环 Host 校验（拒绝 DNS-rebinding）、`sec-fetch-site` 跨站拒绝、2 MiB 请求体上限，统一经 `@dsh-plugins/shared/http`（机制见根 `docs/architecture.md`）；写操作仅作用于两份 `.mcp.json`，tmp+mv 原子落盘。
 - 双 half 架构、生效边界、多语言词典、面板原语等全仓约定见根 `docs/architecture.md` / `docs/i18n.md` / `docs/panel.md`；本文只记插件特有事实与偏离。
@@ -19,7 +19,7 @@
 - `src/live.ts`：Loader / 工具注册表运行态内省（官方 `Loader` / `ToolRuntime` 类型，服务不可用时降级）；list 只取 `mcpx-` 前缀条目。
 - `src/shared.ts`：双端 wire 类型与常量（`ENTRY_PREFIX` / 文件名 / 路由路径 / `entryIdOf`）。
 - `src/client/locales.ts`：本插件词典，命名空间 `dsh-mcp`（词典形态与注册方式见根 `docs/i18n.md`）；`PanelMessage`（`{key, params}` 或 `{text}`）是 store / 解析层的消息描述子，渲染期经 `messageText` 取词；单测取词用 `test/i18n.ts` 的 `makeT`。
-- `src/client/`：settings.section 面板与 `src/client/store.ts` 状态（语义见下两节）；导航 label 为 thunk，`t` 经框架 seat 进面板根后 props 下传，公共词取消 / 关闭 / 删除 / 保存走 common 词条（机制见根 `docs/i18n.md`）；HTTP 封装自定义头 `x-dsh-mcp`；面板根经 `useWideSettingsDialog()`（`@dsh-plugins/client-ui`）加宽宿主设置弹窗。
+- `src/client/`：全局面板页 `McpPanelPage.tsx`（挂 root 作用域 `main` keyed 槽位，页壳 `PanelPage` 来自 `@dsh-plugins/client-ui`）、侧栏入口图标 `McpPanelIcon.tsx`（挂 `sidebar.panellist`，点击由侧栏外壳调 `layout.selectPanel` 打开）与 `src/client/store.ts` 状态（语义见下两节）；`t` 经框架 seat 进页面根后 props 下传，公共词取消 / 关闭 / 删除 / 保存走 common 词条（机制见根 `docs/i18n.md`）；HTTP 封装自定义头 `x-dsh-mcp`。
 - `src/client.tsx`：订阅官方 sessions.list 快照，把主视图会话 cwd（`retainedBy.mainView > 0`）经 `/dsh-mcp/cwd` 上报 host 并同步进 store（工作区档定位事实源；上报失败静默，list 请求携带 cwd 兜底）。
 
 ## `.mcp.json` 方言

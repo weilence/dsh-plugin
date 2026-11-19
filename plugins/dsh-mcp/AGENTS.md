@@ -1,6 +1,6 @@
 # @weilence/dsh-mcp
 
-设置页「MCP 管理」插件。心智模型：两份 `.mcp.json`（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）是唯一持久化事实源，Loader 里的 mcp-client 行由本插件按文件内容动态挂载、只存内存，重启后从文件重放——理解任何改动都沿「文件怎么写 → 挂载怎么变」这条主线；cordis.patch.yml 与其他插件挂的 mcp-client 行不归本插件管。全仓约定（双 half、多语言、面板原语、测试分层）见根 AGENTS.md 文档索引。
+侧栏「MCP 管理」全局面板插件。心智模型：两份 `.mcp.json`（全局 `~/.dsh/mcp.json` 与工作区 `<工作区>/.mcp.json`）是唯一持久化事实源，Loader 里的 mcp-client 行由本插件按文件内容动态挂载、只存内存，重启后从文件重放——理解任何改动都沿「文件怎么写 → 挂载怎么变」这条主线；cordis.patch.yml 与其他插件挂的 mcp-client 行不归本插件管。全仓约定（双 half、多语言、面板原语、测试分层）见根 AGENTS.md 文档索引。
 
 ## 实现约束
 

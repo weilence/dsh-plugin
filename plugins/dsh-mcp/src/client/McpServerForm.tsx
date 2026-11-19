@@ -31,7 +31,7 @@ import { messageText, type McpT, type PanelMessage } from './locales'
 import type { McpStore } from './store'
 import { mcpApi } from './api'
 import shared from '@dsh-plugins/client-ui/styles'
-import local from './McpSection.module.css'
+import local from './McpPanelPage.module.css'
 
 const styles = { ...shared, ...local }
 
