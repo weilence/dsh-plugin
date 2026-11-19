@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { UsePanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { RemoteEventToast } from '../../src/client/RemoteEventToast'
-import { RemoteSection } from '../../src/client/RemoteSection'
+import { RemotePanelPage } from '../../src/client/RemotePanelPage'
 import { RemoteStore } from '../../src/client/store'
 import type { ConnRow, LocalRowsResponse, StateResponse } from '../../src/shared'
 import { makeT } from '../i18n'
@@ -26,12 +26,14 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
 }))
 
 vi.mock('@dsh-plugins/client-ui', () => ({
-  Panel: ({ title, children }: { title: string; children?: ReactNode }) => (
-    <section>
+  // 页壳承载一级标题；Panel 无头部，只作内容列的纵向间距容器。
+  PanelPage: ({ title, children }: { title: string; children?: ReactNode }) => (
+    <div>
       <h1>{title}</h1>
       {children}
-    </section>
+    </div>
   ),
+  Panel: ({ children }: { children?: ReactNode }) => <section>{children}</section>,
   CardList: ({
     items,
     renderCard,
@@ -137,7 +139,6 @@ vi.mock('@dsh-plugins/client-ui', () => ({
   IssueList: () => null,
   PickList: () => null,
   SelectField: () => null,
-  useWideSettingsDialog: () => undefined,
   // SSR 不跑 effect：操作通知的组件态恒为空，显示窗渲染为空
   useNotice: () => ({ notice: null, dismiss: () => {} }),
   NoticeToast: () => null,
@@ -214,9 +215,7 @@ function localRowsFixture(): LocalRowsResponse {
 const usePanelInfo = (() => undefined) as unknown as UsePanelInfo
 
 function renderPanel(store: RemoteStore): string {
-  return renderToStaticMarkup(
-    createElement(RemoteSection, { store, t: makeT(), close: () => {}, usePanelInfo }),
-  )
+  return renderToStaticMarkup(createElement(RemotePanelPage, { store, t: makeT(), usePanelInfo }))
 }
 
 /** SSR 不跑 effect（startPolling / loadLocalRows 都不发生），先经 refresh 灌入状态。 */
@@ -678,9 +677,7 @@ describe('远程开发面板渲染', () => {
     api.state.mockReturnValue(stateResponse({}, [connRow()]))
     api.localRows.mockReturnValue(localRowsFixture())
     const store = await loadedStore()
-    const html = renderToStaticMarkup(
-      createElement(RemoteSection, { store, t: makeT('en'), close: () => {}, usePanelInfo }),
-    )
+    const html = renderToStaticMarkup(createElement(RemotePanelPage, { store, t: makeT('en'), usePanelInfo }))
     expect(html).toContain('<h1>Remote development</h1>')
     expect(html).toContain('New')
     expect(html).not.toContain('新建')

@@ -13,3 +13,4 @@
 - 前置条件不满足除禁用并给出原因外，也可点击后提示所缺的前提（如插件同步需先连接远端）；随阶段切换的只是可用动作，不是入口的有无。
 - 操作结果的成功提示一律走官方 `Toast` 弹出横幅（`holdMs` 统一 5000、文本或 nonce 作 key 重开计时），不放表单内行内常驻；错误与校验反馈仍行内常驻，失败原因不随弹窗消失。一次性反馈分两类通道：**操作反馈**（保存 / 删除 / 表单测试等用户在场触发的动作）走 `@dsh-plugins/client-ui` 的通知套件——store 持 `NoticeRelay`（无订阅者即分区未挂载时 emit 直接丢弃），面板经 `useNotice` + `NoticeToast` 显示，组件态随分区卸载消亡，重开设置页不重放旧 toast；**后台事件**（连接 / 同步等完成时面板可能没开）挂宿主壳层 `shell.overlay` 槽位（ui-layout 声明、root 作用域常驻，官方 plugin-manager 的 PluginRefreshToast 先例）——notice 留 store、显示点永不卸载，`onDone` 可靠清空。跨面板生命周期发生的状态变化由常驻状态控件（pill / spinner）呈现。
 - 设置分区需要更宽弹窗时用 `@dsh-plugins/client-ui` 的 `useWideSettingsDialog()`——官方设置弹窗固定 800×800 且无尺寸 API；分区挂载期间生效、卸载即还原。
+- 成规模的清单 / 管理页做成全局面板：root 作用域 `main` keyed 槽位注册页面 + `sidebar.panellist` 注册同 id 侧栏入口（点击由侧栏外壳调 `layout.selectPanel` 打开，插件不自管导航），页面版式统一用 `@dsh-plugins/client-ui` 的 `PanelPage`（官方 Plugins / 自动化任务页同款：整页滚动 + 960px 居中列 + 一级标题行），入口图标用官方 `Icon*OutlineRegular` 原语（`size` 与选中态由侧栏传入）。

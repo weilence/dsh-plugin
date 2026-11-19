@@ -135,7 +135,7 @@ export class RemoteStore {
   private snapshot: RemoteState = INITIAL
   private readonly listeners = new Set<() => void>()
   /** 操作类一次性通知（保存 / 删除 / 表单测试）：面板挂载期经 useNotice 显示，
-   *  无订阅者（分区未挂载）即丢弃。 */
+   *  无订阅者（面板未挂载）即丢弃。 */
   readonly actionNotices = new NoticeRelay<PanelMessage>()
   private fastTimer: ReturnType<typeof setInterval> | null = null
   private slowTimer: ReturnType<typeof setInterval> | null = null
@@ -144,7 +144,7 @@ export class RemoteStore {
   private refreshDirty = false
   private readonly prevPhase = new Map<string, string>()
   private readonly prevOps = new Map<string, string | null>()
-  /** 面板观察窗口：startPolling（分区挂载）开、stopPolling（卸载）关。store 的
+  /** 面板观察窗口：startPolling（面板挂载）开、stopPolling（卸载）关。store 的
    *  刷新只由面板侧驱动，默认即观察中；窗口关闭后在途的 refresh 只更新数据，
    *  不记录迁移记忆、不发一次性 notice，也不再起轮询定时器。 */
   private observing = true
@@ -258,7 +258,7 @@ export class RemoteStore {
     this.schedulePoll()
   }
 
-  /** 面板卸载的唯一出口（分区卸载 cleanup 调用）：除停轮询外，丢弃迁移记忆——
+  /** 面板卸载的唯一出口（面板卸载 cleanup 调用）：除停轮询外，丢弃迁移记忆——
    *  prev 记忆只在同一观察窗口内有效，跨关闭窗口完成的阶段 / 同步迁移是旧闻
    *  （事实由卡片状态 pill / spinner 呈现），重开面板首轮 refresh 不据此补发
    *  事件 toast。事件 notice 归壳层显示点清空，这里不动它。 */

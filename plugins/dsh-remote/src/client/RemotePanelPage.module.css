@@ -25,7 +25,7 @@
 
 /* 过程时间线浮层：官方 MenuSurface 材质之上的面板样式（照 dsh-models 用量
  *  面板——背景材质与圆角交由 MenuSurface，Windows 半透明填充靠毛玻璃成立）；
- *  z-index 1100 高于设置弹窗（1000），body portal 定位走官方 CSS anchor
+ *  z-index 1100 高于中栏页面的普通浮层，body portal 定位走官方 CSS anchor
  *  positioning：锚定 spinner 下方 8px、右缘对齐，safe 对齐放不下时回退视口边距。 */
 .opFlyout {
   position: fixed;

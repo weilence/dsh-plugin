@@ -16,9 +16,9 @@ import {
   MenuButton,
   NoticeToast,
   Panel,
+  PanelPage,
   TextField,
   useNotice,
-  useWideSettingsDialog,
   type ExpandableCardProps,
   type PillData,
 } from '@dsh-plugins/client-ui'
@@ -29,13 +29,13 @@ import { messageText, type NS, type RemoteKey, type RemoteT } from './locales'
 import { RemoteForm } from './RemoteForm'
 import { SyncDialog } from './SyncDialog'
 import type { RemoteStore, SecretPrompt } from './store'
-import local from './RemoteSection.module.css'
+import local from './RemotePanelPage.module.css'
 import shared from '@dsh-plugins/client-ui/styles'
 
 const styles = { ...shared, ...local }
 
 /** 注册方注入面（client.tsx 装配，slot inject 回调提供）。 */
-export interface RemoteSectionInjected {
+export interface RemotePanelInjected {
   store: RemoteStore
 }
 
@@ -103,7 +103,7 @@ function StepTimeline(props: { progress: ConnProgress; title: string }) {
 
 /** 进行中的 spinner + hover 过程浮层。浮层视觉与定位照 dsh-models 用量面板
  *  （官方 MenuSurface 材质 + CSS anchor positioning + body portal，z-index 1100
- *  高于设置弹窗的 1000——锚定 spinner 下方 8px、右缘对齐，放不下时 safe 对齐回退
+ *  高于中栏页面的普通浮层——锚定 spinner 下方 8px、右缘对齐，放不下时 safe 对齐回退
  *  到视口边距）；触发为 hover——移出后留 250ms grace 供指针移入面板。 */
 function OpHoverCard(props: { progress: ConnProgress; title: string }) {
   const anchor = useRef<HTMLSpanElement>(null)
@@ -158,12 +158,11 @@ function OpHoverCard(props: { progress: ConnProgress; title: string }) {
 }
 
 /** 完整组件 props：运行时份额 + locale 标准 seat + 注入面。 */
-export type RemoteSectionProps = PropsRuntime<'settings.section'> &
+export type RemotePanelPageProps = PropsRuntime<'main'> &
   PropsLocale<typeof NS> &
-  InjectFace<RemoteSectionInjected>
+  InjectFace<RemotePanelInjected>
 
-export function RemoteSection(props: RemoteSectionProps) {
-  useWideSettingsDialog()
+export function RemotePanelPage(props: RemotePanelPageProps) {
   const { store, t } = props
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const rowsRef = useRef<HTMLDivElement | null>(null)
@@ -192,182 +191,186 @@ export function RemoteSection(props: RemoteSectionProps) {
   const secretTarget =
     secretPrompt === null ? undefined : connections.find((row) => row.id === secretPrompt.id)
 
+  // 全局面板页壳承载标题与说明；Panel 无头部，只作内容列的纵向间距容器。
   return (
-    <Panel title={t('panel.title')} subtitle={t('panel.subtitle')}>
-      {env !== undefined && !env.ssh ? (
-        <div className={styles.error} role="alert">
-          {t('env.noSsh')}
-        </div>
-      ) : null}
-      {env !== undefined && env.ssh && !env.tar ? (
-        <div className={styles.notice}>{t('env.noTar')}</div>
-      ) : null}
-      {state.error !== null ? (
-        <div className={styles.error} role="alert">
-          {messageText(state.error, t)}
-        </div>
-      ) : null}
-      {/* 操作类一次性反馈（保存 / 删除 / 表单测试）走共享 kit：组件态随分区卸载
-          消亡，不重放；事件类（连接 / 同步完成）由壳层 shell.overlay 的显示点
-          渲染（RemoteEventToast），不在面板内。 */}
-      <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
-
-      <div className={styles.listToolbar}>
-        <Button
-          variant="primary"
-          disabled={state.creating}
-          onClick={() => {
-            store.create()
-            void store.loadLocalRows()
-          }}
-        >
-          {t('panel.create')}
-        </Button>
-        <Button variant="outline" onClick={() => void store.refresh()}>
-          {t('panel.refresh')}
-        </Button>
-      </div>
-
-      {state.status === 'idle' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
-
-      <div className={styles.rows} ref={rowsRef}>
-        <CardList
-          items={connections}
-          getKey={(row) => row.id}
-          renderCard={(row) => connectionCard(row, store, state, t)}
-          listRef={rowsRef}
-          empty={
-            connections.length === 0 && !state.creating ? (
-              <div className={styles.empty}>{t('panel.empty')}</div>
-            ) : null
-          }
-          after={
-            state.creating ? (
-              <div className={local.creatingRow}>
-                <RemoteForm
-                  mode="create"
-                  store={store}
-                  t={t}
-                  busy={state.busyId === 'new'}
-                  onDone={() => store.edit(undefined)}
-                  onCancel={() => store.edit(undefined)}
-                />
-              </div>
-            ) : null
-          }
-        />
-      </div>
-
-      {/* 弹窗挂在面板顶层：ExpandableCard 收起时不渲染 children，放卡片里
-          会出现「点了菜单/删除却要展开行才弹窗」。 */}
-      {syncing !== null && syncTarget !== undefined ? (
-        <SyncDialog
-          row={syncTarget}
-          kind={syncing.kind}
-          store={store}
-          t={t}
-          localRows={state.localRows}
-          busy={state.busyId === syncTarget.id || syncTarget.state.op !== null}
-          onClose={() => store.askSync(null)}
-        />
-      ) : null}
-      {failedTarget !== undefined ? (
-        <Dialog
-          title={t(FAILED_LABEL_KEYS[failedTarget.state.progress?.kind ?? 'connect'])}
-          closeLabel={t('close')}
-          onClose={() => store.askFailedDetail(null)}
-        >
-          <div className={local.failedBody}>
-            {failedTarget.state.error !== null ? (
-              <p className={styles.error} role="alert">
-                {failedTarget.state.error.message}
-              </p>
-            ) : null}
-            {failedTarget.state.progress !== null ? (
-              <StepTimeline progress={failedTarget.state.progress} title={t('card.opLog.title')} />
-            ) : null}
-            {failedTarget.state.error?.detail !== undefined && failedTarget.state.error.detail.length > 0 ? (
-              <pre className={local.opLogPre}>{failedTarget.state.error.detail}</pre>
-            ) : null}
+    <PanelPage title={t('panel.title')} subtitle={t('panel.subtitle')}>
+      <Panel>
+        {env !== undefined && !env.ssh ? (
+          <div className={styles.error} role="alert">
+            {t('env.noSsh')}
           </div>
-        </Dialog>
-      ) : null}
-      {connectTarget !== undefined ? (
-        <Dialog
-          title={t('connect.title')}
-          description={t('connect.description', {
-            label: connectTarget.label,
-            target: targetSummary(connectTarget.target),
-          })}
-          closeLabel={t('close')}
-          onClose={() => store.askConnect(null)}
-          actions={
-            <>
-              <Button variant="outline" onClick={() => store.askConnect(null)}>
-                {t('cancel')}
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  // 连接是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现，连接后用户重点一次菜单
-                  store.askConnect(null)
-                  void store.connect(connectTarget.id)
-                }}
-              >
-                {t('op.connect')}
-              </Button>
-            </>
-          }
-          children={null}
-        />
-      ) : null}
-      {deleteTarget !== undefined ? (
-        <ConfirmDialog
-          title={t('delete.title')}
-          body={t('delete.body', {
-            label: deleteTarget.label,
-            target: targetSummary(deleteTarget.target),
-          })}
-          confirmLabel={t('delete')}
-          cancelLabel={t('cancel')}
-          closeLabel={t('close')}
-          busy={state.busyId === deleteTarget.id}
-          onCancel={() => store.askDelete(null)}
-          onConfirm={() => void store.remove(deleteTarget.id)}
-        />
-      ) : null}
-      {upgradeTarget !== undefined ? (
-        <ConfirmDialog
-          title={t('upgrade.title')}
-          body={t('upgrade.body', {
-            label: upgradeTarget.label,
-            target: targetSummary(upgradeTarget.target),
-            remote:
-              upgradeTarget.state.running?.instance?.dsh ?? upgradeTarget.state.running?.machine.dsh ?? '?',
-            local: upgradeTarget.state.running?.localDsh ?? '?',
-          })}
-          confirmLabel={t('op.upgrade')}
-          cancelLabel={t('cancel')}
-          closeLabel={t('close')}
-          busy={state.busyId === upgradeTarget.id}
-          onCancel={() => store.askUpgrade(null)}
-          onConfirm={() => {
-            // 升级是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现
-            store.askUpgrade(null)
-            void store.upgrade(upgradeTarget.id)
-          }}
-        />
-      ) : null}
-      {secretTarget !== undefined && secretPrompt !== null ? (
-        <SecretPromptDialog
-          row={secretTarget}
-          prompt={secretPrompt}
-          t={t}
-          onCancel={() => store.closeSecretPrompt()}
-          onSubmit={(secret) => void store.submitSecret(secret)}
-        />
-      ) : null}
-    </Panel>
+        ) : null}
+        {env !== undefined && env.ssh && !env.tar ? (
+          <div className={styles.notice}>{t('env.noTar')}</div>
+        ) : null}
+        {state.error !== null ? (
+          <div className={styles.error} role="alert">
+            {messageText(state.error, t)}
+          </div>
+        ) : null}
+        {/* 操作类一次性反馈（保存 / 删除 / 表单测试）走共享 kit：组件态随面板卸载
+            消亡，不重放；事件类（连接 / 同步完成）由壳层 shell.overlay 的显示点
+            渲染（RemoteEventToast），不在面板内。 */}
+        <NoticeToast notice={actionNotice} text={(m) => messageText(m, t)} onDismiss={dismissActionNotice} />
+
+        <div className={styles.listToolbar}>
+          <Button
+            variant="primary"
+            disabled={state.creating}
+            onClick={() => {
+              store.create()
+              void store.loadLocalRows()
+            }}
+          >
+            {t('panel.create')}
+          </Button>
+          <Button variant="outline" onClick={() => void store.refresh()}>
+            {t('panel.refresh')}
+          </Button>
+        </div>
+
+        {state.status === 'idle' ? <div className={styles.loading}>{t('panel.loading')}</div> : null}
+
+        <div className={styles.rows} ref={rowsRef}>
+          <CardList
+            items={connections}
+            getKey={(row) => row.id}
+            renderCard={(row) => connectionCard(row, store, state, t)}
+            listRef={rowsRef}
+            empty={
+              connections.length === 0 && !state.creating ? (
+                <div className={styles.empty}>{t('panel.empty')}</div>
+              ) : null
+            }
+            after={
+              state.creating ? (
+                <div className={local.creatingRow}>
+                  <RemoteForm
+                    mode="create"
+                    store={store}
+                    t={t}
+                    busy={state.busyId === 'new'}
+                    onDone={() => store.edit(undefined)}
+                    onCancel={() => store.edit(undefined)}
+                  />
+                </div>
+              ) : null
+            }
+          />
+        </div>
+
+        {/* 弹窗挂在面板顶层：ExpandableCard 收起时不渲染 children，放卡片里
+            会出现「点了菜单/删除却要展开行才弹窗」。 */}
+        {syncing !== null && syncTarget !== undefined ? (
+          <SyncDialog
+            row={syncTarget}
+            kind={syncing.kind}
+            store={store}
+            t={t}
+            localRows={state.localRows}
+            busy={state.busyId === syncTarget.id || syncTarget.state.op !== null}
+            onClose={() => store.askSync(null)}
+          />
+        ) : null}
+        {failedTarget !== undefined ? (
+          <Dialog
+            title={t(FAILED_LABEL_KEYS[failedTarget.state.progress?.kind ?? 'connect'])}
+            closeLabel={t('close')}
+            onClose={() => store.askFailedDetail(null)}
+          >
+            <div className={local.failedBody}>
+              {failedTarget.state.error !== null ? (
+                <p className={styles.error} role="alert">
+                  {failedTarget.state.error.message}
+                </p>
+              ) : null}
+              {failedTarget.state.progress !== null ? (
+                <StepTimeline progress={failedTarget.state.progress} title={t('card.opLog.title')} />
+              ) : null}
+              {failedTarget.state.error?.detail !== undefined &&
+              failedTarget.state.error.detail.length > 0 ? (
+                <pre className={local.opLogPre}>{failedTarget.state.error.detail}</pre>
+              ) : null}
+            </div>
+          </Dialog>
+        ) : null}
+        {connectTarget !== undefined ? (
+          <Dialog
+            title={t('connect.title')}
+            description={t('connect.description', {
+              label: connectTarget.label,
+              target: targetSummary(connectTarget.target),
+            })}
+            closeLabel={t('close')}
+            onClose={() => store.askConnect(null)}
+            actions={
+              <>
+                <Button variant="outline" onClick={() => store.askConnect(null)}>
+                  {t('cancel')}
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    // 连接是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现，连接后用户重点一次菜单
+                    store.askConnect(null)
+                    void store.connect(connectTarget.id)
+                  }}
+                >
+                  {t('op.connect')}
+                </Button>
+              </>
+            }
+            children={null}
+          />
+        ) : null}
+        {deleteTarget !== undefined ? (
+          <ConfirmDialog
+            title={t('delete.title')}
+            body={t('delete.body', {
+              label: deleteTarget.label,
+              target: targetSummary(deleteTarget.target),
+            })}
+            confirmLabel={t('delete')}
+            cancelLabel={t('cancel')}
+            closeLabel={t('close')}
+            busy={state.busyId === deleteTarget.id}
+            onCancel={() => store.askDelete(null)}
+            onConfirm={() => void store.remove(deleteTarget.id)}
+          />
+        ) : null}
+        {upgradeTarget !== undefined ? (
+          <ConfirmDialog
+            title={t('upgrade.title')}
+            body={t('upgrade.body', {
+              label: upgradeTarget.label,
+              target: targetSummary(upgradeTarget.target),
+              remote:
+                upgradeTarget.state.running?.instance?.dsh ?? upgradeTarget.state.running?.machine.dsh ?? '?',
+              local: upgradeTarget.state.running?.localDsh ?? '?',
+            })}
+            confirmLabel={t('op.upgrade')}
+            cancelLabel={t('cancel')}
+            closeLabel={t('close')}
+            busy={state.busyId === upgradeTarget.id}
+            onCancel={() => store.askUpgrade(null)}
+            onConfirm={() => {
+              // 升级是长操作：随即关窗，进度由卡片 spinner（hover 看过程）呈现
+              store.askUpgrade(null)
+              void store.upgrade(upgradeTarget.id)
+            }}
+          />
+        ) : null}
+        {secretTarget !== undefined && secretPrompt !== null ? (
+          <SecretPromptDialog
+            row={secretTarget}
+            prompt={secretPrompt}
+            t={t}
+            onCancel={() => store.closeSecretPrompt()}
+            onSubmit={(secret) => void store.submitSecret(secret)}
+          />
+        ) : null}
+      </Panel>
+    </PanelPage>
   )
 }
 
@@ -475,7 +478,7 @@ function connectionCard(
   }
 
   // 操作状态入口（spinner / 失败详情）占按钮区最左位，与动作按钮中心线对齐。
-  // 过程浮层见 OpHoverCard（官方 MenuSurface，z-1100 在设置弹窗之上）。
+  // 过程浮层见 OpHoverCard（官方 MenuSurface，z-1100 在中栏普通浮层之上）。
   const opIndicator =
     op !== null && row.state.progress !== null ? (
       <OpHoverCard progress={row.state.progress} title={t(OP_LABEL_KEYS[op.kind])} />

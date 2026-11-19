@@ -1,6 +1,6 @@
 # dsh-remote
 
-设置页「远程开发」插件（`@weilence/dsh-remote`）：经 OpenSSH 在远端机部署并管理一套完整 dsh web 实例（连接内含远端部署），提供环境同步（skills / MCP / 插件 / 系统提示词）与 dsh-sessions 使用的已连接远端传输通道。
+侧栏「远程开发」全局面板插件（`@weilence/dsh-remote`）：经 OpenSSH 在远端机部署并管理一套完整 dsh web 实例（连接内含远端部署），提供环境同步（skills / MCP / 插件 / 系统提示词）与 dsh-sessions 使用的已连接远端传输通道。
 
 ## 运行模型
 
