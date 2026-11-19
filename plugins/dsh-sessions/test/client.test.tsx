@@ -8,7 +8,7 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session'
-import { SessionsSection } from '../src/client'
+import { SessionsPanelPage } from '../src/client'
 import { PresetDialog } from '../src/client/preset'
 import { ExpandableCard } from '@dsh-plugins/client-ui'
 import {
@@ -71,11 +71,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
     ) : null,
   Toast: ({ text }: { text: string }) => <div>{text}</div>,
 }))
-vi.mock('@dsh-plugins/client-ui', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  // 测试环境无 DOM；宽弹窗钩子只在真实浏览器挂类。
-  useWideSettingsDialog: () => {},
-}))
 vi.mock('../src/client/api', () => ({
   importFiles: vi.fn(async () => {}),
   deleteSession: vi.fn(async () => ({ filesRemoved: true, archiveCleared: true, deletedSubagents: [] })),
@@ -85,7 +80,7 @@ vi.mock('../src/client/api', () => ({
   runBatch: vi.fn(async () => ({ items: [] })),
 }))
 
-type SectionProps = ComponentProps<typeof SessionsSection>
+type SectionProps = ComponentProps<typeof SessionsPanelPage>
 const alpha = 'archive-alpha' as SessionId
 const beta = 'archive-beta' as SessionId
 const sub = 'sub-child' as SessionId
@@ -212,7 +207,7 @@ function section(
     store,
     bridge,
   } as SectionProps
-  const renderer = mount(<SessionsSection {...props} />)
+  const renderer = mount(<SessionsPanelPage {...props} />)
   return {
     renderer,
     props,

@@ -4,8 +4,10 @@ import { Button, Modal, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { ISessions, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only：main / sidebar.panellist 槽位契约与 useWorkspaces / useSessions
+// 等 GlobalStandardProps 声明合并。
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
@@ -18,9 +20,9 @@ import {
   MetaItem,
   NoticeToast,
   Panel,
+  PanelPage,
   SearchBox,
   useNotice,
-  useWideSettingsDialog,
 } from '@dsh-plugins/client-ui'
 import sharedStyles from '@dsh-plugins/client-ui/styles'
 import { importFiles, type FileResult } from './client/api'
@@ -42,14 +44,18 @@ import {
   workspaceSnapshotHook,
 } from './client/migrate'
 import { PresetDialog, type PresetTarget } from './client/preset'
+import { SessionsPanelIcon } from './client/SessionsPanelIcon'
 import { NS, en, zh, messageText, type Message } from './client/locales'
 import { SessionsStore } from './client/store'
 import localStyles from './client.module.css'
 
 const styles = { ...sharedStyles, ...localStyles }
 
+/** 全局面板 id：侧栏入口（sidebar.panellist）与中栏页面（main keyed）同 id 关联。 */
+const SESSIONS_PANEL_ID = 'dsh-sessions'
+
 export const inject = ['slots', 'locale', 'sessions', 'workspaces']
-type SessionsSectionProps = PropsRuntime<'settings.section'> &
+type SessionsPanelPageProps = PropsRuntime<'main'> &
   PropsLocale<typeof NS> &
   InjectFace<{
     sessions: ISessions
@@ -57,7 +63,7 @@ type SessionsSectionProps = PropsRuntime<'settings.section'> &
     bridge: MigrateBridge
     formatTime: (timestamp: number) => string
   }>
-type ImportDialogProps = Pick<SessionsSectionProps, 't' | 'useWorkspaces'> & {
+type ImportDialogProps = Pick<SessionsPanelPageProps, 't' | 'useWorkspaces'> & {
   onImported: () => Promise<void>
   onClose: () => void
 }
@@ -262,7 +268,7 @@ function buildRows(
   )
 }
 
-export function SessionsSection({
+export function SessionsPanelPage({
   t,
   useWorkspaces,
   useSessions,
@@ -270,9 +276,7 @@ export function SessionsSection({
   store,
   bridge,
   formatTime,
-}: SessionsSectionProps) {
-  // 与 dsh-skills 同款：本分区激活期间加宽宿主设置弹窗，切走即还原。
-  useWideSettingsDialog()
+}: SessionsPanelPageProps) {
   const snapshot = useWorkspaces((value) => value)
   const list = useSessions((value) => value)
   const { working, pendingDelete, batch } = useSyncExternalStore(
@@ -356,330 +360,335 @@ export function SessionsSection({
     )
   }
 
+  // 全局面板页壳承载标题与说明；Panel 无头部，只作内容列的纵向间距容器。
   return (
-    <Panel title={t('section.label')} subtitle={t('panel.subtitle')}>
-      <div className={styles.toolbar}>
-        <Button variant="primary" onClick={() => setOpenImport(true)}>
-          {t('import')}
-        </Button>
-        <SearchBox className={styles.search} label={t('search')} value={query} onChange={setQuery} />
-        <Button variant="outline" disabled={batch.running} onClick={() => store.toggleBatchMode()}>
-          {t(batch.active ? 'batch.exit' : 'batch.toggle')}
-        </Button>
-      </div>
-      {batch.active ? (
-        <BatchToolbar
-          t={t}
-          count={batch.selection.length}
-          running={batch.running}
-          disabled={busy || !ready}
-          onSelectVisible={() => store.selectVisible(rows.map((row) => row.id))}
-          onClearSelection={() => store.clearSelection()}
-          onArchive={() => batchSubmit('archive')}
-          onUnarchive={() => batchSubmit('unarchive')}
-          onMigrate={() => setBatchDialog('migrate')}
-          onPreset={() => setBatchDialog('preset')}
-          onDelete={() => setBatchDialog('delete')}
-        />
-      ) : null}
-      <div className={styles.filters}>
-        <label>
-          {t('filter.workspace')}
-          <select
-            value={workspaceFilter}
-            onChange={(event) => setWorkspaceFilter(event.target.value as WorkspaceFilter)}
-          >
-            <option value="">{t('filter.workspaceAll')}</option>
-            <option value="ungrouped">{t('archive.ungrouped')}</option>
-            {snapshot.items.map((workspace) => (
-              <option key={workspace.workspaceId} value={workspace.workspaceId}>
-                {workspace.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          {t('filter.status')}
-          <select
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-          >
-            <option value="all">{t('filter.statusAll')}</option>
-            <option value="active">{t('filter.statusActive')}</option>
-            <option value="archived">{t('filter.statusArchived')}</option>
-          </select>
-        </label>
-        <label>
-          {t('filter.sort')}
-          <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            <option value="updated-desc">{t('filter.sortUpdatedDesc')}</option>
-            <option value="updated-asc">{t('filter.sortUpdatedAsc')}</option>
-            <option value="title-asc">{t('filter.sortTitleAsc')}</option>
-            <option value="title-desc">{t('filter.sortTitleDesc')}</option>
-          </select>
-        </label>
-        <label className={styles.toggle}>
-          <input
-            type="checkbox"
-            checked={showSubagents}
-            onChange={(event) => setShowSubagents(event.target.checked)}
+    <PanelPage title={t('section.label')} subtitle={t('panel.subtitle')}>
+      <Panel>
+        <div className={styles.toolbar}>
+          <Button variant="primary" onClick={() => setOpenImport(true)}>
+            {t('import')}
+          </Button>
+          <SearchBox className={styles.search} label={t('search')} value={query} onChange={setQuery} />
+          <Button variant="outline" disabled={batch.running} onClick={() => store.toggleBatchMode()}>
+            {t(batch.active ? 'batch.exit' : 'batch.toggle')}
+          </Button>
+        </div>
+        {batch.active ? (
+          <BatchToolbar
+            t={t}
+            count={batch.selection.length}
+            running={batch.running}
+            disabled={busy || !ready}
+            onSelectVisible={() => store.selectVisible(rows.map((row) => row.id))}
+            onClearSelection={() => store.clearSelection()}
+            onArchive={() => batchSubmit('archive')}
+            onUnarchive={() => batchSubmit('unarchive')}
+            onMigrate={() => setBatchDialog('migrate')}
+            onPreset={() => setBatchDialog('preset')}
+            onDelete={() => setBatchDialog('delete')}
           />
-          {t('filter.showSubagents')}
-        </label>
-        <label className={styles.toggle}>
-          <input
-            type="checkbox"
-            checked={runningOnly}
-            onChange={(event) => setRunningOnly(event.target.checked)}
-          />
-          {t('filter.runningOnly')}
-        </label>
-        <label className={styles.toggle}>
-          <input
-            type="checkbox"
-            checked={showBlank}
-            onChange={(event) => setShowBlank(event.target.checked)}
-          />
-          {t('filter.showBlank')}
-        </label>
-      </div>
-      {snapshot.error !== null ? (
-        <p role="alert" className={styles.detail}>
-          {snapshot.error.code}: {snapshot.error.message}
-        </p>
-      ) : !ready ? (
-        <p role="status">{t('archive.loading')}</p>
-      ) : null}
-      {/* 会话列表：与 dsh-skills 同款可展开卡片（批量模式行首出选择框、隐藏行内动作）。 */}
-      <CardList
-        items={rows}
-        getKey={(row) => row.id}
-        empty={
-          ready && rows.length === 0 ? (
-            <p className={styles.empty}>
-              {keyword === '' &&
-              workspaceFilter === '' &&
-              statusFilter === 'all' &&
-              !showSubagents &&
-              !runningOnly &&
-              !showBlank
-                ? t('archive.emptyList')
-                : t('archive.noMatch')}
-            </p>
-          ) : null
-        }
-        renderCard={(row) => {
-          const { id, summary } = row
-          const state = rowWorking(id)
-          const title = summary?.displayTitle ?? id
-          const open = openId === id
-          const updatedLabel =
-            summary !== undefined &&
-            Number.isFinite(summary.updatedAt) &&
-            !Number.isNaN(new Date(summary.updatedAt).getTime())
-              ? formatTime(summary.updatedAt)
-              : undefined
-          return {
-            selection: batch.active
-              ? {
-                  checked: batch.selection.includes(id),
-                  disabled: batch.running,
-                  label: title,
-                  onToggle: () => store.toggleSelected(id),
-                }
-              : undefined,
-            title,
-            meta: id,
-            pills: [
-              ...(row.archived ? [{ text: t('badge.archived') }] : []),
-              ...(summary?.running ? [{ text: t('badge.running'), tone: 'ok' as const }] : []),
-              ...(summary?.origin === 'subagent' ? [{ text: t('badge.subagent') }] : []),
-              ...(summary?.blank ? [{ text: t('badge.blank') }] : []),
-            ],
-            description:
-              row.workspaceTitle !== undefined
-                ? `${row.workspaceTitle} — ${row.workspacePath}`
-                : t('archive.ungrouped'),
-            info:
-              updatedLabel !== undefined ? [{ label: t('detail.updated'), value: updatedLabel }] : undefined,
-            note: summary === undefined ? t('archive.metadataLoading') : undefined,
-            path: summary?.cwd !== undefined && summary.cwd !== row.workspacePath ? summary.cwd : undefined,
-            open,
-            onToggle: () => {
-              if (busy) return
-              setOpenId(open ? undefined : id)
-            },
-            actions: batch.active ? (
-              state !== undefined ? (
-                <p role="status" className={styles.rowStatus}>
-                  {state}
-                </p>
-              ) : undefined
-            ) : (
-              <>
-                {state !== undefined ? (
+        ) : null}
+        <div className={styles.filters}>
+          <label>
+            {t('filter.workspace')}
+            <select
+              value={workspaceFilter}
+              onChange={(event) => setWorkspaceFilter(event.target.value as WorkspaceFilter)}
+            >
+              <option value="">{t('filter.workspaceAll')}</option>
+              <option value="ungrouped">{t('archive.ungrouped')}</option>
+              {snapshot.items.map((workspace) => (
+                <option key={workspace.workspaceId} value={workspace.workspaceId}>
+                  {workspace.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t('filter.status')}
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
+            >
+              <option value="all">{t('filter.statusAll')}</option>
+              <option value="active">{t('filter.statusActive')}</option>
+              <option value="archived">{t('filter.statusArchived')}</option>
+            </select>
+          </label>
+          <label>
+            {t('filter.sort')}
+            <select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+              <option value="updated-desc">{t('filter.sortUpdatedDesc')}</option>
+              <option value="updated-asc">{t('filter.sortUpdatedAsc')}</option>
+              <option value="title-asc">{t('filter.sortTitleAsc')}</option>
+              <option value="title-desc">{t('filter.sortTitleDesc')}</option>
+            </select>
+          </label>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              checked={showSubagents}
+              onChange={(event) => setShowSubagents(event.target.checked)}
+            />
+            {t('filter.showSubagents')}
+          </label>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              checked={runningOnly}
+              onChange={(event) => setRunningOnly(event.target.checked)}
+            />
+            {t('filter.runningOnly')}
+          </label>
+          <label className={styles.toggle}>
+            <input
+              type="checkbox"
+              checked={showBlank}
+              onChange={(event) => setShowBlank(event.target.checked)}
+            />
+            {t('filter.showBlank')}
+          </label>
+        </div>
+        {snapshot.error !== null ? (
+          <p role="alert" className={styles.detail}>
+            {snapshot.error.code}: {snapshot.error.message}
+          </p>
+        ) : !ready ? (
+          <p role="status">{t('archive.loading')}</p>
+        ) : null}
+        {/* 会话列表：与 dsh-skills 同款可展开卡片（批量模式行首出选择框、隐藏行内动作）。 */}
+        <CardList
+          items={rows}
+          getKey={(row) => row.id}
+          empty={
+            ready && rows.length === 0 ? (
+              <p className={styles.empty}>
+                {keyword === '' &&
+                workspaceFilter === '' &&
+                statusFilter === 'all' &&
+                !showSubagents &&
+                !runningOnly &&
+                !showBlank
+                  ? t('archive.emptyList')
+                  : t('archive.noMatch')}
+              </p>
+            ) : null
+          }
+          renderCard={(row) => {
+            const { id, summary } = row
+            const state = rowWorking(id)
+            const title = summary?.displayTitle ?? id
+            const open = openId === id
+            const updatedLabel =
+              summary !== undefined &&
+              Number.isFinite(summary.updatedAt) &&
+              !Number.isNaN(new Date(summary.updatedAt).getTime())
+                ? formatTime(summary.updatedAt)
+                : undefined
+            return {
+              selection: batch.active
+                ? {
+                    checked: batch.selection.includes(id),
+                    disabled: batch.running,
+                    label: title,
+                    onToggle: () => store.toggleSelected(id),
+                  }
+                : undefined,
+              title,
+              meta: id,
+              pills: [
+                ...(row.archived ? [{ text: t('badge.archived') }] : []),
+                ...(summary?.running ? [{ text: t('badge.running'), tone: 'ok' as const }] : []),
+                ...(summary?.origin === 'subagent' ? [{ text: t('badge.subagent') }] : []),
+                ...(summary?.blank ? [{ text: t('badge.blank') }] : []),
+              ],
+              description:
+                row.workspaceTitle !== undefined
+                  ? `${row.workspaceTitle} — ${row.workspacePath}`
+                  : t('archive.ungrouped'),
+              info:
+                updatedLabel !== undefined
+                  ? [{ label: t('detail.updated'), value: updatedLabel }]
+                  : undefined,
+              note: summary === undefined ? t('archive.metadataLoading') : undefined,
+              path: summary?.cwd !== undefined && summary.cwd !== row.workspacePath ? summary.cwd : undefined,
+              open,
+              onToggle: () => {
+                if (busy) return
+                setOpenId(open ? undefined : id)
+              },
+              actions: batch.active ? (
+                state !== undefined ? (
                   <p role="status" className={styles.rowStatus}>
                     {state}
                   </p>
-                ) : null}
-                {row.archived ? (
+                ) : undefined
+              ) : (
+                <>
+                  {state !== undefined ? (
+                    <p role="status" className={styles.rowStatus}>
+                      {state}
+                    </p>
+                  ) : null}
+                  {row.archived ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !ready}
+                      onClick={() => void store.restore(id, title)}
+                    >
+                      {t('archive.restore')}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !ready}
+                      onClick={() => void store.archive(id, title)}
+                    >
+                      {t('archive.archive')}
+                    </Button>
+                  )}
                   <Button
                     size="sm"
-                    variant="outline"
-                    disabled={busy || !ready}
-                    onClick={() => void store.restore(id, title)}
+                    variant="ghost"
+                    disabled={busy || !ready || summary?.origin === 'subagent'}
+                    onClick={() => bridge.open({ sessionId: id, title })}
                   >
-                    {t('archive.restore')}
+                    {t('migrate')}
                   </Button>
-                ) : (
                   <Button
                     size="sm"
-                    variant="outline"
-                    disabled={busy || !ready}
-                    onClick={() => void store.archive(id, title)}
+                    variant="ghost"
+                    disabled={busy || !ready || summary?.origin === 'subagent'}
+                    onClick={() => setPresetTarget({ sessionId: id, title })}
                   >
-                    {t('archive.archive')}
+                    {t('preset.entry')}
                   </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy || !ready || summary?.origin === 'subagent'}
-                  onClick={() => bridge.open({ sessionId: id, title })}
-                >
-                  {t('migrate')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={busy || !ready || summary?.origin === 'subagent'}
-                  onClick={() => setPresetTarget({ sessionId: id, title })}
-                >
-                  {t('preset.entry')}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className={styles.dangerGhost}
-                  disabled={busy || !ready || summary?.running === true}
-                  onClick={() => store.askDelete({ id, title })}
-                >
-                  {t('archive.delete')}
-                </Button>
-              </>
-            ),
-            children: open ? (
-              <div className={styles.detailGrid}>
-                <MetaItem label={t('detail.id')} value={id} wide />
-                <MetaItem
-                  label={t('detail.workspace')}
-                  value={
-                    row.workspaceTitle !== undefined
-                      ? `${row.workspaceTitle} — ${row.workspacePath}`
-                      : undefined
-                  }
-                  wide
-                />
-                <MetaItem label={t('detail.cwd')} value={summary?.cwd} wide />
-                {summary?.origin === 'subagent' ? (
-                  <MetaItem label={t('detail.parent')} value={summary.parentId} wide />
-                ) : null}
-                {updatedLabel !== undefined ? (
-                  <MetaItem label={t('detail.updated')} value={updatedLabel} />
-                ) : null}
-              </div>
-            ) : null,
-          }
-        }}
-      />
-      {/* 行操作 / 批量的一次性摘要走共享 kit：组件态随分区卸载消亡，不重放。 */}
-      <NoticeToast
-        notice={actionNotice}
-        text={(message) => messageText(message, t)}
-        onDismiss={dismissActionNotice}
-      />
-      {pendingDelete !== null ? (
-        <ConfirmDialog
-          title={t('archive.deleteConfirmTitle')}
-          body={
-            childCount > 0
-              ? t('archive.deleteConfirmCascade', { title: pendingDelete.title, count: childCount })
-              : t('archive.deleteConfirm', { title: pendingDelete.title })
-          }
-          confirmLabel={t('archive.delete')}
-          cancelLabel={t('cancel')}
-          closeLabel={t('close')}
-          busy={busy}
-          onCancel={() => store.askDelete(null)}
-          onConfirm={() => void store.remove(pendingDelete.id, pendingDelete.title)}
-        />
-      ) : null}
-      {presetTarget !== null ? (
-        <PresetDialog t={t} target={presetTarget} onClose={() => setPresetTarget(null)} />
-      ) : null}
-      {openImport ? (
-        <ImportDialog
-          t={t}
-          useWorkspaces={useWorkspaces}
-          onImported={() => sessions.refresh()}
-          onClose={() => setOpenImport(false)}
-        />
-      ) : null}
-      {batchDialog === 'migrate' ? (
-        <BatchMigrateDialog
-          t={t}
-          workspaces={snapshot.items.map((workspace) => ({
-            workspaceId: workspace.workspaceId,
-            title: workspace.title,
-            path: workspace.path,
-          }))}
-          busy={batch.running}
-          onConfirm={(workspaceId) => {
-            setBatchDialog(null)
-            void store.runBatchMigrate(
-              batchTargets.map(({ id, title }) => ({ id, title })),
-              workspaceId,
-            )
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className={styles.dangerGhost}
+                    disabled={busy || !ready || summary?.running === true}
+                    onClick={() => store.askDelete({ id, title })}
+                  >
+                    {t('archive.delete')}
+                  </Button>
+                </>
+              ),
+              children: open ? (
+                <div className={styles.detailGrid}>
+                  <MetaItem label={t('detail.id')} value={id} wide />
+                  <MetaItem
+                    label={t('detail.workspace')}
+                    value={
+                      row.workspaceTitle !== undefined
+                        ? `${row.workspaceTitle} — ${row.workspacePath}`
+                        : undefined
+                    }
+                    wide
+                  />
+                  <MetaItem label={t('detail.cwd')} value={summary?.cwd} wide />
+                  {summary?.origin === 'subagent' ? (
+                    <MetaItem label={t('detail.parent')} value={summary.parentId} wide />
+                  ) : null}
+                  {updatedLabel !== undefined ? (
+                    <MetaItem label={t('detail.updated')} value={updatedLabel} />
+                  ) : null}
+                </div>
+              ) : null,
+            }
           }}
-          onClose={() => setBatchDialog(null)}
         />
-      ) : null}
-      {batchDialog === 'preset' ? (
-        <BatchPresetDialog
-          t={t}
-          busy={batch.running}
-          onConfirm={(toPreset) => {
-            setBatchDialog(null)
-            void store.runBatchPreset(
-              batchTargets.map(({ id, title }) => ({ id, title })),
-              toPreset,
-            )
-          }}
-          onClose={() => setBatchDialog(null)}
+        {/* 行操作 / 批量的一次性摘要走共享 kit：组件态随面板卸载消亡，不重放。 */}
+        <NoticeToast
+          notice={actionNotice}
+          text={(message) => messageText(message, t)}
+          onDismiss={dismissActionNotice}
         />
-      ) : null}
-      {batchDialog === 'delete' ? (
-        <BatchDeletePreview
-          t={t}
-          targets={batchTargets}
-          busy={batch.running}
-          onConfirm={() => {
-            setBatchDialog(null)
-            void store.runBatchDelete(batchTargets.map(({ id, title }) => ({ id, title })))
-          }}
-          onCancel={() => setBatchDialog(null)}
-        />
-      ) : null}
-      {batch.outcome !== null ? (
-        <BatchResultDialog
-          t={t}
-          outcome={batch.outcome}
-          busy={batch.running}
-          onRetry={() => void store.retryOutcome()}
-          onClose={() => store.dismissOutcome()}
-        />
-      ) : null}
-    </Panel>
+        {pendingDelete !== null ? (
+          <ConfirmDialog
+            title={t('archive.deleteConfirmTitle')}
+            body={
+              childCount > 0
+                ? t('archive.deleteConfirmCascade', { title: pendingDelete.title, count: childCount })
+                : t('archive.deleteConfirm', { title: pendingDelete.title })
+            }
+            confirmLabel={t('archive.delete')}
+            cancelLabel={t('cancel')}
+            closeLabel={t('close')}
+            busy={busy}
+            onCancel={() => store.askDelete(null)}
+            onConfirm={() => void store.remove(pendingDelete.id, pendingDelete.title)}
+          />
+        ) : null}
+        {presetTarget !== null ? (
+          <PresetDialog t={t} target={presetTarget} onClose={() => setPresetTarget(null)} />
+        ) : null}
+        {openImport ? (
+          <ImportDialog
+            t={t}
+            useWorkspaces={useWorkspaces}
+            onImported={() => sessions.refresh()}
+            onClose={() => setOpenImport(false)}
+          />
+        ) : null}
+        {batchDialog === 'migrate' ? (
+          <BatchMigrateDialog
+            t={t}
+            workspaces={snapshot.items.map((workspace) => ({
+              workspaceId: workspace.workspaceId,
+              title: workspace.title,
+              path: workspace.path,
+            }))}
+            busy={batch.running}
+            onConfirm={(workspaceId) => {
+              setBatchDialog(null)
+              void store.runBatchMigrate(
+                batchTargets.map(({ id, title }) => ({ id, title })),
+                workspaceId,
+              )
+            }}
+            onClose={() => setBatchDialog(null)}
+          />
+        ) : null}
+        {batchDialog === 'preset' ? (
+          <BatchPresetDialog
+            t={t}
+            busy={batch.running}
+            onConfirm={(toPreset) => {
+              setBatchDialog(null)
+              void store.runBatchPreset(
+                batchTargets.map(({ id, title }) => ({ id, title })),
+                toPreset,
+              )
+            }}
+            onClose={() => setBatchDialog(null)}
+          />
+        ) : null}
+        {batchDialog === 'delete' ? (
+          <BatchDeletePreview
+            t={t}
+            targets={batchTargets}
+            busy={batch.running}
+            onConfirm={() => {
+              setBatchDialog(null)
+              void store.runBatchDelete(batchTargets.map(({ id, title }) => ({ id, title })))
+            }}
+            onCancel={() => setBatchDialog(null)}
+          />
+        ) : null}
+        {batch.outcome !== null ? (
+          <BatchResultDialog
+            t={t}
+            outcome={batch.outcome}
+            busy={batch.running}
+            onRetry={() => void store.retryOutcome()}
+            onClose={() => store.dismissOutcome()}
+          />
+        ) : null}
+      </Panel>
+    </PanelPage>
   )
 }
 
@@ -691,13 +700,13 @@ export function apply(ctx: Context): void {
   // 会话行菜单与常驻弹窗经同一桥传递迁移请求；行随菜单关闭卸载，弹窗必须挂在行外。
   const bridge = createMigrateBridge()
   const store = new SessionsStore(ctx.workspaces, () => sessions.refresh())
-  ctx.slots.inject('settings.section', () =>
+  // 全局面板：清单页是日常打开的工作面，不占设置页一级导航；点击侧栏入口
+  // 由侧栏外壳调 layout.selectPanel 打开，插件不自管导航。
+  ctx.slots.inject('main', () =>
     ctx.slots.register(
       {
-        name: 'settings.section',
-        id: 'dsh-sessions',
-        order: 43,
-        label: () => t('section.label'),
+        name: 'main',
+        key: SESSIONS_PANEL_ID,
         locale: NS,
         inject: () => ({
           sessions,
@@ -707,7 +716,19 @@ export function apply(ctx: Context): void {
             new Date(timestamp).toLocaleString(ctx.locale.getSnapshot().active),
         }),
       },
-      SessionsSection,
+      SessionsPanelPage,
+    ),
+  )
+  ctx.slots.inject('sidebar.panellist', () =>
+    ctx.slots.register(
+      {
+        name: 'sidebar.panellist',
+        id: SESSIONS_PANEL_ID,
+        order: 50,
+        locale: NS,
+        label: () => t('section.label'),
+      },
+      SessionsPanelIcon,
     ),
   )
   ctx.slots.inject('sidebar.workspaces.session.menu.item', () =>

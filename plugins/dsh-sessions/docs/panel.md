@@ -4,17 +4,17 @@
 
 ## 会话面板
 
-- 「设置 → 会话」面板：搜索 / 过滤全部会话，归档 / 恢复、跨工作区迁移、迁移 Agent 预设、批量操作、导入宿主导出的会话 ZIP、级联删除；侧栏会话行「…」菜单提供「迁移到工作区」入口。
+- 侧栏「会话」全局面板：搜索 / 过滤全部会话，归档 / 恢复、跨工作区迁移、迁移 Agent 预设、批量操作、导入宿主导出的会话 ZIP、级联删除；侧栏会话行「…」菜单提供「迁移到工作区」入口。
 - `src/client.tsx` 是 client half 入口：会话面板主体（搜索 / 过滤 / 排序、行操作）与导入弹窗（`ImportDialog`）。
 - 数据全部来自官方客户端快照（`ISessions.list` + `IWorkspaces.list`），搜索 / 过滤 / 排序纯客户端实现，不读聊天内容；subagent 回退行仅存在于 byId，列表构建时并入。
 - 列表用 `@dsh-plugins/client-ui` 的 `CardList` / `ExpandableCard`（与 dsh-skills 同款可展开卡片）；行操作：归档 / 恢复（官方命令）、迁移到工作区、迁移 Agent 预设、删除（级联子会话，需确认）。
 - 行操作编排在 `src/client/store.ts`；迁移弹窗经 `src/client/migrate.tsx` 的桥同时服务侧栏菜单与面板行内入口；`src/client/preset.tsx` 是预设迁移弹窗（`PresetDialog`）。
 - `src/client/api.ts` 是 client 侧 HTTP 封装；`src/client/locales.ts` 持有多语言词典（组织方式见仓库根 docs/i18n.md）；`src/client.module.css` 与 `src/css-modules.d.ts` 是面板局部样式与类型声明。
-- 面板原语、字段契约等通用约定见仓库根 docs/panel.md；本插件面板根经 `useWideSettingsDialog()` 加宽宿主设置弹窗（与 dsh-skills 同款 1200×920 上限），切到其他分区即还原。
+- 面板原语、字段契约等通用约定见仓库根 docs/panel.md；面板根是 `main` keyed 页面，用共享 `PanelPage` 页壳承载标题与说明，内层 `Panel` 无头部只作纵向间距容器。
 
 ## 通知通道
 
-- 提示信息一律优先 notice：面板行操作与批量摘要走共享通知套件（store 的 `notices` 通道 + `NoticeToast`，组件态随分区卸载消亡不重放）；导入 / 迁移 / 预设弹窗内的提示是弹窗局部组件态 `Toast`（5 秒、文本作 key 重开计时）；均不放行内常驻。通知通道划分通则见仓库根 docs/panel.md。
+- 提示信息一律优先 notice：面板行操作与批量摘要走共享通知套件（store 的 `notices` 通道 + `NoticeToast`，组件态随面板卸载消亡不重放）；导入 / 迁移 / 预设弹窗内的提示是弹窗局部组件态 `Toast`（5 秒、文本作 key 重开计时）；均不放行内常驻。通知通道划分通则见仓库根 docs/panel.md。
 - 批量结果弹窗本身跨挂载存活，由面板卸载清理（`dismissOutcome`）防重放；导入弹窗的逐文件结果清单是报告不是提示，保持列表呈现（取舍：清单是结果记录，不是操作反馈）。
 - 宿主不发布会话移除事件，账本清理后侧栏会解除隐藏过期摘要：删除成功后客户端必须全量刷新官方会话列表（`sessions.refresh`）。
 
