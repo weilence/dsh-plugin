@@ -26,6 +26,13 @@ vi.mock('../../src/client/api', () => ({ remoteApi: api }))
 const text = (message: PanelMessage | null): string | null =>
   message === null ? null : messageText(message, makeT())
 
+/** 收集 store 投递的事件 toast（与壳层常驻显示点同一订阅路径）。 */
+function collectToasts(store: RemoteStore): PanelMessage[] {
+  const seen: PanelMessage[] = []
+  store.toasts.subscribe((message) => seen.push(message))
+  return seen
+}
+
 const PASSWORD_TARGET: ConnectionTarget = {
   kind: 'direct',
   host: '10.0.0.5',
@@ -66,11 +73,12 @@ function stateResponse(connections: ConnRow[]): StateResponse {
 }
 
 describe('RemoteStore 阶段迁移检测', () => {
-  it('starting → running 发连接成功 toast，文案不自动打开远端页面', async () => {
+  it('用户发起的连接完成不发 toast（spinner 终态与阶段 pill 已是常驻反馈）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'starting' })]))
     await store.refresh()
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
 
     api.state.mockResolvedValueOnce(
       stateResponse([
@@ -92,18 +100,18 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('已连接「连接 dev」——点卡片上的「打开」进入远端页面')
-    expect(store.getSnapshot().noticeSeq).toBe(1)
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 
-  it('recover op 的 starting → running 发「已自动恢复」toast（用户没点过连接）', async () => {
+  it('recover op 的 starting → running 投递「已自动恢复」toast（用户没点过连接）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'recover' } })]),
     )
     await store.refresh()
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
 
     api.state.mockResolvedValueOnce(
       stateResponse([
@@ -125,19 +133,18 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe(
-      '远端实例曾停止，已自动恢复「连接 dev」——点「打开」重新进入',
-    )
+    expect(text(seen[0] ?? null)).toBe('远端实例曾停止，已自动恢复「连接 dev」——点「打开」重新进入')
     store.stopPolling()
   })
 
-  it('reconnect op 的 starting → running 发「已自动重连」toast（隧道中断被重建）', async () => {
+  it('reconnect op 的 starting → running 投递「已自动重连」toast（隧道中断被重建）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'reconnect' } })]),
     )
     await store.refresh()
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
 
     api.state.mockResolvedValueOnce(
       stateResponse([
@@ -159,17 +166,17 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('「连接 dev」的隧道曾中断，已自动重连——点「打开」重新进入')
+    expect(text(seen[0] ?? null)).toBe('「连接 dev」的隧道曾中断，已自动重连——点「打开」重新进入')
     store.stopPolling()
   })
 
-  it('upgrade op 的 starting → running 发「已升级」toast（带远端新版本号）', async () => {
+  it('升级完成不发 toast（版本事实行已刷新为远端新版本）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'upgrade' } })]),
     )
     await store.refresh()
-    expect(store.getSnapshot().notice).toBeNull()
 
     api.state.mockResolvedValueOnce(
       stateResponse([
@@ -191,17 +198,18 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('远端 dsh 已升级到 0.2.0（连接 dev）')
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 
-  it('同步 op 结束按类别发完成摘要（处理量）', async () => {
+  it('同步 op 结束按类别投递完成摘要（处理量）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'running', op: { kind: 'sync-skills' } })]),
     )
     await store.refresh()
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
 
     api.state.mockResolvedValueOnce(
       stateResponse([
@@ -217,12 +225,13 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('同步 Skills 完成：推送 2')
+    expect(text(seen[0] ?? null)).toBe('同步 Skills 完成：推送 2')
     store.stopPolling()
   })
 
   it('同步插件完成摘要报安装数', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { op: { kind: 'sync-plugins' } })]))
     await store.refresh()
     api.state.mockResolvedValueOnce(
@@ -238,55 +247,46 @@ describe('RemoteStore 阶段迁移检测', () => {
       ]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('同步插件完成：安装 1')
+    expect(text(seen[0] ?? null)).toBe('同步插件完成：安装 1')
     store.stopPolling()
   })
 
   it('同步失败时错误原文作为 detail 原样并入（不翻译外部事实）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { op: { kind: 'sync-mcp' } })]))
     await store.refresh()
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { error: { message: 'ssh: connect refused', kind: 'unreachable' } })]),
     )
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('同步MCP失败：ssh: connect refused')
+    expect(text(seen[0] ?? null)).toBe('同步 MCP 失败：ssh: connect refused')
     store.stopPolling()
   })
 
   it('lastSync 摘要缺失时退回类别的通用完成文案', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { op: { kind: 'sync-prompts' } })]))
     await store.refresh()
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev')]))
     await store.refresh()
-    expect(text(store.getSnapshot().notice)).toBe('同步提示词完成')
-    store.stopPolling()
-  })
-
-  it('操作通知并入常驻事件通道（重复投递递增 noticeSeq 重新计时）', async () => {
-    const store = new RemoteStore()
-    api.state.mockResolvedValue(stateResponse([]))
-    await store.remove('a')
-    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
-    const seq = store.getSnapshot().noticeSeq
-    await store.remove('a')
-    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
-    expect(store.getSnapshot().noticeSeq).toBe(seq + 1)
+    expect(text(seen[0] ?? null)).toBe('同步提示词完成')
     store.stopPolling()
   })
 })
 
-describe('RemoteStore 写操作提示', () => {
-  it('保存按新建 / 编辑分别提示，错误走 text 原样', async () => {
+describe('RemoteStore 写操作不投递 toast（卡片增删即反馈）', () => {
+  it('保存成功 / 失败都不投递 toast，错误走 text 原样', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValue(stateResponse([]))
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
       await store.save({ label: 'a', target: { kind: 'alias', alias: 'box' }, rememberSecret: false }),
     ).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已创建连接')
+    expect(seen).toHaveLength(0)
 
     api.save.mockResolvedValueOnce({ id: 'a' })
     expect(
@@ -297,7 +297,7 @@ describe('RemoteStore 写操作提示', () => {
         rememberSecret: false,
       }),
     ).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已保存连接')
+    expect(seen).toHaveLength(0)
 
     api.save.mockRejectedValueOnce(new Error('boom'))
     expect(
@@ -312,12 +312,13 @@ describe('RemoteStore 写操作提示', () => {
     store.stopPolling()
   })
 
-  it('删除成功提示', async () => {
+  it('删除成功不投递 toast', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValue(stateResponse([]))
     api.remove.mockResolvedValueOnce({ removed: true })
     expect(await store.remove('a')).toBe(true)
-    expect(text(store.getSnapshot().notice)).toBe('已删除连接')
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 
@@ -332,9 +333,14 @@ describe('RemoteStore 写操作提示', () => {
 })
 
 describe('RemoteStore 表单测试与口令弹窗', () => {
-  it('测试成功 / 失败都只产生一次性 toast，不写连接状态', async () => {
+  it('测试结果落 testResult 行内（不发 toast，不写连接状态）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     const target: ConnectionTarget = { kind: 'alias', alias: 'dev-box' }
+    const resultText = (): string | null => {
+      const result = store.getSnapshot().testResult
+      return result === null ? null : text(result.message)
+    }
 
     api.test.mockResolvedValueOnce({
       ok: true,
@@ -344,7 +350,8 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
+    expect(resultText()).toBe('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
+    expect(seen).toHaveLength(0)
     expect(store.getSnapshot().testing).toBe(false)
 
     api.test.mockResolvedValueOnce({
@@ -355,7 +362,7 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: null,
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
+    expect(resultText()).toBe('测试通过：node v22.19.0，npm 10.8.2，未安装 dsh')
 
     api.test.mockResolvedValueOnce({
       ok: false,
@@ -365,7 +372,8 @@ describe('RemoteStore 表单测试与口令弹窗', () => {
       error: { message: 'Permission denied (publickey)', kind: 'auth-failed' },
     })
     await store.testDraft({ target })
-    expect(text(store.getSnapshot().notice)).toBe('测试失败：Permission denied (publickey)')
+    expect(resultText()).toBe('测试失败：Permission denied (publickey)')
+    expect(store.getSnapshot().testResult?.ok).toBe(false)
     store.stopPolling()
   })
 
@@ -487,21 +495,23 @@ describe('RemoteStore 面板关闭边界（一次性反馈不跨关闭窗口存�
 
   it('关闭期间完成的连接迁移是旧闻：重开面板首轮 refresh 不补发 toast', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     // 挂载期最后一轮看到 starting，随后面板关闭、连接在后台完成
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'starting' })]))
     await store.refresh()
     store.stopPolling()
 
-    // 重开面板（startPolling 首轮 refresh）：迁移记忆已随关闭清空，不发 toast
+    // 重开面板（startPolling 首轮 refresh）：迁移记忆已随关闭清空，不投递 toast
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'running', running: RUNNING })]))
     store.startPolling()
     await vi.waitFor(() => expect(store.getSnapshot().status).toBe('ready'))
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 
   it('关闭期间完成的同步不补发摘要（prevOps 同样只在观察窗口内有效）', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     api.state.mockResolvedValueOnce(
       stateResponse([connRow('dev', { phase: 'running', op: { kind: 'sync-skills' } })]),
     )
@@ -523,12 +533,13 @@ describe('RemoteStore 面板关闭边界（一次性反馈不跨关闭窗口存�
     )
     store.startPolling()
     await vi.waitFor(() => expect(store.getSnapshot().status).toBe('ready'))
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 
-  it('关闭瞬间在途的 refresh 不记录迁移也不发 notice', async () => {
+  it('关闭瞬间在途的 refresh 不记录迁移也不投递 toast', async () => {
     const store = new RemoteStore()
+    const seen = collectToasts(store)
     let resolveState: (value: StateResponse) => void = () => {}
     api.state.mockReturnValueOnce(
       new Promise<StateResponse>((resolve) => {
@@ -540,14 +551,14 @@ describe('RemoteStore 面板关闭边界（一次性反馈不跨关闭窗口存�
     store.stopPolling()
     resolveState(stateResponse([connRow('dev', { phase: 'starting', op: { kind: 'connect' } })]))
     await pending
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
     expect(store.getSnapshot().status).toBe('ready')
 
-    // 在途 refresh 未留下迁移记忆：重开面板首轮看到 running 也不发 toast
+    // 在途 refresh 未留下迁移记忆：重开面板首轮看到 running 也不投递 toast
     api.state.mockResolvedValueOnce(stateResponse([connRow('dev', { phase: 'running', running: RUNNING })]))
     store.startPolling()
     await vi.waitFor(() => expect(store.getSnapshot().list?.connections[0]?.state.phase).toBe('running'))
-    expect(store.getSnapshot().notice).toBeNull()
+    expect(seen).toHaveLength(0)
     store.stopPolling()
   })
 })

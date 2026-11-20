@@ -1,3 +1,4 @@
+import { NoticeRelay } from '@dsh-plugins/client-ui/notice-relay'
 import { errMsg } from '@dsh-plugins/shared'
 import { remoteApi } from './api'
 import type { PanelMessage, RemoteKey } from './locales'
@@ -27,12 +28,9 @@ export interface RemoteState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   /** 插件文案用词典 key 表达，Host errMsg 用 text 原样；渲染期随宿主语言翻译。 */
   error: PanelMessage | null
-  /** 事件类一次性通知（连接 / 同步等生命周期事件的迁移检测结果），由壳层
-   *  shell.overlay 的常驻显示点渲染并经 dismissNotice 清空——显示点不卸载，
-   *  onDone 必然触发，无残留无重放。 */
-  notice: PanelMessage | null
-  /** 每次 toast 递增：同一文案连续出现也重新计时（Toast 以它为 key）。 */
-  noticeSeq: number
+  /** 事件 toast（自动恢复 / 自动重连 / 同步完成与失败）经 store.toasts 通道
+   *  投递，由壳层 shell.overlay 的常驻显示点渲染并消费——通道无订阅者即丢弃，
+   *  显示点挂载期始终在订阅，触发面关闭前后完成的反馈都必达。 */
   list: StateResponse | null
   localRows: LocalRowsResponse | null
   /** 展开中的连接 id（编辑 / 详情）。 */
@@ -42,6 +40,9 @@ export interface RemoteState {
   busyId: string | null
   /** 表单里的探针请求进行中（不占连接操作位）。 */
   testing: boolean
+  /** 表单测试的行内结果（成功摘要 / 失败原因）：随表单常驻显示、下一次测试
+   *  开始时清空——错误与校验反馈默认行内，不走 toast。 */
+  testResult: { ok: boolean; message: PanelMessage } | null
   /** ~/.ssh/config 清单（表单选择器打开时懒加载）。 */
   sshHosts: SshHostsResponse | null
   sshHostsLoading: boolean
@@ -63,14 +64,13 @@ export interface RemoteState {
 const INITIAL: RemoteState = {
   status: 'idle',
   error: null,
-  notice: null,
-  noticeSeq: 0,
   list: null,
   localRows: null,
   editingId: undefined,
   creating: false,
   busyId: null,
   testing: false,
+  testResult: null,
   sshHosts: null,
   sshHostsLoading: false,
   sshHostsError: null,
@@ -97,39 +97,43 @@ function needsSecret(row: ConnRow): boolean {
   return targetRequiresSecret(row.target) && row.secretState === 'none'
 }
 
-/** 四个同步类别的完成 / 失败整句键（notice 是跨语言切换存活的 toast，模板
+/** 四个同步类别的完成 / 失败整句键（toast 是跨语言切换存活的描述子，模板
  *  整句入词典，不把可译片段当参数拼接）。 */
-const SYNC_NOTICE_KEYS: Record<string, { failed: RemoteKey; generic: RemoteKey }> = {
-  'sync-skills': { failed: 'notice.syncFailed.skills', generic: 'notice.syncDoneGeneric.skills' },
-  'sync-mcp': { failed: 'notice.syncFailed.mcp', generic: 'notice.syncDoneGeneric.mcp' },
-  'sync-plugins': { failed: 'notice.syncFailed.plugins', generic: 'notice.syncDoneGeneric.plugins' },
-  'sync-prompts': { failed: 'notice.syncFailed.prompts', generic: 'notice.syncDoneGeneric.prompts' },
+const SYNC_TOAST_KEYS: Record<string, { failed: RemoteKey; generic: RemoteKey }> = {
+  'sync-skills': { failed: 'toast.syncFailed.skills', generic: 'toast.syncDoneGeneric.skills' },
+  'sync-mcp': { failed: 'toast.syncFailed.mcp', generic: 'toast.syncDoneGeneric.mcp' },
+  'sync-plugins': { failed: 'toast.syncFailed.plugins', generic: 'toast.syncDoneGeneric.plugins' },
+  'sync-prompts': { failed: 'toast.syncFailed.prompts', generic: 'toast.syncDoneGeneric.prompts' },
 }
 
-/** 同步操作的完成摘要（op 从 sync-* 变为空时发 notice）。引擎提交即执行、
+/** 同步操作的完成摘要（op 从 sync-* 变为空时投递 toast）。引擎提交即执行、
  *  无跳过概念，摘要只报处理量。 */
-function syncDoneNotice(kind: string, row: ConnRow): PanelMessage {
-  const keys = SYNC_NOTICE_KEYS[kind]
+function syncDoneToast(kind: string, row: ConnRow): PanelMessage {
+  const keys = SYNC_TOAST_KEYS[kind]
   if (keys === undefined) return { text: kind }
   if (row.state.error !== null) {
     return { key: keys.failed, params: { detail: row.state.error.message } }
   }
   if (kind === 'sync-skills' && row.state.lastSync.skills !== null) {
-    return { key: 'notice.syncDone.skills', params: { pushed: row.state.lastSync.skills.pushed } }
+    return { key: 'toast.syncDone.skills', params: { pushed: row.state.lastSync.skills.pushed } }
   }
   if (kind === 'sync-mcp' && row.state.lastSync.mcp !== null) {
-    return { key: 'notice.syncDone.mcp', params: { count: row.state.lastSync.mcp.installed.length } }
+    return { key: 'toast.syncDone.mcp', params: { count: row.state.lastSync.mcp.installed.length } }
   }
   if (kind === 'sync-plugins' && row.state.lastSync.plugins !== null) {
-    return { key: 'notice.syncDone.plugins', params: { count: row.state.lastSync.plugins.installed.length } }
+    return { key: 'toast.syncDone.plugins', params: { count: row.state.lastSync.plugins.installed.length } }
   }
   if (kind === 'sync-prompts' && row.state.lastSync.prompts !== null && row.state.lastSync.prompts.pushed) {
-    return { key: 'notice.syncDone.promptsPushed' }
+    return { key: 'toast.syncDone.promptsPushed' }
   }
   return { key: keys.generic }
 }
 
 export class RemoteStore {
+  /** 事件 toast 通道：自动恢复 / 自动重连与同步结果在此投递，壳层常驻显示点
+   *  订阅渲染（emit 无订阅者即丢弃——显示点注册早于面板可打开，投递时必然
+   *  在订阅）。重复投递换 nonce 重开计时（由共享套件保证），无残留无重放。 */
+  readonly toasts = new NoticeRelay<PanelMessage>()
   private snapshot: RemoteState = INITIAL
   private readonly listeners = new Set<() => void>()
   private fastTimer: ReturnType<typeof setInterval> | null = null
@@ -141,7 +145,7 @@ export class RemoteStore {
   private readonly prevOps = new Map<string, string | null>()
   /** 面板观察窗口：startPolling（面板挂载）开、stopPolling（卸载）关。store 的
    *  刷新只由面板侧驱动，默认即观察中；窗口关闭后在途的 refresh 只更新数据，
-   *  不记录迁移记忆、不发一次性 notice，也不再起轮询定时器。 */
+   *  不记录迁移记忆、不发事件 toast，也不再起轮询定时器。 */
   private observing = true
 
   getSnapshot = (): RemoteState => this.snapshot
@@ -158,18 +162,12 @@ export class RemoteStore {
     for (const listener of this.listeners) listener()
   }
 
-  /** 事件类一次性通知：递增序号让同文案也重新开计时。 */
-  private notify(message: PanelMessage): void {
-    this.set({ notice: message, noticeSeq: this.snapshot.noticeSeq + 1 })
-  }
-
-  /** 轮询间检测阶段 / 操作迁移：连接成功与同步完成发 notice——连接成功
-   *  不自动开页（入口常驻在卡片「打开」按钮），同步是长操作且弹窗已关，
-   *  结果靠 toast 呈现。自动动作（看门狗 recover / 转发中断的 reconnect）走
-   *  同一 starting → running 迁移，但文案必须区分：用户没有点过连接，是
-   *  实例停了被拉起 / 隧道断了被重建。 */
+  /** 轮询间检测操作迁移并投递事件 toast：自动恢复 / 自动重连必须区分成因
+   *  （用户没有点过连接，是实例停了被拉起 / 隧道断了被重建），同步是长操作
+   *  且弹窗已关、摘要靠 toast 呈现。用户发起的连接 / 升级完成不发 toast——
+   *  spinner 终态、阶段 pill 与版本事实行已是常驻反馈。 */
   private detectTransitions(next: StateResponse): void {
-    let notice: PanelMessage | null = null
+    let toast: PanelMessage | null = null
     for (const row of next.connections) {
       const before = this.prevPhase.get(row.id)
       this.prevPhase.set(row.id, row.state.phase)
@@ -177,31 +175,22 @@ export class RemoteStore {
       const opKind = row.state.op?.kind ?? null
       this.prevOps.set(row.id, opKind)
       if (
-        notice === null &&
+        toast === null &&
         before === 'starting' &&
         row.state.phase === 'running' &&
-        row.state.running !== null
+        row.state.running !== null &&
+        (prevOp === 'recover' || prevOp === 'reconnect')
       ) {
-        notice =
+        toast =
           prevOp === 'recover'
-            ? { key: 'notice.recovered', params: { label: row.label } }
-            : prevOp === 'reconnect'
-              ? { key: 'notice.reconnected', params: { label: row.label } }
-              : prevOp === 'upgrade'
-                ? {
-                    key: 'notice.upgraded',
-                    params: {
-                      label: row.label,
-                      version: row.state.running.instance?.dsh ?? '?',
-                    },
-                  }
-                : { key: 'notice.connected', params: { label: row.label } }
+            ? { key: 'toast.recovered', params: { label: row.label } }
+            : { key: 'toast.reconnected', params: { label: row.label } }
       }
-      if (notice === null && prevOp !== null && opKind === null && prevOp.startsWith('sync-')) {
-        notice = syncDoneNotice(prevOp, row)
+      if (toast === null && prevOp !== null && opKind === null && prevOp.startsWith('sync-')) {
+        toast = syncDoneToast(prevOp, row)
       }
     }
-    if (notice !== null) this.notify(notice)
+    if (toast !== null) this.toasts.emit(toast)
   }
 
   async refresh(): Promise<void> {
@@ -233,7 +222,7 @@ export class RemoteStore {
 
   private schedulePoll(): void {
     // 面板已关闭（含关闭瞬间在途的 refresh 落地）：不再起任何定时器，轮询随
-    // 面板关闭即停——后台空转的轮询只会产生无人即时可见的 notice。
+    // 面板关闭即停——后台空转的轮询只会产生无人即时可见的 toast。
     if (!this.observing) return
     const busy = this.snapshot.list !== null && anyBusy(this.snapshot.list.connections)
     if (busy && this.fastTimer === null) {
@@ -256,7 +245,7 @@ export class RemoteStore {
   /** 面板卸载的唯一出口（面板卸载 cleanup 调用）：除停轮询外，丢弃迁移记忆——
    *  prev 记忆只在同一观察窗口内有效，跨关闭窗口完成的阶段 / 同步迁移是旧闻
    *  （事实由卡片状态 pill / spinner 呈现），重开面板首轮 refresh 不据此补发
-   *  事件 toast。事件 notice 归壳层显示点清空，这里不动它。 */
+   *  toast。事件 toast 通道由常驻显示点自清，这里不经手。 */
   stopPolling(): void {
     this.observing = false
     if (this.fastTimer !== null) {
@@ -314,9 +303,6 @@ export class RemoteStore {
     this.set({ failedDetail: row })
   }
 
-  dismissNotice(): void {
-    this.set({ notice: null })
-  }
   private rowOf(id: string): ConnRow | undefined {
     return this.snapshot.list?.connections.find((row) => row.id === id)
   }
@@ -366,7 +352,6 @@ export class RemoteStore {
     try {
       await remoteApi.save(request)
       await this.refresh()
-      this.notify(request.id === undefined ? { key: 'notice.created' } : { key: 'notice.saved' })
       this.set({ editingId: request.id === undefined ? undefined : this.snapshot.editingId })
       return true
     } catch (error) {
@@ -382,7 +367,6 @@ export class RemoteStore {
     try {
       await remoteApi.remove(id)
       await this.refresh()
-      this.notify({ key: 'notice.deleted' })
       this.set({ editingId: undefined })
       return true
     } catch (error) {
@@ -393,28 +377,39 @@ export class RemoteStore {
     }
   }
 
-  /** 表单里的测试：结果只走一次性 toast（成功摘要 / 失败原因），不占连接状态。 */
+  /** 表单里的测试：结果落 testResult 行内常驻在表单（成功摘要 / 失败原因），
+   *  不占连接状态、不发 toast。 */
   async testDraft(request: TestRequest): Promise<void> {
-    this.set({ testing: true, error: null })
+    this.set({ testing: true, error: null, testResult: null })
     try {
       const result = await remoteApi.test(request)
       if (result.ok) {
         const params = { node: result.nodeVersion ?? '?', npm: result.npmVersion ?? '?' }
-        this.notify(
-          result.dshVersion === null
-            ? { key: 'notice.test.okNoDsh', params }
-            : { key: 'notice.test.ok', params: { ...params, dsh: result.dshVersion } },
-        )
+        this.set({
+          testResult: {
+            ok: true,
+            message:
+              result.dshVersion === null
+                ? { key: 'form.testOkNoDsh', params }
+                : { key: 'form.testOk', params: { ...params, dsh: result.dshVersion } },
+          },
+        })
       } else {
         const detail = result.error?.message ?? ''
-        this.notify(
-          detail.length === 0
-            ? { key: 'notice.test.failedNoReason' }
-            : { key: 'notice.test.failed', params: { detail } },
-        )
+        this.set({
+          testResult: {
+            ok: false,
+            message:
+              detail.length === 0
+                ? { key: 'form.testFailedNoReason' }
+                : { key: 'form.testFailed', params: { detail } },
+          },
+        })
       }
     } catch (error) {
-      this.notify({ key: 'notice.test.failed', params: { detail: errMsg(error) } })
+      this.set({
+        testResult: { ok: false, message: { key: 'form.testFailed', params: { detail: errMsg(error) } } },
+      })
     } finally {
       this.set({ testing: false })
     }

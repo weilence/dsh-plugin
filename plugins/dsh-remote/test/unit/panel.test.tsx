@@ -2,7 +2,7 @@ import { Children, createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { UsePanelInfo } from '@deepseek-ai/dsh-client-ui-layout/client'
-import { RemoteEventToast } from '../../src/client/RemoteEventToast'
+import { messageText, type PanelMessage } from '../../src/client/locales'
 import { RemotePanelPage } from '../../src/client/RemotePanelPage'
 import { RemoteStore } from '../../src/client/store'
 import type { ConnRow, LocalRowsResponse, StateResponse } from '../../src/shared'
@@ -619,7 +619,7 @@ describe('远程开发面板渲染', () => {
     store.stopPolling()
   })
 
-  it('表单测试结果不写进卡片（一次性反馈走通知通道）', async () => {
+  it('表单测试结果行内常驻在表单，不写卡片', async () => {
     api.state.mockReturnValue(stateResponse({}, [connRow()]))
     api.localRows.mockReturnValue(localRowsFixture())
     const store = await loadedStore()
@@ -633,15 +633,22 @@ describe('远程开发面板渲染', () => {
     await store.testDraft({ target: { kind: 'alias', alias: 'dev-box' } })
     const html = renderPanel(store)
 
+    // 结果在表单区行内呈现（不进动作区、不占卡片状态位）
+    expect(html).toContain('测试通过：node v22.19.0，npm 10.8.2，dsh 0.1.7-rc.2')
+    const actions = /data-card-actions[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1] ?? ''
+    expect(actions).not.toContain('测试通过')
     expect(html).not.toContain('探针')
-    expect(html).not.toContain('测试通过')
     store.stopPolling()
   })
 
-  it('事件类通知（连接成功）由壳层显示点渲染，面板内不渲染', async () => {
-    api.state.mockReturnValueOnce(stateResponse({}, [connRow({ phase: 'starting' })]))
+  it('事件 toast（自动恢复）经 store.toasts 投递，面板内不渲染', async () => {
+    api.state.mockReturnValueOnce(
+      stateResponse({}, [connRow({ phase: 'starting', op: { kind: 'recover' } })]),
+    )
     api.localRows.mockReturnValue(localRowsFixture())
     const store = new RemoteStore()
+    const seen: PanelMessage[] = []
+    store.toasts.subscribe((message) => seen.push(message))
     await store.refresh()
     api.state.mockReturnValue(
       stateResponse({}, [
@@ -664,9 +671,10 @@ describe('远程开发面板渲染', () => {
     )
     await store.refresh()
 
-    const overlay = renderToStaticMarkup(createElement(RemoteEventToast, { store, t: makeT(), usePanelInfo }))
-    expect(overlay).toContain('已连接「开发机 A」——点卡片上的「打开」进入远端页面')
-    expect(renderPanel(store)).not.toContain('已连接「开发机 A」')
+    // 壳层显示点订阅 store.toasts（与常驻渲染同一订阅路径）；面板内不渲染 toast
+    expect(seen).toHaveLength(1)
+    expect(messageText(seen[0]!, makeT())).toBe('远端实例曾停止，已自动恢复「开发机 A」——点「打开」重新进入')
+    expect(renderPanel(store)).not.toContain('已自动恢复')
     store.stopPolling()
   })
 

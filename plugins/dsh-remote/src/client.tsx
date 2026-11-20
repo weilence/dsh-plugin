@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { NS, en, zh, type RemoteT } from './client/locales'
-import { RemoteEventToast, type RemoteEventToastInjected } from './client/RemoteEventToast'
+import { RemoteNoticesToast, type RemoteNoticesToastInjected } from './client/RemoteNoticesToast'
 import { RemotePanelIcon } from './client/RemotePanelIcon'
 import { RemotePanelPage, type RemotePanelInjected } from './client/RemotePanelPage'
 import { RemoteStore } from './client/store'
@@ -49,7 +49,7 @@ export function apply(ctx: ClientContext) {
       RemotePanelIcon,
     ),
   )
-  // 事件类一次性通知的壳层显示点：官方 plugin-manager 的 PluginRefreshToast 先例
+  // 事件 toast 的壳层常驻显示点：官方 plugin-manager 的 PluginRefreshToast 先例
   //（shell.overlay 由 ui-layout 声明，root 作用域常驻，覆盖整个框架）。
   ctx.slots.inject('shell.overlay', () => {
     return ctx.slots.register(
@@ -57,9 +57,9 @@ export function apply(ctx: ClientContext) {
         name: 'shell.overlay',
         id: 'dsh-remote.event-toast',
         locale: NS,
-        inject: (): RemoteEventToastInjected => ({ store }),
+        inject: (): RemoteNoticesToastInjected => ({ relay: store.toasts }),
       },
-      RemoteEventToast,
+      RemoteNoticesToast,
     )
   })
 }

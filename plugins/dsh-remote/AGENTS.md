@@ -21,7 +21,7 @@
 - [docs/deploy.md](docs/deploy.md)：部署与版本治理——前置条件、部署段、systemd 单元与端口策略、就绪等待、双口径、升级与 drift、payload 打包传输。
 - [docs/connection.md](docs/connection.md)：连接与隧道——认证矩阵与口令通道、状态机与持久化、本地隧道、心跳健康、自动重连、dsh-sessions 传输通道。
 - [docs/sync.md](docs/sync.md)：环境同步——四类同步、比对判据、同步面板交互。
-- [docs/panel.md](docs/panel.md)：面板交互——连接卡片、通知通道、连接表单与口令补录、国际化插件特有约定。
+- [docs/panel.md](docs/panel.md)：面板交互——连接卡片、toast 常驻显示点、连接表单与口令补录、国际化插件特有约定。
 - [docs/tests.md](docs/tests.md)：测试地图——每个测试文件覆盖什么，单测 / 集成如何运行。
 - [README.md](README.md)：面向用户的功能、前置条件与安装。
 

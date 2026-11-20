@@ -96,32 +96,23 @@ export const zh = {
   'delete.body':
     '确认删除「{label}」（{target}）？只清除本机记录、已保存的口令与端口转发；远端实例会继续在后台运行，已装插件与已下发配置保留。',
 
-  'notice.connected': '已连接「{label}」——点卡片上的「打开」进入远端页面',
-  'notice.recovered': '远端实例曾停止，已自动恢复「{label}」——点「打开」重新进入',
-  'notice.reconnected': '「{label}」的隧道曾中断，已自动重连——点「打开」重新进入',
-  'notice.upgraded': '远端 dsh 已升级到 {version}（{label}）',
-  'notice.created': '已创建连接',
-  'notice.saved': '已保存连接',
-  'notice.deleted': '已删除连接',
-  // 同步完成 / 失败摘要是跨语言切换存活的 toast：模板整句入词典（不把可译
-  // 片段当参数拼接）。引擎提交即执行、无跳过概念。
-  'notice.syncFailed.skills': '同步skills失败：{detail}',
-  'notice.syncFailed.mcp': '同步MCP失败：{detail}',
-  'notice.syncFailed.plugins': '同步插件失败：{detail}',
-  'notice.syncFailed.prompts': '同步提示词失败：{detail}',
-  'notice.syncDone.skills': '同步 Skills 完成：推送 {pushed}',
-  'notice.syncDone.mcp': '同步 MCP 完成：写入 {count} 行',
-  'notice.syncDone.plugins': '同步插件完成：安装 {count}',
-  'notice.syncDone.promptsPushed': '同步提示词完成：已推送',
-  'notice.syncDoneGeneric.skills': '同步skills完成',
-  'notice.syncDoneGeneric.mcp': '同步MCP完成',
-  'notice.syncDoneGeneric.plugins': '同步插件完成',
-  'notice.syncDoneGeneric.prompts': '同步提示词完成',
-  // 表单测试的一次性结果（toast，事件时间取词即可）
-  'notice.test.ok': '测试通过：node {node}，npm {npm}，dsh {dsh}',
-  'notice.test.okNoDsh': '测试通过：node {node}，npm {npm}，未安装 dsh',
-  'notice.test.failed': '测试失败：{detail}',
-  'notice.test.failedNoReason': '测试失败（没有输出）',
+  // 事件 toast 是跨语言切换存活的描述子：模板整句入词典（不把可译片段当参数
+  // 拼接），渲染期经 messageText 取词。自动恢复 / 重连与同步结果由 store 的
+  // op 迁移检测投递；用户发起的连接 / 升级完成不发 toast——卡片终态已是反馈。
+  'toast.recovered': '远端实例曾停止，已自动恢复「{label}」——点「打开」重新进入',
+  'toast.reconnected': '「{label}」的隧道曾中断，已自动重连——点「打开」重新进入',
+  'toast.syncFailed.skills': '同步 Skills 失败：{detail}',
+  'toast.syncFailed.mcp': '同步 MCP 失败：{detail}',
+  'toast.syncFailed.plugins': '同步插件失败：{detail}',
+  'toast.syncFailed.prompts': '同步提示词失败：{detail}',
+  'toast.syncDone.skills': '同步 Skills 完成：推送 {pushed}',
+  'toast.syncDone.mcp': '同步 MCP 完成：写入 {count} 行',
+  'toast.syncDone.plugins': '同步插件完成：安装 {count}',
+  'toast.syncDone.promptsPushed': '同步提示词完成：已推送',
+  'toast.syncDoneGeneric.skills': '同步 Skills 完成',
+  'toast.syncDoneGeneric.mcp': '同步 MCP 完成',
+  'toast.syncDoneGeneric.plugins': '同步插件完成',
+  'toast.syncDoneGeneric.prompts': '同步提示词完成',
 
   'form.label': '显示名',
   'form.labelPlaceholder': '如：开发机 A',
@@ -168,6 +159,11 @@ export const zh = {
   'form.configMissing': '{path} 不存在；可直接输入别名',
   'form.configHint': '已从 {path} 读取 {count} 个主机；也可直接输入别名',
   'form.configError': '读取 {path} 失败：{detail}',
+  // 测试按钮的行内结果（随表单常驻，下一次测试开始时清空）：不走 toast。
+  'form.testOk': '测试通过：node {node}，npm {npm}，dsh {dsh}',
+  'form.testOkNoDsh': '测试通过：node {node}，npm {npm}，未安装 dsh',
+  'form.testFailed': '测试失败：{detail}',
+  'form.testFailedNoReason': '测试失败（没有输出）',
 
   'hostPicker.title': '选择 SSH 主机',
   'hostPicker.description': '来自 {path}；连接参数仍由 ssh 按配置解析',
@@ -323,31 +319,22 @@ export const en: { [Key in RemoteKey]: string } = {
   'delete.body':
     'Delete "{label}" ({target})? Only the local record, the saved secret and port forwarding are removed; the remote instance keeps running in the background, with installed plugins and delivered configuration kept.',
 
-  'notice.connected': 'Connected to "{label}" — click "Open" on the card to enter the remote page',
-  'notice.recovered':
+  'toast.recovered':
     'The remote instance had stopped and was recovered automatically — click "Open" to re-enter "{label}"',
-  'notice.reconnected':
+  'toast.reconnected':
     'The tunnel of "{label}" had dropped and was reconnected automatically — click "Open" to re-enter',
-  'notice.upgraded': 'Remote dsh upgraded to {version} ({label})',
-  'notice.created': 'Connection created',
-  'notice.saved': 'Connection saved',
-  'notice.deleted': 'Connection deleted',
-  'notice.syncFailed.skills': 'skills sync failed: {detail}',
-  'notice.syncFailed.mcp': 'MCP sync failed: {detail}',
-  'notice.syncFailed.plugins': 'Plugin sync failed: {detail}',
-  'notice.syncFailed.prompts': 'Prompt sync failed: {detail}',
-  'notice.syncDone.skills': 'Skills sync finished: pushed {pushed}',
-  'notice.syncDone.mcp': 'MCP sync finished: wrote {count} rows',
-  'notice.syncDone.plugins': 'Plugin sync finished: installed {count}',
-  'notice.syncDone.promptsPushed': 'Prompt sync finished: pushed',
-  'notice.syncDoneGeneric.skills': 'skills sync finished',
-  'notice.syncDoneGeneric.mcp': 'MCP sync finished',
-  'notice.syncDoneGeneric.plugins': 'Plugin sync finished',
-  'notice.syncDoneGeneric.prompts': 'Prompt sync finished',
-  'notice.test.ok': 'Test passed: node {node}, npm {npm}, dsh {dsh}',
-  'notice.test.okNoDsh': 'Test passed: node {node}, npm {npm}, dsh not installed',
-  'notice.test.failed': 'Test failed: {detail}',
-  'notice.test.failedNoReason': 'Test failed (no output)',
+  'toast.syncFailed.skills': 'Skills sync failed: {detail}',
+  'toast.syncFailed.mcp': 'MCP sync failed: {detail}',
+  'toast.syncFailed.plugins': 'Plugin sync failed: {detail}',
+  'toast.syncFailed.prompts': 'Prompt sync failed: {detail}',
+  'toast.syncDone.skills': 'Skills sync finished: pushed {pushed}',
+  'toast.syncDone.mcp': 'MCP sync finished: wrote {count} rows',
+  'toast.syncDone.plugins': 'Plugin sync finished: installed {count}',
+  'toast.syncDone.promptsPushed': 'Prompt sync finished: pushed',
+  'toast.syncDoneGeneric.skills': 'Skills sync finished',
+  'toast.syncDoneGeneric.mcp': 'MCP sync finished',
+  'toast.syncDoneGeneric.plugins': 'Plugin sync finished',
+  'toast.syncDoneGeneric.prompts': 'Prompt sync finished',
 
   'form.label': 'Display name',
   'form.labelPlaceholder': 'e.g. Dev box A',
@@ -398,6 +385,11 @@ export const en: { [Key in RemoteKey]: string } = {
   'form.configMissing': '{path} does not exist; type an alias directly',
   'form.configHint': 'Read {count} hosts from {path}; you can also type an alias directly',
   'form.configError': 'Failed to read {path}: {detail}',
+  // 测试按钮的行内结果（随表单常驻，下一次测试开始时清空）：不走 toast。
+  'form.testOk': 'Test passed: node {node}, npm {npm}, dsh {dsh}',
+  'form.testOkNoDsh': 'Test passed: node {node}, npm {npm}, dsh not installed',
+  'form.testFailed': 'Test failed: {detail}',
+  'form.testFailedNoReason': 'Test failed (no output)',
 
   'hostPicker.title': 'Choose an SSH host',
   'hostPicker.description': 'From {path}; connection parameters are still resolved by ssh',

@@ -31,9 +31,9 @@
   - 心跳组（`fakeClock` 推进假时钟驱动 `heartbeat()`）：健康不动作不建连 / 每拍顺路问 /version 刷新实例自报身份（展示实时、不触发动作）/ 10s 节流与 3 次判死阈值 / active → 无响应保留隧道退避 60s / activating → 重启中不动手 / inactive → 自动收敛走全流程回 running（op=recover）/ 收敛失败 error（progress.kind=recover）/ 收敛 3 次超限判死 / 核实 ssh 失败 unknown 不动作。
   - 转发中断自动重连组：中断自动重连回 running（op=reconnect、租约重录）/ 重试耗尽 error（progress.kind=reconnect、2 次 retry + retry-exhausted 步骤、保留最后一轮具体原因）/ 风暴抑制（窗口内第 4 次死亡停手不建连）/ 死亡间隔超窗口计数复位 / 手动连接重置风暴计数。
   - 其他：转发租约落盘与删除清除与 load 清扫；`probe` 无状态与三段版本；会话口令三态与重启后补录；真 `bash -n` 语法校验全部远端命令——join 拼接缺分号只在真 shell 暴露，mock 全绿不等于命令合法；mock 按命令子串（`__NODE__` / `grep -m1` / `is-active` / `systemctl --user stop`）区分。
-- `client-store.test.ts`：阶段 / op 迁移检测的事件 notice（含 upgrade → 「已升级」带远端新版本号、reconnect → 「已自动重连」）；写操作与表单测试经通知通道投递；口令弹窗门控与补录后续动作（连接 / 同步 / 升级三入口）；ssh config 懒加载；面板关闭边界（跨关闭窗口完成的连接迁移、关闭期间完成的同步与关闭瞬间在途的 refresh 都不补发事件 toast）。
+- `client-store.test.ts`：op 迁移检测的事件 toast（自动恢复 / 自动重连、同步完成与失败摘要；用户发起的连接 / 升级完成与写操作不投递 toast）；表单测试结果落 `testResult` 行内；口令弹窗门控与补录后续动作（连接 / 同步 / 升级三入口）；ssh config 懒加载；面板关闭边界（跨关闭窗口完成的连接迁移、关闭期间完成的同步与关闭瞬间在途的 refresh 都不补发 toast）。
 - `sync-view.test.ts`：SyncDialog 的 rowsOf 投影。
-- `panel.test.tsx`：面板渲染文本；三段登录表单与口令状态；补录弹窗；事件通知由壳层显示点渲染而面板内不渲染；版本漂移徽标与升级入口 / 确认弹窗；心跳结论替代「运行中」pill 与异常时的「重新连接」入口；宿主语言切换。
+- `panel.test.tsx`：面板渲染文本；三段登录表单与口令状态；补录弹窗；事件 toast 经 `store.toasts` 投递而面板内不渲染；表单测试结果行内；版本漂移徽标与升级入口 / 确认弹窗；心跳结论替代「运行中」pill 与异常时的「重新连接」入口；宿主语言切换。
 - `host.test.ts`：假 ctx + 临时目录两层 patch 与 mcp.json 做路由的请求-响应集成测试（含 `/test` 无状态探针、`/upgrade` 与 connect 同构的状态码、缺口令 409、`/secret` 只进内存、`/ssh-hosts` 形状）。
 
 ## 集成（test/integration/，手动运行）

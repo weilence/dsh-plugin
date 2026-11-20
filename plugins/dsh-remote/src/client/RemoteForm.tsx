@@ -341,6 +341,17 @@ export function RemoteForm(props: {
           {routerError}
         </div>
       ) : null}
+      {/* 测试结果行内常驻（错误与校验反馈默认行内，不走 toast）：随表单存活，
+          下一次测试开始时清空。 */}
+      {state.testResult !== null ? (
+        state.testResult.ok ? (
+          <p className={styles.notice}>{messageText(state.testResult.message, props.t)}</p>
+        ) : (
+          <div className={styles.error} role="alert">
+            {messageText(state.testResult.message, props.t)}
+          </div>
+        )
+      ) : null}
 
       <div className={styles.formActions}>
         <Button variant="outline" disabled={busy} onClick={test}>

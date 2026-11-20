@@ -205,8 +205,9 @@ export function RemotePanelPage(props: RemotePanelPageProps) {
             {messageText(state.error, t)}
           </div>
         ) : null}
-        {/* 操作与事件的一次性 toast 统一由壳层 shell.overlay 的常驻显示点渲染
-            （RemoteEventToast），面板内不再渲染。 */}
+        {/* 事件 toast 统一由壳层 shell.overlay 的常驻显示点渲染
+            （RemoteNoticesToast，store.toasts 通道），面板内不再渲染 Toast；
+            表单测试结果是行内反馈（RemoteForm），不发 toast。 */}
 
         <div className={styles.listToolbar}>
           <Button
